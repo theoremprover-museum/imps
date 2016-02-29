@@ -1,0 +1,600 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment expressions)
+
+(define-structure-type expression name components constructor qcs
+    free-variables bound-variables newly-bound-variables variables
+    constants lead-constant var-name-conflict? sorting home height hash
+    pushed-not flushed-not necessarily-undefined?
+    hereditarily-prop-free? alpha-hash alpha-root descriptor-hash
+    (((print self port) (expression-print-method self port))
+     ((name self)
+      (or (expression-name self)
+          (and (formula? self) (theorem-name self))))
+     ((base-sorts self) (base-sorts (expression-sorting self)))
+     ((two-d-table-hash self) (expression-descriptor-hash self))))
+
+(at-top-level
+    (block (set (expression-name (stype-master expression-stype))
+                value-false)
+      (set (expression-components (stype-master expression-stype)) nil)
+      (set (expression-constructor (stype-master expression-stype))
+           nil)
+      (set (expression-qcs (stype-master expression-stype))
+           (uncomputed))
+      (set (expression-bound-variables (stype-master expression-stype))
+           nil)
+      (set (expression-newly-bound-variables
+               (stype-master expression-stype))
+           nil)
+      (set (expression-variables (stype-master expression-stype))
+           (uncomputed))
+      (set (expression-lead-constant (stype-master expression-stype))
+           'no-lead-constant)
+      (set (expression-var-name-conflict?
+               (stype-master expression-stype))
+           value-false)
+      (set (expression-hash (stype-master expression-stype))
+           (uncomputed))
+      (set (expression-pushed-not (stype-master expression-stype))
+           value-false)
+      (set (expression-flushed-not (stype-master expression-stype))
+           value-false)
+      (set (expression-necessarily-undefined?
+               (stype-master expression-stype))
+           (uncomputed))
+      (set (expression-hereditarily-prop-free?
+               (stype-master expression-stype))
+           (uncomputed))
+      (set (expression-alpha-hash (stype-master expression-stype))
+           (uncomputed))))
+
+(define (lead-constant? lc) (not (eq? lc 'no-lead-constant)))
+
+(define (expression-second-lead-constant expr)
+        (let ((comps (expression-components expr)))
+          (if (< (length comps) 2) value-true
+              (expression-lead-constant (nth comps 1)))))
+
+(define use-string-form?
+        (make-simple-switch 'use-string-form? boolean? value-false))
+
+(define treat-qcs-specially?
+        (make-simple-switch 'treat-qcs-specially? boolean? value-true))
+
+(define (expression-print-method self port)
+        (format port "#{IMPS-expression ~a: ~a}" (object-hash self)
+                (imps-expression->string-procedure self)))
+
+(define (compute-imps-hash expr)
+        (let ((comps (expression-components expr))
+              (constr (expression-constructor expr)))
+          (cond
+            ((not constr)
+             (string-hash (symbol->string (expression-name expr))))
+            ((null? comps) (constructor-hash constr))
+            (else (iterate iter
+                           ((hash (hash-combine-two-fixnums
+                                      (constructor-hash constr)
+                                      (imps-hash (car comps))))
+                            (rest (cdr comps)))
+                           (if (null? rest) hash
+                               (iter (hash-combine-two-fixnums hash
+                                      (imps-hash (car rest)))
+                                     (cdr rest))))))))
+
+(define (imps-hash expression)
+        (let ((old (expression-hash expression)))
+          (if (uncomputed? old)
+              (block (set (expression-hash expression)
+                          (compute-imps-hash expression))
+                (expression-hash expression))
+              old)))
+
+(define (alpha-hash-combine-exprs exprs)
+        (iterate iter ((result 0) (exprs exprs) (i 0))
+                 (if (null? exprs) result
+                     (iter (fx+ result
+                                (fixnum-ashl
+                                    (expression-alpha-hash (car exprs))
+                                    i))
+                           (cdr exprs) (fx+ i 1)))))
+
+(define-integrable (hash-combine-exprs exprs)
+    (iterate iter ((result 0) (exprs exprs) (i 0))
+             (if (null? exprs) result
+                 (iter (fx+ result
+                            (fixnum-ashl
+                                (expression-descriptor-hash
+                                    (car exprs))
+                                i))
+                       (cdr exprs) (fx+ i 1)))))
+
+(define (variables expression) (imps-enforce expression? expression)
+        (let ((vs (expression-variables expression)))
+          (if (uncomputed? vs)
+              (block (set (expression-variables expression)
+                          (set-union
+                              (expression-bound-variables expression)
+                              (expression-free-variables expression)))
+                (expression-variables expression))
+              vs)))
+
+(define (expression-list? e-l)
+        (and (list? e-l) (every? expression? e-l)))
+
+(define home-language expression-home)
+
+(define (formula? expression)
+        (and (expression? expression)
+             (eq? prop (expression-sorting expression))))
+
+(define (term? expression)
+        (and (expression? expression) (not (formula? expression))
+             (base-sort? (expression-sorting expression))))
+
+(define (predicate? expression)
+        (and (expression? expression)
+             (let ((sort (expression-sorting expression)))
+               (and (higher-sort? sort)
+                    (eq? prop (higher-sort-range sort))))))
+
+(define (unary-predicate? expression)
+        (and (predicate? expression)
+             (equal? (length (higher-sort-domains
+                                 (expression-sorting expression)))
+                     1)))
+
+(define (unary-predicate-domain expression)
+        (car (higher-sort-domains (expression-sorting expression))))
+
+(define (binary-predicate? expression)
+        (and (predicate? expression)
+             (equal? (length (higher-sort-domains
+                                 (expression-sorting expression)))
+                     2)))
+
+(define (predicator? expression)
+        (and (expression? expression)
+             (let ((sort (expression-sorting expression)))
+               (and (higher-sort? sort) (prop-sorting? sort)))))
+
+(define (formula-or-predicator? expression)
+        (or (formula? expression) (predicator? expression)))
+
+(define (function? expression)
+        (and (expression? expression)
+             (let ((sort (expression-sorting expression)))
+               (and (higher-sort? sort) (not (prop-sorting? sort))))))
+
+(define (term-or-fn? expression)
+        (or (term? expression) (function? expression)))
+
+(define (arity expression)
+        (let ((sort (expression-sorting expression)))
+          (if (higher-sort? sort) (length (higher-sort-domains sort))
+              value-false)))
+
+(define (domain-sorts expression)
+        (let ((sort (expression-sorting expression)))
+          (if (higher-sort? sort) (higher-sort-domains sort) nil)))
+
+(define-constant expression-domains domain-sorts)
+
+(define (domain-types expression)
+        (map type-of-sort (domain-sorts expression)))
+
+(define (expression-range expression)
+        (let ((sort (expression-sorting expression)))
+          (if (higher-sort? sort) (higher-sort-range sort) nil)))
+
+(define (range-type expression)
+        (type-of-sort (expression-range expression)))
+
+(define (expression-sorting-necessarily-within? expression sort)
+        (sort-necessarily-included? (expression-sorting expression)
+            sort))
+
+(define (range-sort expression)
+        (let ((sort (expression-sorting expression)))
+          (if (higher-sort? sort) (higher-sort-range sort) sort)))
+
+(define (expression-type expr)
+        (type-of-sort (expression-sorting expr)))
+
+(define (expression-category expression)
+        (and (expression? expression)
+             (cond
+               ((formula? expression) formula?)
+               ((term? expression) term?)
+               ((function? expression) function?)
+               ((predicate? expression) predicate?)
+               ((predicator? expression) predicator?))))
+
+(define (constants expression-or-langauge)
+        (cond
+          ((expression? expression-or-langauge)
+           (expression-constants expression-or-langauge))
+          ((language? expression-or-langauge)
+           (language-constants expression-or-langauge))
+          (else (imps-error
+                    "constants: ~a neither an expression nor a language."
+                    expression-or-langauge))))
+
+(define (free-variables expression-context-or-sequent)
+        (cond
+          ((expression? expression-context-or-sequent)
+           (expression-free-variables expression-context-or-sequent))
+          ((context? expression-context-or-sequent)
+           (context-free-variables expression-context-or-sequent))
+          ((sequent? expression-context-or-sequent)
+           (sequent-free-variables expression-context-or-sequent))
+          (else (imps-error "free-variables: ~a neither fish nor fowl."
+                    expression-context-or-sequent))))
+
+(define (bound-variables expression-context-or-sequent)
+        (cond
+          ((expression? expression-context-or-sequent)
+           (expression-bound-variables expression-context-or-sequent))
+          ((context? expression-context-or-sequent)
+           (context-bound-variables expression-context-or-sequent))
+          ((sequent? expression-context-or-sequent)
+           (sequent-bound-variables expression-context-or-sequent))
+          (else (imps-error
+                    "bound-variables: ~a neither fish nor fowl."
+                    expression-context-or-sequent))))
+
+(define newly-bound-variables expression-newly-bound-variables)
+
+(define (formal-symbols expression)
+        (and (expression? expression)
+             (append (constants expression) (variables expression))))
+
+(define (closed? expression)
+        (and (expression? expression)
+             (null? (free-variables expression))))
+
+(define (sentence? expression)
+        (and (formula? expression) (closed? expression)))
+
+(define (atomic-formula? expression)
+        (and (formula? expression)
+             (not (any? formula? (expression-components expression)))))
+
+(define (hereditarily-prop-free? expr)
+        (let ((value (expression-hereditarily-prop-free? expr)))
+          (flet (((compute-it expr)
+                    (and (term-or-fn? expr)
+                         (every? hereditarily-prop-free?
+                                 (expression-components expr)))))
+            (if (uncomputed? value)
+                (let ((value (compute-it expr)))
+                  (set (expression-hereditarily-prop-free? expr) value)
+                  value)
+                value))))
+
+(define (subterms expr)
+        (set-union (set-separate term? (expression-components expr))
+            (collect-set subterms (expression-components expr))))
+
+(define imps-symbol-form-table 
+  (make-hash-table equal? 'imps-symbol-form-table numerical-object-key))
+
+(define (retrieve-symbol-form key)
+  (table-entry imps-symbol-form-table key))
+
+(define (install-symbol-form key)
+  (set (table-entry imps-symbol-form-table key) key) 
+  key)
+
+(define (seek-symbol-form sexp)
+  (cond
+   ((or (symbol? sexp) (fixnum? sexp)) sexp)
+   ((possible-symbol-form? sexp)
+    (or (retrieve-symbol-form sexp) (install-symbol-form sexp)))
+   (else value-false)))
+
+(define (possible-symbol-form? sym-form)
+        (or (symbol? sym-form) (numerical-object? sym-form)))
+
+(define (compare-possible-symbol-forms sf1 sf2)
+        (cond
+          ((eq? sf1 sf2) value-true)
+          ((and (numerical-object? sf1) (numerical-object? sf2))
+           (numerical-< sf1 sf2))
+          ((numerical-object? sf1) value-true)
+          ((numerical-object? sf2) value-false)
+          ((and (symbol? sf1) (symbol? sf2))
+           (string-less? (symbol->string sf1) (symbol->string sf2)))
+          (else (< (descriptor-hash sf1) (descriptor-hash sf2)))))
+
+(define (make-formal-symbol kind sorting symbol-form . home)
+        (imps-enforce possible-symbol-form? symbol-form)
+        (or (eq? kind constant?) (eq? kind variable?)
+            (imps-error
+                "MAKE-FORMAL-SYMBOL: kind must be CONSTANT? or VARIABLE?, not ~S"
+                kind))
+        (or (sorting-permissible? sorting (and home (car home)))
+            (imps-error "MAKE-FORMAL-SYMBOL: impossible sorting ~A"
+                (or sorting
+                    "--** sort symbol not readable in current language.")))
+        (let ((expr (make-expression)))
+          (set (expression-name expr) symbol-form)
+          (set (expression-free-variables expr)
+               (and (eq? kind variable?) (list expr)))
+          (set (expression-constants expr)
+               (and (eq? kind constant?) (list expr)))
+          (if (eq? kind constant?)
+              (set (expression-lead-constant expr) expr))
+          (set (expression-sorting expr) sorting)
+          (set (expression-home expr) (and home (car home)))
+          (set (expression-height expr) 0)
+          (set (expression-hash expr)
+               (if (fixnum? symbol-form) symbol-form
+                   (hash-combine-two-fixnums
+                       (string-hash
+                           (format nil "~s" (sort->list sorting)))
+                       (string-hash (format nil "~s" symbol-form)))))
+          (set (expression-alpha-root expr) expr)
+          (set (expression-alpha-hash expr)
+               (if (eq? kind constant?) (descriptor-hash expr)
+                   (sort-alpha-hash sorting)))
+          (set (expression-descriptor-hash expr)
+               (descriptor-hash expr))
+          expr))
+
+(define (formal-symbol? expr)
+        (and (expression? expr) (null? (expression-constructor expr))))
+
+(define (variable? expr)
+        (and (formal-symbol? expr)
+             (eq? expr (car (expression-free-variables expr)))))
+
+(define (constant? expr)
+        (and (formal-symbol? expr)
+             (eq? expr (car (expression-constants expr)))))
+
+(define (rational-constant? x)
+        (and (constant? x) (rational? (name x))))
+
+(define (nonnegative-integer-constant? x)
+        (and (constant? x) (non-negative-integer? (name x))))
+
+(define (integer-constant? x) (and (constant? x) (integer? (name x))))
+
+(define (floating-point-constant? x)
+        (and (constant? x) (float? (name x))))
+
+(define (numerical-constant? x)
+        (and (constant? x) (numerical-object? (name x))))
+
+(define (function-constant? x) (and (constant? x) (function? x)))
+
+(define (follow-path expr path)
+        (if (null? path) expr
+            (follow-path (nth (expression-components expr) (car path))
+                (cdr path))))
+
+(define (host-and-path-after-step expr path)
+        (if (null? path)
+            (imps-error
+                "PATH-AND-HOST-AFTER-STEP: trying to follow null path.")
+            (return
+              (nth (expression-components expr) (car path))
+              (cdr path))))
+
+(define (bound-variables-on-path host path)
+        (iterate iter ((host host) (path path) (pbvs nil))
+                 (if (null? path) pbvs
+                     (receive (new-host new-path)
+                              (host-and-path-after-step host path)
+                              (iter new-host new-path
+                                    (set-union pbvs
+                                     (expression-newly-bound-variables
+                                      host)))))))
+
+(define (subexpression? exp1 exp2)
+        (or (eq? exp1 exp2) (proper-subexpression? exp1 exp2)))
+
+(define (proper-subexpression? exp1 exp2)
+        (cond
+          ((constant? exp1) (memq? exp1 (constants exp2)))
+          ((variable? exp1) (memq? exp1 (variables exp2)))
+          ((< (expression-height exp1) (expression-height exp2))
+           (any? (lambda (expr) (subexpression? exp1 expr))
+                 (expression-components exp2)))
+          (else value-false)))
+
+(define (paths-to-occurrences expr subexp depth-bound)
+        (cond
+          ((=0? depth-bound) nil)
+          ((alpha-equivalent? subexp expr) (list nil))
+          ((> (expression-height subexp) (expression-height expr)) nil)
+          (else (do ((components (expression-components expr)
+                         (cdr components))
+                     (index 0 (1+ index))
+                     (paths nil
+                            (append! (map!
+                                      (lambda (path)
+                                        (cons index path))
+                                      (paths-to-occurrences
+                                       (car components) subexp
+                                       (-1+ depth-bound)))
+                                     paths)))
+                    ((null? components) paths)))))
+
+(define (sorted-paths-to-occurrences expr subexp depth-bound)
+        (sort-paths! (paths-to-occurrences expr subexp depth-bound)))
+
+(define (substitution-at-path host replacement path)
+        (if (> (length path) (expression-height host))
+            (imps-error
+                "SUBSTITUTION-AT-PATH: path ~S too long for host ~S."
+                path host)
+            (iterate iter ((host host) (path path))
+                     (if (null? path) replacement
+                         (let ((comps (expression-components host))
+                               (i (car path)))
+                           (apply (expression-constructor host)
+                                  (replace-nth-in-list comps i
+                                      (iter (nth comps i) (cdr path)))))))))
+
+(define (sap-accumulate-nils lopl already offset)
+        (cond
+          ((null? lopl) already)
+          ((memq? nil (car lopl))
+           (sap-accumulate-nils (cdr lopl) (cons offset already)
+               (1+ offset)))
+          (else (sap-accumulate-nils (cdr lopl) already (1+ offset)))))
+
+(define (sap-filter-lopl lopl n)
+  (labels (((iter pl new)
+	    (cond ((null? pl) new)
+		  ((null? (car pl))
+		   (imps-error
+		    "sap-filter-lopl: why didn't sap-accumulate-nils win? ~s."
+                      lopl))
+		  ((equal? (caar pl) n)
+		   (iter (cdr pl) (cons (cdar pl) new)))
+		  (else (iter (cdr pl) new)))))
+    (map (lambda (pl) (iter pl nil)) lopl)))
+
+;;;(define (sap-filter-lopl lopl n)
+;;;        (map (lambda (pl)
+;;;               (iterate iter ((pl pl) (new nil))
+;;;                        (cond
+;;;                          ((null? pl) new)
+;;;                          ((null? (car pl))
+;;;                           (imps-error
+;;;                               "sap-filter-lopl: why didn't sap-accumulate-nils win? ~S."
+;;;                               lopl))
+;;;                          ((equal? (caar pl) n)
+;;;                           (iter (cdr pl) (cons (cdar pl) new)))
+;;;                          (else (iter (cdr pl) new)))))
+;;;             lopl))
+
+(define (substitutions-at-paths host replacement-list
+            list-of-path-lists)
+        (let ((indices (sap-accumulate-nils list-of-path-lists nil 0)))
+          (cond
+            ((null? indices)
+             (if (expression-constructor host)
+                 (apply (expression-constructor host)
+                        (iterate iter
+                                 ((comps (expression-components host))
+                                  (rev-new-comps nil) (offset 0))
+                                 (if (null? comps)
+                                     (reverse! rev-new-comps)
+                                     (iter (cdr comps)
+                                      (cons
+                                       (substitutions-at-paths
+                                        (car comps) replacement-list
+                                        (sap-filter-lopl
+                                         list-of-path-lists offset))
+                                       rev-new-comps)
+                                      (1+ offset)))))
+                 host))
+            ((null? (cdr indices))
+             (let ((index (car indices)))
+               (if (< index (length replacement-list))
+                   (nth replacement-list (car indices))
+                   (imps-error
+                       "SUBSTITUTIONS-AT-PATHS: index ~S out of range ~S."
+                       index (length replacement-list)))))
+            (else (imps-error
+                      "SUBSTITUTIONS-AT-PATHS: too many applicable indices ~S in list of path-lists ~S ~S ~S.~&."
+                      indices list-of-path-lists host replacement-list)))))
+
+(define (paths-to-satisfaction expr pred depth-bound)
+        (cond
+          ((=0? depth-bound) nil)
+          (else (do ((components (expression-components expr)
+                         (cdr components))
+                     (index 0 (1+ index))
+                     (paths (if (funcall pred expr) (list nil) nil)
+                            (append! (map!
+                                      (lambda (path)
+                                        (cons index path))
+                                      (paths-to-satisfaction
+                                       (car components) pred
+                                       (-1+ depth-bound)))
+                                     paths)))
+                    ((null? components) paths)))))
+
+(define (subexpression-satisfies? pred expr)
+        (if (funcall pred expr) value-true
+            (any? (lambda (x) (subexpression-satisfies? pred x))
+                  (expression-components expr))))
+
+(define (expression-of-category-ind? expr)
+        (eq? (sort-category (expression-sorting expr)) ind))
+
+(define (expression-of-category-prop? expr)
+        (eq? (sort-category (expression-sorting expr)) prop))
+
+(define (path-successor! expr path)
+        (if (not (null? (expression-components (follow-path expr path))))
+            (append-item-to-last-cdr! path 0)
+            (iterate iter ((path path))
+                     (receive (last shortened)
+                              (last-&-all-but-last! path)
+                              (cond
+                                ((null? path) (fail))
+                                ((< (1+ last)
+                                    (length
+                                     (expression-components
+                                      (follow-path expr shortened))))
+                                 (append-item-to-last-cdr! shortened
+                                     (1+ last)))
+                                (else (iter shortened)))))))
+
+(define (make-expression-table . maybe-id)
+        (apply make-hash-table eq? maybe-id))

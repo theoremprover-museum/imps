@@ -1,0 +1,218 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment mc-extensions)
+
+(define-structure-type mc-extension home-theory name sorts constants
+    language axioms kind
+    (((name self) (mc-extension-name self))
+     ((print self port)
+      (format port "#{IMPS-mc-extension ~A: ~S (of kind ~S)}"
+              (object-hash self) (mc-extension-name self)
+              (mc-extension-kind self)))))
+
+(define (build-mc-extension theory name sorts constants language axioms
+            kind)
+        (or (and (theory? theory) (symbol? name)
+                 (every? (lambda (sort)
+                           (element-of-set? sort
+                               (sorts-resolved language)))
+                         sorts)
+                 (every? (lambda (const)
+                           (element-of-set? const
+                               (language-constants language)))
+                         constants)
+                 (language? language)
+                 (every? (lambda (ax)
+                           (and (formula? ax)
+                                (contains-expression? language ax)))
+                         axioms)
+                 (symbol? kind))
+            (imps-error
+                "BUILD-MC-EXTENSION: bad arguments ~S ~S ~S ~S ~S ~S ~S."
+                theory name sorts constants language axioms kind))
+        (and (eq? theory the-kernel-theory)
+             (imps-error
+                 "BUILD-MC-EXTENSION: The first argument may not be the
+                    kernel theory."))
+        (let ((extension (make-mc-extension)))
+          (set (mc-extension-home-theory extension) theory)
+          (set (mc-extension-name extension) name)
+          (set (mc-extension-sorts extension) sorts)
+          (set (mc-extension-constants extension) constants)
+          (set (mc-extension-language extension) language)
+          (set (mc-extension-axioms extension) axioms)
+          (set (mc-extension-kind extension) kind)
+          extension))
+
+(define (theory-add-mc-extension theory extension)
+        (let ((home-theory (mc-extension-home-theory extension)))
+          (and (eq? home-theory the-kernel-theory)
+               (imps-error
+                   "THEORY-ADD-MC-EXTENSION: Model conservative extensions 
+                      may not be added to the kernel theory."))
+          (or (eq? home-theory theory)
+              (structural-sub-theory? home-theory theory)
+              (imps-error "THEORY-ADD-MC-EXTENSION: ~A ~S ~A ~S."
+                  "The home theory of" extension
+                  "is neither a structural sub-theory of nor equal to"
+                  theory))
+          (walk (lambda (sort)
+                  (and (name->sort (theory-language theory)
+                           (name sort))
+                       (imps-error
+                           "THEORY-ADD-MC-EXTENSION: ~A ~S ~A ~S ~A."
+                           "The name" (name sort)
+                           "has been used in the home-theory" theory
+                           "of the model conservative extension"))
+                  (let ((super-theory
+                            (find-super-theory-having-sort theory
+                                (name sort))))
+                    (and super-theory
+                         (imps-error
+                             "THEORY-ADD-MC-EXTENSION: ~A ~S ~A ~S ~A ~S ~A."
+                             "The name" (name sort)
+                             "has been used in the super-theory"
+                             super-theory "of the home theory"
+                             home-theory
+                             "of the model conservative extension"))))
+                (mc-extension-sorts extension))
+          (walk (lambda (const)
+                  (and (find-constant (theory-language theory)
+                           (name const))
+                       (imps-error
+                           "THEORY-ADD-MC-EXTENSION: ~A ~S ~A ~S ~A."
+                           "The name" (name const)
+                           "has been used in the home-theory" theory
+                           "of the model conservative extension"))
+                  (let ((super-theory
+                            (find-super-theory-having-constant theory
+                                (name const))))
+                    (and super-theory
+                         (imps-error
+                             "THEORY-ADD-MC-EXTENSION: ~A ~S ~A ~S ~A ~S ~A."
+                             "The name" (name const)
+                             "has been used in the super-theory"
+                             super-theory "of the home theory"
+                             home-theory
+                             "of the model conservative extension"))))
+                (mc-extension-constants extension))
+          (let ((theories
+                    (add-set-element home-theory
+                        (find-structural-super-theories home-theory))))
+            (set-walk
+                (lambda (theory-x)
+                  (theory-add-mc-extension-aux theory-x extension))
+                theories))
+          extension))
+
+(define (theory-add-mc-extension-aux theory extension)
+        (let ((language (mc-extension-language extension))
+              (axioms (mc-extension-axioms extension)))
+          (theory-push-mc-extension-event theory extension)
+          (extend-theory-language theory the-empty-set language)
+          (set (theory-mc-extensions theory)
+               (append-item-to-end-of-list extension
+                   (theory-mc-extensions theory)))
+          (map (lambda (ax)
+                 (theory-add-theorem-aux theory ax value-false))
+               axioms)))
+
+(define (theory-build-mc-extension theory the-name sorts constants
+            language axioms kind)
+        (or (get-existing-mc-extension theory the-name sorts constants
+                language axioms kind)
+            (theory-add-mc-extension theory
+                (build-mc-extension theory the-name sorts constants
+                    language axioms kind))))
+
+(define (get-existing-mc-extension theory the-name sorts constants
+            language axioms kind)
+        (let ((ext (theory-get-mc-extension theory
+                       (or (car (map name sorts))
+                           (car (map name constants))))))
+          (and ext (eq? (mc-extension-name ext) the-name)
+               (set-equal? (mc-extension-sorts ext) sorts)
+               (set-equal? (mc-extension-constants ext) constants)
+               (eq? (mc-extension-language ext) language)
+               (set-equal? (mc-extension-axioms ext) axioms)
+               (eq? (mc-extension-kind ext) kind) ext)))
+
+(define (theory-get-mc-extension theory the-name)
+        (let ((exts (theory-mc-extensions theory)))
+          (iterate iter ((exts exts))
+                   (cond
+                     ((null? exts) value-false)
+                     ((element-of-set? the-name
+                          (set-union
+                              (set-map name
+                                       (mc-extension-sorts (car exts)))
+                              (set-map name
+                                       (mc-extension-constants
+                                        (car exts)))))
+                      (car exts))
+                     (else (iter (cdr exts)))))))
+
+(define (theory-mc-extension-sort? theory sort)
+        (any? (lambda (ext)
+                (element-of-set? sort (mc-extension-sorts ext)))
+              (theory-mc-extensions theory)))
+
+(define (theory-mc-extension-constant? theory constant)
+        (any? (lambda (ext)
+                (element-of-set? constant (mc-extension-constants ext)))
+              (theory-mc-extensions theory)))
+
+(define (theory-mc-extension-sorts theory)
+        (big-u (map mc-extension-sorts (theory-mc-extensions theory))))
+
+(define (theory-mc-extension-constants theory)
+        (big-u (map mc-extension-constants
+                    (theory-mc-extensions theory))))

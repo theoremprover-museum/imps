@@ -1,0 +1,1098 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment translations)
+
+(define *name-translation-table*
+        (make-table '*name-translation-table*))
+
+(define (name->translation the-name)
+        (table-entry *name-translation-table* the-name))
+
+(define-structure-type translation name nickname source-theory
+    target-theory assumptions fixed-theories fixed-sorts
+    fixed-constants sort-alist constant-alist free-variables
+    defined-sort-alist defined-constant-alist enrich? obligations
+    theory-interpretation? default-renamer
+    (((name self) (translation-name self))
+     ((print self port)
+      (format port
+              (if (translation-theory-interpretation? self)
+                  "#{IMPS-theory-interpretation ~A: ~S}"
+                  "#{IMPS-translation ~A: ~S}")
+              (object-hash self) (translation-name self)))))
+
+(at-top-level
+    (block (set (translation-nickname (stype-master translation-stype))
+                value-false)
+      (set (translation-fixed-theories
+               (stype-master translation-stype))
+           nil)
+      (set (translation-fixed-sorts (stype-master translation-stype))
+           nil)
+      (set (translation-fixed-constants
+               (stype-master translation-stype))
+           nil)
+      (set (translation-sort-alist (stype-master translation-stype))
+           nil)
+      (set (translation-constant-alist
+               (stype-master translation-stype))
+           nil)
+      (set (translation-free-variables
+               (stype-master translation-stype))
+           nil)
+      (set (translation-defined-sort-alist
+               (stype-master translation-stype))
+           nil)
+      (set (translation-defined-constant-alist
+               (stype-master translation-stype))
+           nil)
+      (set (translation-enrich? (stype-master translation-stype))
+           value-true)
+      (set (translation-obligations (stype-master translation-stype))
+           (uncomputed))
+      (set (translation-theory-interpretation?
+               (stype-master translation-stype))
+           value-false)
+      (set (translation-default-renamer
+               (stype-master translation-stype))
+           value-false)))
+
+(define (translation-empty-assumptions? translation)
+        (empty-set? (translation-assumptions translation)))
+
+(define *global-translation-alist* (list '*global-translation-alist*))
+
+(define (find-translation source-theory target-theory assumptions
+            fixed-theories sort-alist constant-alist)
+        (let ((fixed-theories (compress-theories fixed-theories))
+              (sort-constant-alist
+                  (set-union sort-alist constant-alist))
+              (sublist1
+                  (cdr (assq source-theory
+                             (cdr *global-translation-alist*)))))
+          (and sublist1
+               (let ((sublist2 (cdr (assq target-theory sublist1))))
+                 (and sublist2
+                      (let ((sublist3
+                                (cdr (ass set-equal-with-equal?
+                                      assumptions sublist2))))
+                        (and sublist3
+                             (let ((sublist4
+                                    (cdr
+                                     (ass set-equal-with-equal?
+                                      fixed-theories sublist3))))
+                               (and sublist4
+                                    (cdr
+                                     (ass set-equal-with-equal?
+                                      sort-constant-alist sublist4)))))))))))
+
+(define (enter-translation translation)
+        (let ((source-theory (translation-source-theory translation))
+              (target-theory (translation-target-theory translation))
+              (assumptions (translation-assumptions translation))
+              (fixed-theories (translation-fixed-theories translation))
+              (sort-constant-alist
+                  (set-union (translation-sort-alist translation)
+                      (translation-constant-alist translation))))
+          (let ((sublist1
+                    (cdr (assq source-theory
+                               (cdr *global-translation-alist*)))))
+            (if (not sublist1)
+                (let ((rem (cdr *global-translation-alist*)))
+                  (set (cdr *global-translation-alist*)
+                       (cons (cons source-theory
+                                   (list
+                                    (cons target-theory
+                                     (list
+                                      (cons assumptions
+                                       (list
+                                        (cons fixed-theories
+                                         (list
+                                          (cons sort-constant-alist
+                                           translation)))))))))
+                             rem)))
+                (let ((sublist2 (cdr (assq target-theory sublist1))))
+                  (if (not sublist2)
+                      (let ((rem (cdr sublist1)))
+                        (set (cdr sublist1)
+                             (cons (cons target-theory
+                                    (list
+                                     (cons assumptions
+                                      (list
+                                       (cons fixed-theories
+                                        (list
+                                         (cons sort-constant-alist
+                                          translation)))))))
+                                   rem)))
+                      (let ((sublist3
+                                (cdr (ass set-equal-with-equal?
+                                      assumptions sublist2))))
+                        (if (not sublist3)
+                            (let ((rem (cdr sublist2)))
+                              (set (cdr sublist2)
+                                   (cons
+                                    (cons assumptions
+                                     (list
+                                      (cons fixed-theories
+                                       (list
+                                        (cons sort-constant-alist
+                                         translation)))))
+                                    rem)))
+                            (let ((sublist4
+                                      (cdr
+                                       (ass set-equal-with-equal?
+                                        fixed-theories sublist3))))
+                              (if (not sublist4)
+                                  (let ((rem (cdr sublist3)))
+                                    (set (cdr sublist3)
+                                     (cons
+                                      (cons fixed-theories
+                                       (list
+                                        (cons sort-constant-alist
+                                         translation)))
+                                      rem)))
+                                  (if (ass set-equal-with-equal?
+                                       sort-constant-alist sublist4)
+                                      (imps-error
+                                       "ENTER-TRANSLATION: ~A ~A ~S."
+                                       "there is already an entered translation"
+                                       "with the same defining components as"
+                                       translation)
+                                      (let ((rem (cdr sublist4)))
+                                        (set (cdr sublist4)
+                                         (cons
+                                          (cons sort-constant-alist
+                                           translation)
+                                          rem))))))))))))))
+
+(define (update-sort-constant-alist translation
+            new-sort-constant-alist)
+        (let* ((source-theory (translation-source-theory translation))
+               (target-theory (translation-target-theory translation))
+               (assumptions (translation-assumptions translation))
+               (fixed-theories
+                   (translation-fixed-theories translation))
+               (sort-alist (translation-sort-alist translation))
+               (constant-alist
+                   (translation-constant-alist translation)))
+          (or (find-translation source-theory target-theory assumptions
+                  fixed-theories sort-alist constant-alist)
+              (imps-error "UPDATE-SORT-CONSTANT-ALIST: ~S ~A."
+                  translation "is not in the translation alist"))
+          (let* ((sort-constant-alist
+                     (set-union sort-alist constant-alist))
+                 (sublist1
+                     (cdr (assq source-theory
+                                (cdr *global-translation-alist*))))
+                 (sublist2 (cdr (assq target-theory sublist1)))
+                 (sublist3
+                     (cdr (ass set-equal-with-equal? assumptions
+                               sublist2)))
+                 (pair (ass set-equal-with-equal? fixed-theories
+                            sublist3))
+                 (sublist4 (cdr pair)))
+            (ignore sort-constant-alist)
+            (set (cdr pair)
+                 (append-item-to-end-of-list
+                     (cons new-sort-constant-alist translation)
+                     sublist4)))))
+
+(define (translations-in-global-translation-alist)
+        (collect-set
+            (lambda (pair1)
+              (collect-set
+                  (lambda (pair2)
+                    (collect-set
+                        (lambda (pair3)
+                          (collect-set
+                              (lambda (pair4)
+                                (set-map cdr (cdr pair4)))
+                              (cdr pair3)))
+                        (cdr pair2)))
+                  (cdr pair1)))
+            (cdr *global-translation-alist*)))
+
+(define (theory-interpretations-in-global-translation-alist)
+        (set-separate translation-theory-interpretation?
+            (translations-in-global-translation-alist)))
+
+(define (count-translations)
+        (length (translations-in-global-translation-alist)))
+
+(define (count-theory-interpretations)
+        (length (theory-interpretations-in-global-translation-alist)))
+
+(define (build-translation source-theory target-theory assumptions
+            fixed-theories sort-alist constant-alist the-name
+            the-nickname enrich? . error-kind)
+        (or (every? theory? fixed-theories)
+            (imps-error
+                "BUILD-TRANSLATION: ~S is not a list of theories."
+                fixed-theories))
+        (let* ((fixed-theories (compress-theories fixed-theories))
+               (fixed-sorts
+                   (big-u (map theory-sorts-resolved fixed-theories)))
+               (fixed-constants
+                   (big-u (map theory-constants fixed-theories)))
+               (sort-alist
+                   (add-primitive-sort-pairs
+                       (remove-sort-pairs sort-alist fixed-sorts)
+                       source-theory fixed-sorts))
+               (constant-alist
+                   (add-primitive-constant-pairs
+                       (remove-constant-pairs constant-alist
+                           fixed-constants)
+                       source-theory fixed-constants))
+               (error-kind
+                   (if (null? error-kind) 'return-error
+                       (car error-kind))))
+          (if (not (arguments-of-build-translation-check? source-theory
+                       target-theory assumptions fixed-theories
+                       sort-alist constant-alist the-name the-nickname
+                       error-kind))
+              (fail)
+              (let* ((old-translation
+                         (find-translation source-theory target-theory
+                             assumptions fixed-theories sort-alist
+                             constant-alist))
+                     (new-name
+                         (cond
+                           ((null? the-name) value-false)
+                           ((and old-translation
+                                 (eq? (name->translation the-name)
+                                      old-translation))
+                            the-name)
+                           (else (resolve-translation-name the-name)))))
+                (if old-translation
+                    (block (enrich-translation old-translation)
+                      (if (and (not (null? new-name))
+                               (not (eq? new-name
+                                     (translation-name old-translation))))
+                          (set (table-entry *name-translation-table*
+                                   new-name)
+                               old-translation))
+                      (if (not (translation-nickname old-translation))
+                          (set (translation-nickname old-translation)
+                               the-nickname))
+                      (if (eq? (translation-obligations
+                                   old-translation)
+                               (uncomputed))
+                          (block (set (translation-obligations
+                                       old-translation)
+                                      (make-translation-obligations
+                                       old-translation))
+                            (theory-interpretation-check
+                                old-translation)))
+                      old-translation)
+                    (let ((translation (make-translation)))
+                      (set (translation-name translation) new-name)
+                      (set (table-entry *name-translation-table*
+                               new-name)
+                           translation)
+                      (set (translation-nickname translation)
+                           the-nickname)
+                      (set (translation-source-theory translation)
+                           source-theory)
+                      (set (translation-target-theory translation)
+                           target-theory)
+                      (set (translation-assumptions translation)
+                           assumptions)
+                      (set (translation-fixed-theories translation)
+                           fixed-theories)
+                      (set (translation-fixed-sorts translation)
+                           fixed-sorts)
+                      (set (translation-fixed-constants translation)
+                           fixed-constants)
+                      (set (translation-sort-alist translation)
+                           sort-alist)
+                      (set (translation-constant-alist translation)
+                           constant-alist)
+                      (set (translation-free-variables translation)
+                           (gather-free-variables-from-targets
+                               sort-alist constant-alist))
+                      (set (translation-enrich? translation) enrich?)
+                      (enter-translation translation)
+                      (enrich-translation translation)
+                      (build-and-check-translation-obligations
+                          translation)
+                      translation))))))
+
+(define (arguments-of-build-translation-check? source-theory
+            target-theory assumptions fixed-theories sort-alist
+            constant-alist the-name the-nickname error-kind)
+        (and (or (eq? error-kind 'return-error)
+                 (eq? error-kind 'return-false)
+                 (imps-error
+                     "ARGUMENTS-OF-BUILD-TRANSLATION-CHECK?: ~S ~A."
+                     error-kind "is not RETURN-ERROR or RETURN-FALSE"))
+             (or (not the-name) (symbol? the-name)
+                 (imps-error-or-return-false error-kind
+                     "ARGUMENTS-OF-BUILD-TRANSLATION-CHECK?: ~S ~A."
+                     the-name "is a bad name"))
+             (or (not the-nickname)
+                 (possible-symbol-form? the-nickname)
+                 (imps-error-or-return-false error-kind
+                     "ARGUMENTS-OF-BUILD-TRANSLATION-CHECK?: ~S ~A."
+                     the-nickname "is a bad nickname"))
+             (walk (lambda (th)
+                     (or (theory? th)
+                         (imps-error-or-return-false error-kind
+                             "ARGUMENTS-OF-BUILD-TRANSLATION-CHECK?: ~S ~A."
+                             th "is not a theory")))
+                   (cons source-theory
+                         (cons target-theory fixed-theories)))
+             (check-fixed-theories fixed-theories source-theory
+                 target-theory error-kind)
+             (every? (lambda (form)
+                       (and (or (formula? form)
+                                (imps-error-or-return-false error-kind
+                                    "ARGUMENTS-OF-BUILD-TRANSLATION-CHECK?: ~S ~A."
+                                    form "is not a formula"))
+                            (or (contains-expression?
+                                    (theory-language target-theory)
+                                    form)
+                                (imps-error-or-return-false error-kind
+                                    "ARGUMENTS-OF-BUILD-TRANSLATION-CHECK?: ~S ~A ~S."
+                                    form
+                                    "is not a formula in the target theory"
+                                    target-theory))))
+                     assumptions)
+             (or (true-association-list? sort-alist)
+                 (imps-error-or-return-false error-kind
+                     "ARGUMENTS-OF-BUILD-TRANSLATION-CHECK?: ~S ~A."
+                     sort-alist "has redundant entries"))
+             (every? (lambda (pair)
+                       (and (or (theory-resolved-sort? source-theory
+                                    (car pair))
+                                (imps-error-or-return-false error-kind
+                                    "ARGUMENTS-OF-BUILD-TRANSLATION-CHECK?: ~S ~A ~S."
+                                    (car pair)
+                                    "is not an atomic sort of"
+                                    source-theory))
+                            (or (theory-sort-or-quasi-sort?
+                                    target-theory (cdr pair))
+                                (imps-error-or-return-false error-kind
+                                    "ARGUMENTS-OF-BUILD-TRANSLATION-CHECK?: ~S ~A ~S."
+                                    (cdr pair)
+                                    "is not a sort or quasi-sort of"
+                                    target-theory))
+                            (or (if (eq? (car pair) prop)
+                                    (eq? (cdr pair) prop)
+                                    (ind-sorting?
+                                     (sort-or-quasi-sort-domain
+                                      (cdr pair))))
+                                (imps-error-or-return-false error-kind
+                                    "ARGUMENTS-OF-BUILD-TRANSLATION-CHECK?: ~S ~A ~S ~A."
+                                    (car pair) "and" (cdr pair)
+                                    "are not of the same kind"))
+                            (or (eq? (car pair) (cdr pair))
+                                (not (numerical? (car pair)))
+                                (imps-error-or-return-false error-kind
+                                    "ARGUMENTS-OF-BUILD-TRANSLATION-CHECK?: ~A ~S ~A ~S."
+                                    "the numerical sort" (car pair)
+                                    "is not fixed by" sort-alist))
+                            (or (eq? (translate-type
+                                      (type-of-sort (car pair))
+                                      sort-alist)
+                                     (type-of-sort-or-quasi-sort-domain
+                                      (cdr pair)))
+                                (imps-error-or-return-false error-kind
+                                    "ARGUMENTS-OF-BUILD-TRANSLATION-CHECK?: ~S ~A ~S."
+                                    (type-of-sort (car pair))
+                                    "is split by" sort-alist))))
+                     sort-alist)
+             (or (true-association-list? constant-alist)
+                 (imps-error-or-return-false error-kind
+                     "ARGUMENTS-OF-BUILD-TRANSLATION-CHECK?: ~S ~A."
+                     constant-alist "has redundant entries"))
+             (every? (lambda (pair)
+                       (and (or (theory-constant? source-theory
+                                    (car pair))
+                                (imps-error-or-return-false error-kind
+                                    "ARGUMENTS-OF-BUILD-TRANSLATION-CHECK?: ~S ~A ~S."
+                                    (car pair) "is not a constant of"
+                                    source-theory))
+                            (or (theory-expression? target-theory
+                                    (cdr pair))
+                                (imps-error-or-return-false error-kind
+                                    "ARGUMENTS-OF-BUILD-TRANSLATION-CHECK?: ~S ~A ~S."
+                                    (cdr pair)
+                                    "is not an expression of"
+                                    target-theory))
+                            (or (eq? (sort-category
+                                      (expression-sorting (car pair)))
+                                     (sort-category
+                                      (expression-sorting (cdr pair))))
+                                (imps-error-or-return-false error-kind
+                                    "ARGUMENTS-OF-BUILD-TRANSLATION-CHECK?: ~S ~A ~S ~A."
+                                    (car pair) "and" (cdr pair)
+                                    "are not of the same kind"))
+                            (or (eq? (car pair) (cdr pair))
+                                (not (numerical?
+                                      (expression-sorting (car pair))))
+                                (not (numerical-object?
+                                      (name (car pair))))
+                                (imps-error-or-return-false error-kind
+                                    "ARGUMENTS-OF-BUILD-TRANSLATION-CHECK?: ~A ~S ~A ~S."
+                                    "the numerical constant" (car pair)
+                                    "is not fixed by" constant-alist))
+                            (let ((source-type
+                                      (type-of-sort
+                                       (expression-sorting (car pair))))
+                                  (target-type
+                                      (type-of-sort
+                                       (expression-sorting (cdr pair)))))
+                              (or (eq? (translate-type source-type
+                                        sort-alist)
+                                       target-type)
+                                  (imps-error-or-return-false
+                                      error-kind
+                                      "ARGUMENTS-OF-BUILD-TRANSLATION-CHECK?: ~A ~S ~A."
+                                      "the translation of" (car pair)
+                                      "has the wrong type")))))
+                     constant-alist)
+             (iterate loop
+                      ((rd-constants
+                           (set-separate
+                               (lambda (const)
+                                 (theory-recursively-defined-constant?
+                                     source-theory const))
+                               (map car constant-alist))))
+                      (or (null? rd-constants)
+                          (let* ((const (car rd-constants))
+                                 (def (theory-get-recursive-definition
+                                       source-theory (name const)))
+                                 (const-list
+                                     (recursive-definition-constant-list
+                                      def)))
+                            (or (every? (lambda (c)
+                                          (element-of-set? c
+                                           rd-constants))
+                                        const-list)
+                                (imps-error-or-return-false error-kind
+                                    "ARGUMENTS-OF-BUILD-TRANSLATION-CHECK?: ~A ~S ~A ~A ~S."
+                                    "There are entries in"
+                                    constant-alist
+                                    "for some but not all of the constants"
+                                    "defined by the recursive definition"
+                                    def))
+                            (loop (set-diff rd-constants const-list)))))))
+
+(define (check-fixed-theories fixed-theories source-theory
+            target-theory . error-kind)
+        (let ((error-kind
+                  (if (null? error-kind) 'return-error
+                      (car error-kind))))
+          (every? (lambda (th)
+                    (or (sub-theory? th source-theory)
+                        (imps-error-or-return-false error-kind
+                            "CHECK-FIXED-THEORIES: ~S ~A ~S." th
+                            "is not a sub-theory of" source-theory))
+                    (or (sub-theory? th target-theory)
+                        (imps-error-or-return-false error-kind
+                            "CHECK-FIXED-THEORIES: ~S ~A ~S." th
+                            "is not a sub-theory of" target-theory)))
+                  fixed-theories)))
+
+(define (add-primitive-sort-pairs sort-alist theory fixed-sorts)
+        (let* ((prim-fixed-sorts
+                   (set-diff (theory-primitive-sorts theory)
+                       (set-union fixed-sorts (map car sort-alist))))
+               (new-alist
+                   (map (lambda (sort) (cons sort sort))
+                        prim-fixed-sorts)))
+          (append sort-alist new-alist)))
+
+(define (add-primitive-constant-pairs constant-alist theory
+            fixed-constants)
+        (let* ((prim-fixed-constants
+                   (set-diff (theory-primitive-constants theory)
+                       (set-union fixed-constants
+                           (map car constant-alist))))
+               (new-alist
+                   (map (lambda (const) (cons const const))
+                        prim-fixed-constants)))
+          (append constant-alist new-alist)))
+
+(define (remove-sort-pairs sort-alist sorts)
+        (iterate loop ((sort-alist sort-alist) (sorts sorts))
+                 (if (null? sorts) sort-alist
+                     (let ((sort-pair (assq (car sorts) sort-alist)))
+                       (if sort-pair
+                           (block (or (eq? (car sort-pair)
+                                       (cdr sort-pair))
+                                      (imps-warning
+                                       "~%;; REMOVE-SORT-PAIRS: ~S is a fixed sort.~&"
+                                       (car sort-pair)))
+                             (loop
+                               (delq sort-pair sort-alist)
+                               (cdr sorts)))
+                           (loop sort-alist (cdr sorts)))))))
+
+(define (remove-constant-pairs constant-alist the-constants)
+        (iterate loop
+                 ((constant-alist constant-alist)
+                  (the-constants the-constants))
+                 (if (null? the-constants) constant-alist
+                     (let ((constant-pair
+                               (assq (car the-constants) constant-alist)))
+                       (if constant-pair
+                           (block (or (eq? (car constant-pair)
+                                       (cdr constant-pair))
+                                      (imps-warning
+                                       "~%;; REMOVE-CONSTANT-PAIRS: ~S is a fixed constant.~&"
+                                       (car constant-pair)))
+                             (loop
+                               (delq constant-pair constant-alist)
+                               (cdr the-constants)))
+                           (loop constant-alist (cdr the-constants)))))))
+
+(define (resolve-translation-name the-name)
+        (let ((new-name (resolve-translation-name-aux the-name)))
+          (if (eq? the-name new-name) the-name
+              (block (imps-warning
+                         "~%;; RESOLVE-TRANSLATION-NAME: renaming ~S to ~S.~&"
+                         the-name new-name)
+                new-name))))
+
+(define (resolve-translation-name-aux the-name)
+        (if (name->translation the-name)
+            (resolve-translation-name-aux
+                (concatenate-symbol the-name '$))
+            the-name))
+
+(define (gather-free-variables-from-targets sort-alist constant-alist)
+        (set-union
+            (collect-set
+                (lambda (pair)
+                  (if (expression? (cdr pair))
+                      (expression-free-variables (cdr pair))
+                      the-empty-set))
+                sort-alist)
+            (collect-set
+                (lambda (pair) (expression-free-variables (cdr pair)))
+                constant-alist)))
+
+(define (enrich-translation translation)
+        (if (translation-enrich? translation)
+            (block (translation-cleanse-defined-alists translation)
+              (let* ((source-theory
+                         (translation-source-theory translation))
+                     (untranslated-defined-sorts
+                         (set-diff (theory-defined-sorts source-theory)
+                             (big-u (list
+                                     (translation-fixed-sorts
+                                      translation)
+                                     (map car
+                                      (translation-sort-alist
+                                       translation))
+                                     (map car
+                                      (translation-defined-sort-alist
+                                       translation))))))
+                     (untranslated-defined-constants
+                         (set-diff
+                             (theory-defined-constants source-theory)
+                             (big-u (list
+                                     (translation-fixed-constants
+                                      translation)
+                                     (map car
+                                      (translation-constant-alist
+                                       translation))
+                                     (map car
+                                      (translation-defined-constant-alist
+                                       translation)))))))
+                (walk (lambda (sort)
+                        (translate-sort translation sort))
+                      untranslated-defined-sorts)
+                (walk (lambda (const)
+                        (translate-constant translation const))
+                      untranslated-defined-constants))
+              value-true)
+            value-false))
+
+(define (translation-cleanse-defined-alists translation)
+        (set (translation-defined-sort-alist translation)
+             (set-separate (lambda (pair) (sort? (cdr pair)))
+                 (translation-defined-sort-alist translation)))
+        (set (translation-defined-constant-alist translation)
+             (set-separate (lambda (pair) (constant? (cdr pair)))
+                 (translation-defined-constant-alist translation))))
+
+(define (translation-extend-defined-sort-alist translation
+            new-sort-alist)
+        (set (translation-defined-sort-alist translation)
+             (append new-sort-alist
+                     (translation-defined-sort-alist translation)))
+        (if (translation-theory-interpretation? translation)
+            (walk (lambda (pair)
+                    (enter-pair-ti-in-pair-table pair translation))
+                  new-sort-alist))
+        translation)
+
+(define (translation-extend-defined-constant-alist translation
+            new-constant-alist)
+        (set (translation-defined-constant-alist translation)
+             (append new-constant-alist
+                     (translation-defined-constant-alist translation)))
+        (if (translation-theory-interpretation? translation)
+            (walk (lambda (pair)
+                    (enter-pair-ti-in-pair-table pair translation))
+                  new-constant-alist))
+        translation)
+
+(define (translation-extend-fixed-constants translation
+            fixed-const-list)
+        (set (translation-fixed-constants translation)
+             (append (translation-fixed-constants translation)
+                     fixed-const-list))
+        translation)
+
+(define (translation-obligations-with-context translation)
+        (let ((assumptions (translation-assumptions translation))
+              (obligations (translation-obligations translation)))
+          (if (null? assumptions) obligations
+              (map (lambda (obl)
+                     (build-sentence-from-assumptions-and-formula
+                         assumptions obl))
+                   obligations))))
+
+(define (translation-fixed-theorem? translation formula)
+        (any? (lambda (th)
+                (and (contains-expression? (theory-language th)
+                         formula)
+                     (element-of-set? formula (theory-theorems th))))
+              (translation-fixed-theories translation)))
+
+(define (translate-type type sort-alist)
+        (if (base-sort? type) (translate-base-type type sort-alist)
+            (let ((domains (higher-sort-domains type))
+                  (range (higher-sort-range type)))
+              (build-maximal-higher-sort
+                  (map (lambda (domain)
+                         (translate-type domain sort-alist))
+                       domains)
+                  (translate-type range sort-alist)))))
+
+(define (translate-base-type type sort-alist)
+        (let ((pair (assq type sort-alist)))
+          (if pair (type-of-sort-or-quasi-sort-domain (cdr pair)) type)))
+
+(define (translate-sentence translation expression . dumb?)
+        (or (sentence? expression)
+            (imps-error "TRANSLATE-SENTENCE: ~S is not a sentence."
+                expression))
+        (let ((expression
+                  (change-ambiguously-named-variables expression nil)))
+          (apply translate-expression translation expression dumb?)))
+
+(define (translate-sentence-and-beta-reduce translation expression
+            . dumb?)
+        (let ((formula (apply translate-sentence translation expression
+                              dumb?))
+              (context (theory-null-context
+                           (translation-source-theory translation))))
+          (bind ((*message-begin*
+                     (lambda (mac context expr)
+                       (ignore mac context expr)))
+                 (*message-end* (lambda (mac) (ignore mac))))
+                (apply-macete-without-minor-premises
+                    *beta-reduce-repeatedly-macete* context formula))))
+
+(define (translate-expression translation expression . dumb?)
+        (or (and (translation? translation) (expression? expression))
+            (imps-error "TRANSLATE-EXPRESSION: bad arguments."))
+        (or (contains-expression?
+                (theory-language
+                    (translation-source-theory translation))
+                expression)
+            (imps-error "TRANSLATE-EXPRESSION: ~S ~A ~S" expression
+                "is not an expression of the source theory of"
+                translation))
+        (or (not (expression-var-name-conflict? expression))
+            (imps-error
+                "TRANSLATE-EXPRESSION: ~S has a variable name conflict."
+                expression))
+        (let ((expression
+                  (if (null-intersection?
+                          (expression-bound-variables expression)
+                          (translation-free-variables translation))
+                      expression
+                      (block (change-bound-variables expression
+                                 (translation-free-variables
+                                     translation))))))
+          (translate-expression-aux translation expression (car dumb?))))
+
+(define (translate-expression-and-beta-reduce translation expression
+            . dumb?)
+        (let ((expr (apply translate-expression translation expression
+                           dumb?))
+              (context (theory-null-context
+                           (translation-source-theory translation))))
+          (bind ((*message-begin*
+                     (lambda (mac context expr)
+                       (ignore mac context expr)))
+                 (*message-end* (lambda (mac) (ignore mac))))
+                (apply-macete-without-minor-premises
+                    *beta-reduce-repeatedly-macete* context expr))))
+
+(define (translate-expression-aux translation expression dumb?)
+        (cond
+          ((any? (lambda (th)
+                   (contains-expression? (theory-language th)
+                       expression))
+                 (translation-fixed-theories translation))
+           expression)
+          ((variable? expression)
+           (translate-variable-to-variable translation expression
+               dumb?))
+          ((constant? expression)
+           (translate-constant translation expression dumb?))
+          ((null? (expression-components expression)) expression)
+          ((or (not (binding-expression? expression))
+               (eq? (expression-constructor expression)
+                    undefined-of-sort))
+           (let* ((constr (expression-constructor expression))
+                  (comps (expression-components expression))
+                  (comp-translations
+                      (map (lambda (comp)
+                             (translate-expression-aux translation comp
+                                 dumb?))
+                           comps)))
+             (apply constr comp-translations)))
+          ((eq? (expression-constructor expression) is-defined-in-sort)
+           (let ((body (translate-expression-aux translation
+                           (binding-body expression) dumb?))
+                 (var (translate-variable-to-variable translation
+                          (car (binding-variables expression)) dumb?))
+                 (trans-sort
+                     (translate-sort translation
+                         (expression-sorting
+                             (car (binding-variables expression)))
+                         dumb?)))
+             (if (sort? trans-sort)
+                 (is-defined-in-sort-simplifier (list body var))
+                 (apply-operator trans-sort body))))
+          (else (let ((constr (expression-constructor expression))
+                      (body (translate-expression-aux translation
+                                (binding-body expression) dumb?))
+                      (vars (translate-variables-to-variables
+                                translation
+                                (binding-variables expression) dumb?))
+                      (conditions
+                          (translate-variables-to-conditions
+                              translation
+                              (binding-variables expression) dumb?)))
+                  (if (null? conditions) (apply constr body vars)
+                      (binding-expression-with-conditions constr body
+                          vars conditions))))))
+
+(define (binding-expression-with-conditions binding-constr body vars
+            conditions)
+        (cond
+          ((eq? binding-constr forall)
+           (apply forall
+                  (implication-simplifier
+                      (list (conjunction-simplifier conditions) body))
+                  vars))
+          ((or (eq? binding-constr forsome) (eq? binding-constr iota)
+               (eq? binding-constr iota-p))
+           (apply binding-constr
+                  (conjunction-simplifier
+                      (list (conjunction-simplifier conditions) body))
+                  vars))
+          ((eq? binding-constr imps-lambda)
+           (cond
+             ((expression-of-category-ind? body)
+              (apply imps-lambda
+                     (if-simplifier
+                         (list (conjunction-simplifier conditions) body
+                               (undefined (expression-sorting body))))
+                     vars))
+             ((formula? body)
+              (apply imps-lambda
+                     (if-form-simplifier
+                         (list (conjunction-simplifier conditions) body
+                               falsehood))
+                     vars))
+             ((predicator? body)
+              (apply imps-lambda
+                     (if-simplifier
+                         (list (conjunction-simplifier conditions) body
+                               (falselike (expression-sorting body))))
+                     vars))))
+          (else (imps-error
+                    "BINDING-EXPRESSION-WITH-CONDITIONS: ~A ~S~%~S~%~S~%~S.~%"
+                    "weird binding constructor--" binding-constr body
+                    vars conditions))))
+
+(define (translate-variable-to-sort translation variable dumb?)
+        (let ((sort-trans
+                  (translate-sort translation
+                      (expression-sorting variable) dumb?)))
+          (sort-or-quasi-sort-domain sort-trans)))
+
+(define (translate-variable-to-variable translation variable dumb?)
+        (let ((sort (translate-variable-to-sort translation variable
+                        dumb?)))
+          (find-variable (name variable) sort)))
+
+(define (translate-variables-to-variables translation variables dumb?)
+        (map (lambda (var)
+               (translate-variable-to-variable translation var dumb?))
+             variables))
+
+(define (translate-variable-to-condition translation variable dumb?)
+        (let ((sort-trans
+                  (translate-sort translation
+                      (expression-sorting variable) dumb?))
+              (var (translate-variable-to-variable translation variable
+                       dumb?)))
+          (and (not (sort? sort-trans))
+               (beta-reduce (apply-operator sort-trans var)))))
+
+(define (translate-variables-to-conditions translation variables dumb?)
+        (iterate iter ((variables variables) (conditions nil))
+                 (if (null? variables) (reverse conditions)
+                     (let ((condition
+                               (translate-variable-to-condition
+                                   translation (car variables) dumb?)))
+                       (if condition
+                           (iter (cdr variables)
+                                 (cons condition conditions))
+                           (iter (cdr variables) conditions))))))
+
+(define (translate-sort translation sort . dumb?)
+        (or (and (translation? translation) (sort? sort))
+            (imps-error "TRANSLATE-SORT: bad arguments."))
+        (or (contains-sort?
+                (theory-language
+                    (translation-source-theory translation))
+                sort)
+            (imps-error "TRANSLATE-SORT: ~S ~A ~S" sort
+                "is not a sort of the source theory of" translation))
+        (let ((source-theory (translation-source-theory translation))
+              (dumb? (car dumb?)))
+          (cond
+            ((assq sort (translation-sort-alist translation)) => cdr)
+            ((and dumb?
+                  (theory-get-sort-definition source-theory
+                      (name sort)))
+             =>
+             (lambda (def)
+               (let ((quasi-sort (sort-definition-quasi-sort def)))
+                 (translate-expression translation quasi-sort dumb?))))
+            ((assq sort (translation-defined-sort-alist translation))
+             => cdr)
+            ((element-of-set? sort
+                 (translation-fixed-sorts translation))
+             sort)
+            ((theory-get-sort-definition source-theory (name sort)) =>
+             (lambda (def)
+               (translation-process-sort-definition translation def)
+               (translate-sort translation sort)))
+            ((name sort) sort)
+            (else (let ((domains (map (lambda (domain)
+                                        (translate-sort translation
+                                         domain dumb?))
+                                      (higher-sort-domains sort)))
+                        (range (translate-sort translation
+                                   (higher-sort-range sort) dumb?)))
+                    (if (and (every? sort? domains) (sort? range))
+                        (build-maximal-higher-sort domains range)
+                        (build-quasi-sort domains range)))))))
+
+(define (translate-constant translation constant . dumb?)
+        (let ((source-theory (translation-source-theory translation))
+              (dumb? (car dumb?)))
+          (cond
+            ((assq constant (translation-constant-alist translation))
+             => cdr)
+            ((and dumb?
+                  (theory-get-definition source-theory (name constant)))
+             =>
+             (lambda (def)
+               (let ((expr (definition-defining-expr def)))
+                 (translate-expression translation expr dumb?))))
+            ((and dumb?
+                  (theory-get-recursive-definition source-theory
+                      (name constant)))
+             =>
+             (lambda (def)
+               (let ((expr (recursive-definition-defining-expr def
+                               constant)))
+                 (translate-expression translation expr dumb?))))
+            ((assq constant
+                   (translation-defined-constant-alist translation))
+             => cdr)
+            ((element-of-set? constant
+                 (translation-fixed-constants translation))
+             constant)
+            ((theory-get-definition source-theory (name constant)) =>
+             (lambda (def)
+               (translation-process-definition translation def)
+               (translate-constant translation constant)))
+            ((theory-get-recursive-definition source-theory
+                 (name constant))
+             =>
+             (lambda (def)
+               (translation-process-recursive-definition translation
+                   def)
+               (translate-constant translation constant)))
+            (else (translation-extend-fixed-constants translation
+                      (list constant))
+                  constant))))
+
+(define (translation-process-sort-definition translation def)
+        (let* ((sort (sort-definition-sort def))
+               (trans-quasi-sort
+                   (translate-expression-and-beta-reduce translation
+                       (sort-definition-quasi-sort def)))
+               (first-candidate-def
+                   (theory-get-sort-definition-from-quasi-sort
+                       (translation-target-theory translation)
+                       trans-quasi-sort))
+               (pair (if first-candidate-def
+                         (cons sort
+                               (sort-definition-sort
+                                   first-candidate-def))
+                         (cons sort trans-quasi-sort))))
+          (translation-extend-defined-sort-alist translation
+              (list pair))))
+
+(define (translation-process-definition translation def)
+        (let* ((constant (definition-constant def))
+               (trans-defining-expr
+                   (translate-expression-and-beta-reduce translation
+                       (definition-defining-expr def)))
+               (first-candidate-def
+                   (theory-get-constant-definition-from-defining-expr
+                       (translation-target-theory translation)
+                       trans-defining-expr))
+               (pair (if first-candidate-def
+                         (cons constant
+                               (definition-constant
+                                   first-candidate-def))
+                         (cons constant trans-defining-expr))))
+          (translation-extend-defined-constant-alist translation
+              (list pair))))
+
+(define (translation-process-recursive-definition translation def)
+        (let* ((constant-list (recursive-definition-constant-list def))
+               (funct-list (recursive-definition-functional-list def))
+               (trans-funct-list
+                   (map (lambda (funct)
+                          (translate-expression-and-beta-reduce
+                              translation funct))
+                        funct-list))
+               (first-candidate-def
+                   (theory-get-recursive-definition-from-funct-list
+                       (translation-target-theory translation)
+                       trans-funct-list))
+               (pairs (if first-candidate-def
+                          (map (lambda (const new-const)
+                                 (cons const new-const))
+                               constant-list
+                               (recursive-definition-constant-list
+                                   first-candidate-def))
+                          (map (lambda (const expr)
+                                 (cons const
+                                       (translate-expression-and-beta-reduce
+                                        translation expr)))
+                               constant-list
+                               (recursive-definition-defining-expr-list
+                                   def)))))
+          (translation-extend-defined-constant-alist translation pairs)))
+
+(define (translate-theorem translation theorem . theorem-namer)
+        (let* ((theorem-namer
+                   (if (null? theorem-namer) value-false
+                       (car theorem-namer)))
+               (formula (translate-sentence-and-beta-reduce translation
+                            (theorem-formula theorem)))
+               (the-name
+                   (make-translated-theorem-name translation
+                       (name theorem) theorem-namer))
+               (usage-list
+                   (delq 'transportable-macete
+                         (theorem-usage-list theorem))))
+          (build-theorem value-false formula the-name usage-list)))
+
+(define (make-translated-theorem-name translation old-name
+            . theorem-namer)
+        (let ((theorem-namer
+                  (if (null? theorem-namer) value-false
+                      (car theorem-namer)))
+              (the-translation-name (funcall translation-name translation)))
+          (cond
+            (theorem-namer (funcall theorem-namer old-name))
+            ((and old-name the-translation-name)
+             (concatenate-symbol old-name '-under- the-translation-name))
+            (old-name
+                (concatenate-symbol old-name '-under-
+                    'anonymous-translation))
+            (else nil))))
+
+(define *pair-theory-interp-table*
+        (make-hash-table equal? '*pair-theory-interp-table*))
+
+(define (enter-pair-ti-in-pair-table pair translation)
+        (let ((entry (table-entry *pair-theory-interp-table* pair)))
+          (set (table-entry *pair-theory-interp-table* pair)
+               (add-set-element translation entry))))
+
+(define (enter-theory-interp-in-pair-table translation)
+        (walk (lambda (pair)
+                (enter-pair-ti-in-pair-table pair translation))
+              (big-u (list (translation-constant-alist translation)
+                           (translation-defined-constant-alist
+                               translation)
+                           (translation-sort-alist translation)
+                           (translation-defined-sort-alist translation)))))

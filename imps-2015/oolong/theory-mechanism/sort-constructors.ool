@@ -1,0 +1,285 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment sort-constructors)
+
+(define-operation (sort-constructor? sort-constructor))
+
+(define (make-sort-constructor proc symbol-form)
+        (object proc ((sort-constructor? soi) value-true)
+                ((print soi port)
+                 (format port "#{SORT-CONSTRUCTOR ~A}" symbol-form))))
+
+(define (decode-sort-spec language sort-spec)
+        (if (string? sort-spec) (string->sort language sort-spec)
+            (list->sort language sort-spec)))
+
+(define (cartesian-product-proc theory sort-name sort-forms)
+        (let* ((sorts (map (lambda (x)
+                             (decode-sort-spec (theory-language theory)
+                                 x))
+                           sort-forms))
+               (vars1 (sorts->new-variables sorts '%x nil))
+               (vars2 (sorts->new-variables sorts '%y vars1))
+               (enclosing-sort
+                   (build-maximal-higher-sort sorts unit%sort))
+               (var-f (new-variable enclosing-sort 'f
+                          (set-union vars1 vars2)))
+               (membership-predicate
+                   (imps-lambda
+                       (apply forsome
+                              (equality var-f
+                                  (apply imps-lambda
+                                         (if-term
+                                          (apply conjunction
+                                           (map
+                                            (lambda (x y)
+                                              (equality y x))
+                                            vars1 vars2))
+                                          arbitrary-individual
+                                          (undefined unit%sort))
+                                         vars1))
+                              vars2)
+                       var-f)))
+          (sort-definition-sort
+              (theory-build-sort-definition-without-checking-nonemptyness
+                  theory sort-name membership-predicate))))
+
+(define (cartesian-product-builder theory sort-forms)
+        (let* ((sorts (map (lambda (x)
+                             (decode-sort-spec (theory-language theory)
+                                 x))
+                           sort-forms))
+               (vars1 (sorts->new-variables sorts '%x nil))
+               (vars2 (sorts->new-variables sorts '%y vars1))
+               (builder (apply imps-lambda
+                               (apply imps-lambda
+                                      (if-term
+                                       (apply conjunction
+                                        (map
+                                         (lambda (x y) (equality y x))
+                                         vars1 vars2))
+                                       arbitrary-individual
+                                       (undefined unit%sort))
+                                      vars1)
+                               vars2)))
+          builder))
+
+(define (sort-coerce-expr sort expr)
+        (let ((var (new-variable sort '%x (expression-variables expr))))
+          (if-term (defined-in expr sort)
+                   (iota (equality expr var) var) (undefined sort))))
+
+(define (cartesian-product-builder-and-selectors product-sort sorts
+            builder-name accessor-names)
+        (let* ((n (length sorts))
+               (vars1 (sorts->new-variables sorts '%x nil))
+               (vars2 (sorts->new-variables sorts '%y vars1))
+               (var-f (new-variable product-sort 'v
+                          (set-union vars1 vars2)))
+               (builder (if builder-name
+                            (apply imps-lambda
+                                   (sort-coerce-expr product-sort
+                                    (apply imps-lambda
+                                     (if-term
+                                      (apply conjunction
+                                       (map
+                                        (lambda (x y) (equality y x))
+                                        vars1 vars2))
+                                      arbitrary-individual
+                                      (undefined unit%sort))
+                                     vars1))
+                                   vars2)
+                            value-false))
+               (selectors
+                   (if accessor-names
+                       (block (or (and (list? accessor-names)
+                                       (= (length accessor-names) n))
+                                  (imps-error
+                                      "CARTESIAN-PRODUCT-BUILDER-AND-SELECTORS: wrong number of accessor names."))
+                         (iterate loop ((i 0) (selectors nil))
+                                  (if (<= n i) (reverse! selectors)
+                                      (let*
+                                       ((ith-var (nth vars1 i))
+                                        (other-vars
+                                         (delq ith-var vars1))
+                                        (ith-projection
+                                         (imps-lambda
+                                          (iota
+                                           (apply forsome
+                                            (equality var-f
+                                             (apply imps-lambda
+                                              (if-term
+                                               (apply conjunction
+                                                (map
+                                                 (lambda (x y)
+                                                   (equality y x))
+                                                 vars1 vars2))
+                                               arbitrary-individual
+                                               (undefined unit%sort))
+                                              vars2))
+                                            other-vars)
+                                           ith-var)
+                                          var-f)))
+                                        (loop
+                                          (1+ i)
+                                          (cons ith-projection
+                                           selectors))))))
+                       value-false)))
+          (return builder selectors)))
+
+(define (cartesian-product-builder-and-selectors-build-definitions
+            theory product sort-forms builder-name accessor-names)
+        (let* ((product-sort
+                   (decode-sort-spec (theory-language theory) product))
+               (sorts (map (lambda (x)
+                             (decode-sort-spec (theory-language theory)
+                                 x))
+                           sort-forms)))
+          (receive (builder selectors)
+                   (cartesian-product-builder-and-selectors
+                       product-sort sorts builder-name accessor-names)
+                   (receive (constructor accessors)
+                            (return
+                              (if builder-name
+                                  (definition-constant
+                                      (theory-build-definition theory
+                                       builder-name builder
+                                       (expression-sorting builder)
+                                       nil))
+                                  value-false)
+                              (if accessor-names
+                                  (map (lambda (the-name selector)
+                                         (definition-constant
+                                          (theory-build-definition
+                                           theory the-name selector
+                                           (expression-sorting
+                                            selector)
+                                           nil)))
+                                       accessor-names selectors)
+                                  value-false))
+                            (if (and constructor accessors)
+                                (block (walk
+                                        (lambda (theorem)
+                                          (theory-add-theorem theory
+                                           theorem
+                                           (theorem-name theorem)))
+                                        (make-record-axioms
+                                         (theory-language theory)
+                                         product-sort constructor
+                                         accessors))
+                                  (record-theory-make-theorems theory
+                                      product-sort constructor
+                                      accessors)))
+                            (return constructor accessors)))))
+
+(define cartesian-product
+        (make-sort-constructor cartesian-product-proc 'prod))
+
+(define (power-set-proc theory sort-name sort-forms)
+        (let* ((sorts (map (lambda (x)
+                             (decode-sort-spec (theory-language theory)
+                                 x))
+                           sort-forms))
+               (enclosing-sort
+                   (build-maximal-higher-sort sorts unit%sort))
+               (var-f (new-variable enclosing-sort 'f nil))
+               (membership-predicate (imps-lambda truth var-f))
+               (sort-definition
+                   (build-sort-definition theory sort-name
+                       membership-predicate)))
+          (theory-add-theorem theory
+              (nonemptyness-formula sort-definition)
+              (symbol-append 'nonemptyness-for-defined-sort sort-name))
+          (theory-add-sort-definition theory sort-definition)
+          (sort-definition-sort sort-definition)))
+
+(define power-set (make-sort-constructor power-set-proc 'power-set))
+
+
+;; Added by jt Sun Mar 29 13:16:16 EST 1998.
+
+(define (sequence-sort-proc theory sort-name sort-name-or-string)
+  (let* ((sorting 
+	  (build-maximal-higher-sort (list (name->sort (theory-language (name->theory 'h-o-real-arithmetic)) 'nn))
+				     (decode-sort-spec (theory-language theory)
+						       sort-name-or-string)))
+	 (var (find-variable *in-sort-preferred-varname* sorting))
+	 (membership-predicate
+	  (imps-lambda (finite-sequence? var) var)))
+    (sort-definition-sort
+     (theory-build-sort-definition-without-checking-nonemptyness 
+      theory
+      sort-name
+      membership-predicate))))
+
+(define (build-sequence-quasi-sort-from-definition theory sort-name-or-string)
+  (let* ((sorting 
+	  (build-maximal-higher-sort (list (name->sort (theory-language (name->theory 'h-o-real-arithmetic)) 'nn))
+				     (decode-sort-spec (theory-language theory) sort-name-or-string)))
+	 (var (find-variable *in-sort-preferred-varname* sorting)))
+    (imps-lambda (finite-sequence? var) var)))
+
+(define-syntax (def-sequence-sort sort-name base-sort . sort-definition-forms)
+  (receive (modifiers keyword-args)
+    (collect-modifier-and-keyword-arguments-for-def-form
+     sort-definition-forms)
+    (modifier-and-keyword-check-for-def-form modifiers
+					     keyword-args nil '(theory usages) '(theory))
+    (let ((theory-name (cadr (assq 'theory keyword-args)))
+	  (usage-list (cdr (assq 'usages keyword-args))))
+      (def-form-syntax-bind keyword-args
+	`(apply
+	  theory-build-sort-definition-without-checking-nonemptyness
+	  (name->theory ',theory-name)
+	  ',sort-name
+			     
+	  (build-sequence-quasi-sort-from-definition (name->theory ',theory-name) ',base-sort)
+	  ',usage-list)))))

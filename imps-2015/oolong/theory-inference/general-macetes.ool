@@ -1,0 +1,183 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment general-macetes)
+
+(define (context-beta-reduce context expr)
+        (receive (path-seeker path-follower lc-seeker path-substituter
+                     sat-cond)
+                 (if (simplify-quasi-constructors-messily?)
+                     (return
+                       paths-to-satisfaction
+                       follow-path
+                       local-context-at-path
+                       substitution-at-path
+                       lambda-application?)
+                     (return
+                       paths-to-satisfying-virtual-occurrences
+                       follow-virtual-path
+                       local-context-at-virtual-path
+                       substitution-at-virtual-path
+                       (lambda (s)
+                         (and (lambda-application? s)
+                              (not (expression-quasi-constructor-if-enabled
+                                    s))))))
+                 (let ((paths (reverse!
+                                  (sort-paths!
+                                      (funcall path-seeker expr
+                                       sat-cond -1)))))
+                   (iterate loop ((paths paths) (expr expr))
+                            (let ((subexpr (funcall path-follower expr
+                                            (car paths)))
+                                  (local-context
+                                      (funcall lc-seeker context expr
+                                       (car paths))))
+                              (cond
+                                ((null? paths) expr)
+                                ((tc-vigorously-prove-requirements
+                                     local-context
+                                     (restricted-substitution-definedness-conditions
+                                      (targets-and-replacements->subst
+                                       (binding-variables
+                                        (operator subexpr))
+                                       (arguments subexpr))
+                                      (exposed-variables
+                                       (binding-body
+                                        (operator subexpr)))))
+                                 (loop
+                                   (cdr paths)
+                                   (funcall path-substituter expr
+                                    (beta-reduce-recklessly subexpr)
+                                    (car paths))))
+                                (else (loop (cdr paths) expr))))))))
+
+(define (context-beta-reduce-insistently context expr)
+        (bind (((simplify-quasi-constructors-messily?) value-true))
+              (context-beta-reduce context expr)))
+
+(define *beta-reduce-insistently-macete*
+        (join (object nil
+                      ((macete-sound-in-theory? macete theory)
+                       (ignore theory) value-true))
+              (build-macete
+                  (lambda (context expr)
+                    (context-beta-reduce-insistently context expr))
+                  value-true 'beta-reduce-insistently)))
+
+(define *beta-reduce-macete*
+        (join (object nil
+                      ((macete-sound-in-theory? macete theory)
+                       (ignore theory) value-true))
+              (build-macete
+                  (lambda (context expr)
+                    (context-beta-reduce context expr))
+                  value-true 'beta-reduce)))
+
+(define *simplify-macete*
+        (join (object nil
+                      ((macete-sound-in-theory? macete theory)
+                       (ignore theory) value-true))
+              (build-macete
+                  (lambda (context expr)
+                    (syllogistic-inference-simplify context expr))
+                  value-true 'simplify)))
+
+(define *definition-unfolding-macete*
+        (join (object nil
+                      ((macete-sound-in-theory? macete theory)
+                       (ignore theory) value-true))
+              (build-macete
+                  (lambda (context expr)
+                    (expand-all-directly-defined-constant-occurrences-in-theory-once
+                        (context-theory context) expr))
+                  value-true 'definition-unfolding)))
+
+(define *recursive-unfolding-macete*
+        (join (object nil
+                      ((macete-sound-in-theory? macete theory)
+                       (ignore theory) value-true))
+              (build-macete
+                  (lambda (context expr)
+                    (expand-all-recursively-defined-constant-occurrences-in-theory-once
+                        (context-theory context) expr))
+                  value-true 'recursive-definition-unfolding)))
+
+(walk (lambda (x) (add-macete x))
+      (list *beta-reduce-macete* *beta-reduce-insistently-macete*
+            *simplify-macete* *definition-unfolding-macete*
+            *recursive-unfolding-macete*))
+
+(define *beta-reduce-repeatedly-macete*
+        (build-and-install-macete-from-sexp '(repeat beta-reduce)
+            'beta-reduce-repeatedly))
+
+(define *beta-reduce-unstoppably-macete*
+        (build-and-install-macete-from-sexp
+            '(repeat beta-reduce-insistently) 'beta-reduce-unstoppably))
+
+(define *definition-unfolding-macete-and-reduction-macete*
+        (build-and-install-macete-from-sexp
+            '(series definition-unfolding (repeat beta-reduce))
+            'definition-unfolding-and-beta-reduction))
+
+(define *recursive-unfolding-and-reduction-macete*
+        (build-and-install-macete-from-sexp
+            '(series recursive-definition-unfolding beta-reduce)
+            'recursive-definition-unfolding-and-beta-reduction))
+
+(build-and-install-macete-from-sexp
+    '(repeat definition-unfolding-and-beta-reduction
+             recursive-definition-unfolding-and-beta-reduction
+             simplify)
+    'eliminate-definitions-and-simplify)
+
+(build-and-install-macete-from-sexp
+    '(repeat definition-unfolding-and-beta-reduction simplify)
+    'eliminate-nonrecursive-definitions-and-simplify)

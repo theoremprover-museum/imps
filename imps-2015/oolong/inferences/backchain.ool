@@ -1,0 +1,493 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment (inferences backchain))
+
+(define backchain-discharge-convergence-requirements?
+        (make-simple-switch
+            'backchain-discharge-convergence-requirements? boolean?
+            value-false))
+
+(define backchain-through-implication-antecedent?
+        (make-simple-switch 'backchain-through-implication-antecedent?
+            boolean? value-false))
+
+(define backchain-through-expression?
+        (make-simple-switch 'backchain-through-expression? boolean?
+            value-true))
+
+(define backchain-forwards-through-expression?
+        (make-simple-switch 'backchain-forwards-through-expression?
+            boolean? value-true))
+
+(define (substitution-definedness-conditions-from-context context
+            subst)
+        (let ((conditions (substitution-definedness-conditions subst)))
+          (iterate loop ((left nil) (conditions (make-set conditions)))
+                   (if (null? conditions) left
+                       (if (context-entails? context (car conditions))
+                           (loop left (cdr conditions))
+                           (loop
+                             (cons (car conditions) left)
+                             (cdr conditions)))))))
+
+(define (backchain-equivalence? expr)
+        (or (equation? expr) (biconditional? expr)
+            (quasi-equation? expr)))
+
+(define (equivalence-lhs expr)
+        (if (quasi-equation? expr)
+            (if (backchain-forwards-through-expression?)
+                (quasi-equation-lhs expr) (quasi-equation-rhs expr))
+            (if (backchain-forwards-through-expression?)
+                (expression-lhs expr) (expression-rhs expr))))
+
+(define (equivalence-rhs expr)
+        (if (quasi-equation? expr)
+            (if (backchain-forwards-through-expression?)
+                (quasi-equation-rhs expr) (quasi-equation-lhs expr))
+            (if (backchain-forwards-through-expression?)
+                (expression-rhs expr) (expression-lhs expr))))
+
+(define (backchain-fail) (return (fail) value-false nil))
+
+(define (backchain-make-minors context local-assumptions subst)
+        (list (build-sequent
+                  (context-add-assumptions context local-assumptions)
+                  (conjunction-simplifier
+                      (substitution-definedness-conditions subst)))))
+
+(define (backchain-substitute-at-path paths context assertion
+            context-formula exoscopes local-assumptions)
+        (receive (vpath subst)
+                 (backchain-select-path-and-subst paths context
+                     assertion context-formula exoscopes
+                     local-assumptions)
+                 (if (fail? vpath) (backchain-fail)
+                     (let ((path-list
+                               (expand-virtual-path assertion vpath))
+                           (replacement-expr
+                               (apply-substitution subst
+                                   (equivalence-rhs context-formula))))
+                       (return
+                         subst
+                         (substitutions-at-paths assertion
+                             (list replacement-expr) (list path-list))
+                         (backchain-make-minors context
+                             local-assumptions subst))))))
+
+(define (backchain-select-path-and-subst paths context assertion
+            context-formula exoscopes local-assumptions)
+        (iterate iter ((paths paths))
+                 (if (null? paths) (return (fail) (fail))
+                     (let* ((path (car paths))
+                            (subst (match-under-exoscopes
+                                    (follow-virtual-path assertion
+                                     path)
+                                    (equivalence-lhs context-formula)
+                                    exoscopes)))
+                       (cond
+                         ((fail? subst)
+                          (imps-error
+                              "backchain-select-path-and-subst failed on ~S"
+                              (car paths)))
+                         ((or (not (backchain-discharge-convergence-requirements?))
+                              (null? (substitution-definedness-conditions-from-context
+                                      (context-add-assumptions context
+                                       local-assumptions)
+                                      subst)))
+                          (return path subst))
+                         (else (iter (cdr paths))))))))
+
+(define (backchain-match-and-maybe-return context assertion exoscopes
+            local-assumptions pattern new-assertion-pattern kappa)
+        (let ((subst (match-under-exoscopes assertion pattern
+                         exoscopes))
+              (new-assertion-pattern
+                  (cond
+                    ((expression? new-assertion-pattern)
+                     new-assertion-pattern)
+                    ((procedure? new-assertion-pattern)
+                     (funcall new-assertion-pattern))
+                    (else (imps-error
+                              "backchain-match-and-maybe-return: Bad new-assertion-pattern ~S"
+                              new-assertion-pattern)))))
+          (if (succeed? subst)
+              (return
+                subst
+                (apply-substitution subst new-assertion-pattern)
+                (backchain-make-minors context local-assumptions subst))
+              (funcall kappa))))
+
+(define (backchain-through-implication context assertion
+            context-formula exoscopes local-assumptions)
+        (imps-enforce implication? context-formula)
+        (let ((antecedent (implication-antecedent context-formula))
+              (consequent (implication-consequent context-formula)))
+          (backchain-match-and-maybe-return context assertion exoscopes
+              local-assumptions consequent antecedent
+              (lambda ()
+                (backchain-match-and-maybe-return context assertion
+                    exoscopes local-assumptions (push-not antecedent)
+                    (push-not consequent)
+                    (lambda ()
+                      (receive (subst new-assertion minors)
+                               (backchain-recursive-call context
+                                   assertion consequent exoscopes
+                                   (cons antecedent local-assumptions))
+                               (if (succeed? subst)
+                                   (return
+                                     subst
+                                     (conjunction-simplifier
+                                      (list
+                                       (apply-substitution subst
+                                        (implication-antecedent
+                                         context-formula))
+                                       new-assertion))
+                                     minors)
+                                   (if
+                                    (backchain-through-implication-antecedent?)
+                                    (backchain-recursive-call context
+                                     assertion
+                                     (disjunction
+                                      (push-not
+                                       (implication-antecedent
+                                        context-formula))
+                                      (implication-consequent
+                                       context-formula))
+                                     exoscopes local-assumptions)
+                                    (backchain-fail))))))))))
+
+(define (backchain-through-biconditional context assertion
+            context-formula exoscopes local-assumptions)
+        (imps-enforce biconditional? context-formula)
+        (destructure
+            (((lhs rhs) (expression-components context-formula)))
+            (receive (subst new-assertion minors)
+                     (backchain-through-implication context assertion
+                         (implication lhs rhs) exoscopes
+                         local-assumptions)
+                     (if (succeed? subst)
+                         (return subst new-assertion minors)
+                         (backchain-through-implication context
+                             assertion (implication rhs lhs) exoscopes
+                             local-assumptions)))))
+
+(define (backchain-through-disjunction context assertion
+            context-formula exoscopes local-assumptions)
+        (imps-enforce disjunction? context-formula)
+        (let ((disjuncts (ultimate-disjuncts (list context-formula))))
+          (if (null? disjuncts)
+              (imps-error
+                  "backchain-through-disjunction: why isn't ~S absurd; it contains ~S"
+                  context context-formula)
+              (let ((len (length disjuncts)))
+                (iterate iter ((i 0))
+                         (if (< i len)
+                             (let* ((pattern (nth disjuncts i))
+                                    (negated-others
+                                     (map push-not
+                                      (delq pattern disjuncts))))
+                               (backchain-match-and-maybe-return
+                                   context assertion exoscopes
+                                   local-assumptions pattern
+                                   (conjunction-simplifier
+                                    negated-others)
+                                   (lambda ()
+                                     (receive
+                                      (subst new-assertion minors)
+                                      (backchain-recursive-call context
+                                       assertion pattern exoscopes
+                                       (append negated-others
+                                        local-assumptions))
+                                      (if (succeed? subst)
+                                       (return
+                                         subst
+                                         (apply-substitution subst
+                                          (conjunction-simplifier
+                                           (append negated-others
+                                            (list new-assertion))))
+                                         minors)
+                                       (iter (1+ i)))))))
+                             (backchain-fail)))))))
+
+(define (backchain-through-conjunction-next-iteration 
+	 context assertion remaining exoscopes local-assumptions)
+  (if (null? remaining) (backchain-fail)
+    (receive (subst new-assertion minors)
+	     (backchain-recursive-call context assertion
+				       (car remaining) exoscopes local-assumptions)
+	     (if (succeed? subst)
+		 (return subst new-assertion minors)
+	       (backchain-through-conjunction-next-iteration 
+		context assertion (cdr remaining) exoscopes local-assumptions)))))
+
+(define (backchain-through-conjunction context assertion
+				       context-formula exoscopes local-assumptions)
+  (let ((conjuncts (ultimate-conjuncts (list context-formula))))
+    (if (null? conjuncts) (backchain-fail)
+      (let ((len (length conjuncts)))
+	(iterate iter ((i 0))
+		 (if (< i len)
+		     (let ((pattern (nth conjuncts i)))
+		       (backchain-match-and-maybe-return
+			context assertion exoscopes
+			local-assumptions pattern truth
+			(lambda () (iter (1+ i)))))
+		   (backchain-through-conjunction-next-iteration context assertion conjuncts exoscopes local-assumptions)))))))
+
+;;;(define (backchain-through-conjunction context assertion
+;;;            context-formula exoscopes local-assumptions)
+;;;        (let ((conjuncts (ultimate-conjuncts (list context-formula))))
+;;;          (if (null? conjuncts) (backchain-fail)
+;;;              (let ((len (length conjuncts)))
+;;;                (iterate iter ((i 0))
+;;;                         (if (< i len)
+;;;                             (let ((pattern (nth conjuncts i)))
+;;;                               (backchain-match-and-maybe-return
+;;;                                   context assertion exoscopes
+;;;                                   local-assumptions pattern truth
+;;;                                   (lambda () (iter (1+ i)))))
+;;;                             (iterate next-iter ((remaining conjuncts))
+;;;                                      (if (null? remaining)
+;;;                                       (backchain-fail)
+;;;                                       (receive
+;;;                                        (subst new-assertion minors)
+;;;                                        (backchain-recursive-call
+;;;                                         context assertion
+;;;                                         (car remaining) exoscopes
+;;;                                         local-assumptions)
+;;;                                        (if (succeed? subst)
+;;;                                         (return
+;;;                                           subst
+;;;                                           new-assertion
+;;;                                           minors)
+;;;                                         (next-iter (cdr remaining))))))))))))
+
+(define (backchain-through-universal context assertion context-formula
+            exoscopes local-assumptions)
+        (enforce universal? context-formula)
+        (let ((simp (forall-simplifier
+                        (expression-components context-formula))))
+          (if (universal? simp)
+              (let* ((body (binding-body simp))
+                     (vars (binding-variables simp))
+                     (renaming
+                         (make-variable-renaming vars
+                             (set-union exoscopes
+                                 (collect-set free-variables
+                                     (cons assertion local-assumptions)))))
+                     (new-vars (map cdr renaming))
+                     (new-body (apply-substitution renaming body)))
+                (receive (subst new-assertion minors)
+                         (backchain-recursive-call context assertion
+                             new-body exoscopes local-assumptions)
+                         (if (succeed? subst)
+                             (return
+                               (filter-substitution
+                                   (lambda (subst-comp)
+                                     (not
+                                      (memq? (substitution-target subst-comp)
+                                       new-vars)))
+                                   subst)
+                               (forsome-simplifier
+                                   (cons new-assertion new-vars))
+                               minors)
+                             (backchain-fail))))
+              (backchain-recursive-call context assertion simp
+                  exoscopes local-assumptions))))
+
+(define (backchain-recursive-call context assertion context-formula
+            exoscopes local-assumptions)
+        (let ((subst (match-under-exoscopes assertion context-formula
+                         exoscopes)))
+          (cond
+            ((succeed? subst)
+             (return
+               subst
+               truth
+               (let ((local-context
+                         (context-add-assumptions context
+                             local-assumptions)))
+                 (map (lambda (c) (build-sequent local-context c))
+                      (substitution-definedness-conditions subst)))))
+            ((and (backchain-through-expression?)
+                  (backchain-equivalence? context-formula)
+                  (let* ((new-assertion
+                             (change-bound-variables-selectively
+                                 assertion
+                                 (set-union
+                                     (free-variables context-formula)
+                                     (context-free-variables context))
+                                 (set-union
+                                     (free-variables context-formula)
+                                     (context-free-variables context))))
+                         (paths (virtual-paths-to-good-matches
+                                    new-assertion
+                                    (equivalence-lhs context-formula)
+                                    exoscopes)))
+                    (and (not (null? paths))
+                         (cons paths new-assertion))))
+             =>
+             (lambda (pair)
+               (backchain-substitute-at-path (car pair) context
+                   (cdr pair) context-formula exoscopes
+                   local-assumptions)))
+            (else (funcall (select (expression-constructor
+                                    context-formula)
+                                   ((implication)
+                                    backchain-through-implication)
+                                   ((disjunction)
+                                    backchain-through-disjunction)
+                                   ((biconditional)
+                                    backchain-through-biconditional)
+                                   ((conjunction)
+                                    backchain-through-conjunction)
+                                   ((forall)
+                                    backchain-through-universal)
+                                   (else
+                                    (lambda args
+                                      (ignore args)
+                                      (backchain-fail))))
+                           context assertion context-formula exoscopes
+                           local-assumptions)))))
+
+(define (backchain-against-formula context assertion context-formula)
+        (if (context-contains-entry? context context-formula)
+            (backchain-recursive-call context assertion context-formula
+                (context-free-variables context) nil)
+            (backchain-fail)))
+
+(define (backchain-through-sequent sequent context-formula)
+        (let ((context (sequent-context sequent))
+              (assertion (sequent-assertion sequent)))
+          (receive (() new-assertion minors)
+                   (backchain-against-formula context assertion
+                       context-formula)
+                   (if (formula? new-assertion)
+                       (cons (build-sequent context new-assertion)
+                             (backchain-cook-minors minors
+                                 (context-simplification-persistence)))
+                       value-false))))
+
+(define (backchain-cook-minors minors persistence)
+        (iterate iter ((cooked-premises nil) (minors minors))
+                 (if (null? minors) cooked-premises
+                     (let* ((seq (car minors))
+                            (assertion
+                                (context-simplify (sequent-context seq)
+                                    (sequent-assertion seq)
+                                    persistence)))
+                       (if (truth? assertion)
+                           (iter cooked-premises (cdr minors))
+                           (iter (add-set-element
+                                     (build-sequent
+                                      (sequent-context seq) assertion)
+                                     cooked-premises)
+                                 (cdr minors)))))))
+
+(define (backchaining-possibilities context assertion)
+        (iterate iter
+                 ((assumptions (context-assumptions context))
+                  (possibilities nil))
+                 (if (null? assumptions) (reverse! possibilities)
+                     (let ((assump (car assumptions)))
+                       (receive (subst new-assertion minors)
+                                (backchain-against-formula context
+                                    assertion assump)
+                                (if (succeed? subst)
+                                    (iter (cdr assumptions)
+                                     (cons
+                                      (build-backchain-record assump
+                                       new-assertion minors)
+                                      possibilities))
+                                    (iter (cdr assumptions)
+                                     possibilities)))))))
+
+(define (build-backchain-record assump new-assertion minors)
+        (list assump new-assertion minors))
+
+(define (backchain-record-assumption bcr) (car bcr))
+
+(define (backchain-record-new-assertion bcr) (cadr bcr))
+
+(define (backchain-record-minors bcr) (caddr bcr))
+
+(define (good-backchaining-possibility pred? context assertion)
+        (any pred? (backchaining-possibilities context assertion)))
+
+(define (trivial-backchaining-opportunity context assertion)
+        (good-backchaining-possibility
+            (lambda (bcr)
+              (let ((new-assertion
+                        (backchain-record-new-assertion bcr))
+                    (minors (backchain-record-minors bcr)))
+                (and (context-trivially-entails? context new-assertion)
+                     (every? (lambda (seq)
+                               (context-trivially-entails?
+                                   (sequent-context seq)
+                                   (sequent-assertion seq)))
+                             minors))))
+            context assertion))
+
+(define (immediate-backchaining-opportunity context assertion)
+        (good-backchaining-possibility
+            (lambda (bcr)
+              (let ((new-assertion
+                        (backchain-record-new-assertion bcr))
+                    (minors (backchain-record-minors bcr)))
+                (and (context-immediately-entails? context
+                         new-assertion)
+                     (every? (lambda (seq)
+                               (context-immediately-entails?
+                                   (sequent-context seq)
+                                   (sequent-assertion seq)))
+                             minors))))
+            context assertion))

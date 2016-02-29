@@ -1,0 +1,299 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment unfolding-strategies)
+
+(define (paths-to-defined-operator-application-terms theory pred expr
+            const)
+        (let* ((def (theory-get-recursive-definition theory
+                        (name const)))
+               (param? (and def
+                            (parameterized-recursive-definition? def)))
+               (modified-pred
+                   (if param?
+                       (lambda (s)
+                         (and (application? s)
+                              (application? (operator s))
+                              (eq? (operator (operator s)) const)
+                              (funcall pred s)))
+                       (lambda (s)
+                         (and (application? s) (eq? (operator s) const)
+                              (funcall pred s)))))
+               (appendage (if param? '(0 0) '(0))))
+          (map (lambda (x) (append x appendage))
+               (paths-to-satisfaction expr modified-pred -1))))
+
+(define (deduction-graph-unfold-definitions-once pred the-constants sqn)
+        (let ((assertion (sequent-node-assertion sqn)))
+          (iterate loop
+                   ((sqn sqn)
+                    (paths-to-constants
+                        (map (lambda (const)
+                               (paths-to-satisfaction assertion
+                                   (lambda (s)
+                                     (and (funcall pred s)
+                                      (eq? const s)))
+                                   -1))
+                             the-constants))
+                    (the-constants the-constants) (last-inference (fail)))
+                   (if (null? the-constants) last-inference
+                       (let ((paths (car paths-to-constants)))
+                         (let ((next-inference
+                                   (dg-primitive-inference-defined-constant-unfolding
+                                    sqn (reverse! (sort-paths! paths))
+                                    (car the-constants))))
+                           (if (fail? next-inference)
+                               (loop
+                                 sqn
+                                 (cdr paths-to-constants)
+                                 (cdr the-constants)
+                                 last-inference)
+                               (loop
+                                 (inference-node-1st-hypothesis
+                                     next-inference)
+                                 (cdr paths-to-constants)
+                                 (cdr the-constants)
+                                 next-inference))))))))
+
+(define (deduction-graph-unfold-definitions pred the-constants sqn)
+        (let ((theory (deduction-graph-theory (sequent-node-graph sqn))))
+          (iterate loop
+                   ((sqn sqn) (the-constants the-constants)
+                    (last-inference (fail)))
+                   (if (null? the-constants) last-inference
+                       (let ((paths (paths-to-defined-operator-application-terms
+                                     theory pred
+                                     (sequent-node-assertion sqn)
+                                     (car the-constants))))
+                         (let ((next-inference
+                                   (dg-primitive-inference-defined-constant-unfolding
+                                    sqn (reverse! (sort-paths! paths))
+                                    (car the-constants))))
+                           (if (fail? next-inference)
+                               (loop
+                                 sqn
+                                 (cdr the-constants)
+                                 last-inference)
+                               (loop
+                                 (inference-node-1st-hypothesis
+                                     next-inference)
+                                 (cdr the-constants)
+                                 next-inference))))))))
+
+(define (deduction-graph-repeatedly-unfold-definitions pred the-constants
+            sqn)
+        (iterate loop ((sqn sqn) (last-inference (fail)))
+                 (let* ((expansion-inference
+                            (deduction-graph-unfold-definitions pred
+                                the-constants sqn))
+                        (sqn-1 (if (succeed? expansion-inference)
+                                   (inference-node-1st-hypothesis
+                                    expansion-inference)
+                                   sqn))
+                        (simplification-inference
+                            (funcall (deduction-graph-strategy-simplification-procedure)
+                                     sqn-1))
+                        (next-inference
+                            (if (succeed? simplification-inference)
+                                simplification-inference
+                                expansion-inference)))
+                   (cond
+                     ((or (fail? next-inference)
+                          (eq? sqn
+                               (inference-node-1st-hypothesis
+                                   next-inference)))
+                      last-inference)
+                     ((inference-node-1st-hypothesis next-inference) =>
+                      (lambda (new-sqn) (loop new-sqn next-inference)))
+                     (else last-inference)))))
+
+(define (deduction-graph-repeatedly-unfold-recursive-definitions pred
+            dont-unfold sqn)
+        (if (eq? dont-unfold value-true) (fail)
+            (deduction-graph-repeatedly-unfold-definitions pred
+                (set-diff
+                    (theory-recursively-defined-constants
+                        (deduction-graph-theory
+                            (sequent-node-graph sqn)))
+                    dont-unfold)
+                sqn)))
+
+(define (deduction-graph-apply-macete-conditionally sqn macete pred)
+        (let ((paths (paths-to-satisfaction
+                         (sequent-node-assertion sqn)
+                         (lambda (s)
+                           (and (application? s) (funcall pred s)))
+                         -1)))
+          (dg-primitive-inference-macete-application-at-paths sqn paths
+              macete)))
+
+(define (deduction-graph-repeatedly-apply-macete-conditionally sqn
+            macete pred)
+        (iterate loop ((sqn sqn) (last-inference (fail)))
+                 (let ((next-inference
+                           (deduction-graph-apply-macete-conditionally
+                               sqn macete pred)))
+                   (cond
+                     ((or (fail? next-inference)
+                          (eq? sqn
+                               (inference-node-1st-hypothesis
+                                   next-inference)))
+                      last-inference)
+                     ((inference-node-1st-hypothesis next-inference) =>
+                      (lambda (new-sqn) (loop new-sqn next-inference)))
+                     (else last-inference)))))
+
+(define global-induction-step-hook
+        (make-simple-switch 'global-induction-step-hook
+            (lambda (x) (or (macete? x) (false? x)))
+            (build-and-install-macete-from-sexp '(series)
+                'trivial-unfolding-macete)))
+
+(define (definition-expansion-strategy the-constants sqn)
+        (deduction-graph-unfold-definitions-once (always value-true)
+            the-constants sqn))
+
+(define (repeated-definition-expansion-strategy the-constants sqn)
+        (deduction-graph-repeatedly-unfold-definitions (always value-true)
+            the-constants sqn))
+
+(build-universal-command
+    (lambda (sqn occurrences constant-name)
+      (let ((infn (deduction-graph-unfold-defined-constant sqn
+                      occurrences constant-name)))
+        (if (succeed-without-grounding? infn)
+            (deduction-graph-beta-reduce-repeatedly
+                (inference-node-1st-hypothesis infn))
+            infn)))
+    'unfold-single-defined-constant (always value-true)
+    'symbol-locations-in-formula-retrieval-protocol)
+
+(build-universal-command
+    (lambda (sqn constant-name)
+      (let ((infn (deduction-graph-unfold-defined-constant-globally sqn
+                      constant-name)))
+        (if (succeed-without-grounding? infn)
+            (deduction-graph-beta-reduce-repeatedly
+                (inference-node-1st-hypothesis infn))
+            infn)))
+    'unfold-single-defined-constant-globally (always value-true)
+    'symbol-retrieval-protocol)
+
+(build-universal-command
+    (lambda (sqn)
+      (let ((infn (definition-expansion-strategy
+                      (theory-nonrecursively-defined-constants
+                          (context-theory (sequent-node-context sqn)))
+                      sqn)))
+        (if (succeed-without-grounding? infn)
+            (deduction-graph-beta-reduce-repeatedly
+                (inference-node-1st-hypothesis infn))
+            infn)))
+    'unfold-directly-defined-constants (always value-true))
+
+(build-universal-command
+    (lambda (sqn)
+      (let ((infn (repeated-definition-expansion-strategy
+                      (theory-nonrecursively-defined-constants
+                          (context-theory (sequent-node-context sqn)))
+                      sqn)))
+        (if (succeed-without-grounding? infn)
+            (deduction-graph-beta-reduce-repeatedly
+                (inference-node-1st-hypothesis infn))
+            infn)))
+    'unfold-directly-defined-constants-repeatedly (always value-true))
+
+(build-universal-command
+    (lambda (sqn)
+      (let ((infn (definition-expansion-strategy
+                      (theory-recursively-defined-constants
+                          (context-theory (sequent-node-context sqn)))
+                      sqn)))
+        (if (succeed-without-grounding? infn)
+            (deduction-graph-beta-reduce-repeatedly
+                (inference-node-1st-hypothesis infn))
+            infn)))
+    'unfold-recursively-defined-constants (always value-true))
+
+(build-universal-command
+    (lambda (sqn)
+      (let ((infn (repeated-definition-expansion-strategy
+                      (theory-recursively-defined-constants
+                          (context-theory (sequent-node-context sqn)))
+                      sqn)))
+        (if (succeed-without-grounding? infn)
+            (deduction-graph-beta-reduce-repeatedly
+                (inference-node-1st-hypothesis infn))
+            infn)))
+    'unfold-recursively-defined-constants-repeatedly (always value-true))
+
+(build-universal-command
+    (lambda (sqn)
+      (let ((infn (definition-expansion-strategy
+                      (theory-defined-constants
+                          (context-theory (sequent-node-context sqn)))
+                      sqn)))
+        (if (succeed-without-grounding? infn)
+            (deduction-graph-beta-reduce-repeatedly
+                (inference-node-1st-hypothesis infn))
+            infn)))
+    'unfold-defined-constants (always value-true))
+
+(build-universal-command
+    (lambda (sqn)
+      (let ((infn (repeated-definition-expansion-strategy
+                      (theory-defined-constants
+                          (context-theory (sequent-node-context sqn)))
+                      sqn)))
+        (if (succeed-without-grounding? infn)
+            (deduction-graph-beta-reduce-repeatedly
+                (inference-node-1st-hypothesis infn))
+            infn)))
+    'unfold-defined-constants-repeatedly (always value-true))

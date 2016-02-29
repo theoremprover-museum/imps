@@ -1,0 +1,331 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment (inferences q-classes))
+
+(define-structure-type q-class forward? expr-or-next defined?
+    (((print self port)
+      (format port "#{IMPS-q-class ~S}" (q-class-expr-or-next self)))))
+
+(define (q-find-ultimate q)
+        (if (q-class-forward? q)
+            (let ((next (q-class-expr-or-next q)))
+              (if (q-class-defined? q)
+                  (set (q-class-defined? next) value-true))
+              (q-find-ultimate next))
+            q))
+
+(define (q-update-entry classes e)
+        (let ((q (table-entry classes e)))
+          (if (q-class-forward? q)
+              (let ((q-ultimate (q-find-ultimate q)))
+                (set (table-entry classes e) q-ultimate)
+                (if (q-class-defined? q) value-true
+                    (set (q-class-defined? q)
+                         (q-class-defined? q-ultimate)))))
+          (return)))
+
+(define (q-expression q) (q-class-expr-or-next (q-find-ultimate q)))
+
+(define (q-class-less? q1 q2)
+        (let ((e1 (q-expression q1)) (e2 (q-expression q2)))
+          (q-class-e-less? e1 e2)))
+
+(define (q-class-index e1)
+  (cond
+   ((eq? e1 truth) 0)
+   ((eq? e1 falsehood) 1)
+   ((any? (lambda (qc)
+	    (quasi-constructor-constantlike?
+	     (quasi-constructor-if-enabled qc)))
+	  (expression-quasi-constructors e1))
+    2)
+   ((constant? e1) 3)
+   (else 4)))
+
+(define (q-class-e-less? e1 e2)
+  (or (eq? e1 e2)
+      (let ((i1 (q-class-index e1)) (i2 (q-class-index e2)))
+	(cond
+	 ((fx< i1 i2))
+	 ((fx< i2 i1) value-false)
+	 (else (let ((h1 (expression-height e1))
+		     (h2 (expression-height e2)))
+		 (cond
+		  ((fx< h1 h2))
+		  ((fx< h2 h1) value-false)
+		  (else (let ((fv1
+			       (expression-free-variables e1))
+			      (fv2
+			       (expression-free-variables e2)))
+			  (cond
+			   ((subset? fv1 fv2))
+			   ((subset? fv2 fv1) value-false)
+			   (else
+			    (let
+				((hash1 (imps-hash e1))
+				 (hash2 (imps-hash e2)))
+			      (cond
+			       ((fx< hash1 hash2))
+			       ((fx< hash2 hash1) value-false)
+			       (else
+				(let
+				    ((hash1
+				      (expression-descriptor-hash
+				       e1))
+				     (hash2
+				      (expression-descriptor-hash
+				       e2)))
+				  (cond
+				   ((fx< hash1 hash2))
+				   ((fx< hash2 hash1)
+				    value-false)
+				   (else
+				    (fx< (descriptor-hash (qp e1))
+					 (descriptor-hash (qp e2))))))))))))))))))))
+
+(define (join-q-classes q1 q2)
+        (let ((q1 (q-find-ultimate q1)) (q2 (q-find-ultimate q2)))
+          (flet (((do-it winner loser)
+                    (set (q-class-forward? loser) value-true)
+                    (set (q-class-expr-or-next loser) winner)
+                    (set (q-class-defined? winner)
+                         (or (q-class-defined? winner)
+                             (q-class-defined? loser)))))
+            (cond
+              ((eq? q1 q2) q1)
+              ((q-class-less? q1 q2) (do-it q1 q2) q1)
+              (else (do-it q2 q1) q2)))))
+
+(define (make-initial-q-class expr)
+        (let ((q (make-q-class)))
+          (set (q-class-forward? q) value-false)
+          (set (q-class-expr-or-next q) expr)
+          (set (q-class-defined? q) (necessarily-defined? expr))
+          q))
+
+(define record-q-access?
+        (make-simple-switch 'record-q-access? boolean? value-false))
+
+(define q-access-total 0)
+
+(define (q-retrieve-&-update table expr)
+        (and (record-q-access?) (increment q-access-total))
+        (let ((q (table-entry table expr)))
+          (and q
+               (let ((q1 (q-find-ultimate q)))
+                 (if (not (eq? q q1))
+                     (set (table-entry table expr) q1))
+                 q1))))
+
+(define (q-install-hash q-hashes expr)
+        (let ((2-d-table
+                  (table-entry q-hashes (expression-constructor expr)))
+              (lead (expression-lead-constant expr))
+              (second-lead (expression-second-lead-constant expr)))
+          (cond
+            ((not 2-d-table)
+             (set (table-entry q-hashes (expression-constructor expr))
+                  (make-two-d-table))
+             (q-install-hash q-hashes expr))
+            ((two-d-table-entry 2-d-table lead second-lead)
+             (push (two-d-table-entry 2-d-table lead second-lead) expr))
+            (else (set (two-d-table-entry 2-d-table lead second-lead)
+                       (list expr)))))
+        (return))
+
+(define (q-install-hash-datum q-hashes expr datum)
+        (let ((2-d-table
+                  (table-entry q-hashes (expression-constructor expr)))
+              (lead (expression-lead-constant expr))
+              (second-lead (expression-second-lead-constant expr)))
+          (cond
+            ((not 2-d-table)
+             (set (table-entry q-hashes (expression-constructor expr))
+                  (make-two-d-table))
+             (q-install-hash q-hashes expr))
+            ((two-d-table-entry 2-d-table lead second-lead)
+             (push (two-d-table-entry 2-d-table lead second-lead)
+                   datum))
+            (else (set (two-d-table-entry 2-d-table lead second-lead)
+                       (list datum)))))
+        (return))
+
+(define (q-retrieve-hashed-list q-hashes constr lead second-lead)
+        (let ((2-d-table (table-entry q-hashes constr)))
+          (if 2-d-table (two-d-table-entry 2-d-table lead second-lead)
+              nil)))
+
+(define (initialize-q-classes id . source-table)
+        (let ((source-table (and source-table (car source-table))))
+          (let ((table (make-table
+                           (and id (concatenate-symbol id '-classes)))))
+            (if source-table
+                (walk-table
+                    (lambda (expr q)
+                      (let ((q1 (q-find-ultimate q)))
+                        (if (not (eq? q q1))
+                            (set (table-entry source-table expr) q1))
+                        (set (table-entry table expr)
+                             (copy-structure q1))))
+                    source-table)
+                (block (set (table-entry table truth)
+                            (make-initial-q-class truth))
+                  (set (table-entry table falsehood)
+                       (make-initial-q-class falsehood))))
+            table)))
+
+(define (initialize-q-hashes id . source-table)
+        (if source-table
+            (recursively-copy-table (car source-table)
+                (and id (concatenate-symbol id '-hashes)))
+            (let ((q-hashes
+                      (make-table
+                          (and id (concatenate-symbol id '-hashes)))))
+              (q-install-hash q-hashes truth)
+              (q-install-hash q-hashes falsehood)
+              q-hashes)))
+
+(define (initialize-q-tables id . sources)
+        (if sources
+            (destructure (((classes hashes) sources))
+                (return
+                  (initialize-q-classes id classes)
+                  (initialize-q-hashes id hashes)))
+            (return
+              (initialize-q-classes id)
+              (initialize-q-hashes id))))
+
+(define (q-expression-matches q-hashes expr)
+        (let ((constr (expression-constructor expr))
+              (lead (expression-lead-constant expr))
+              (second-lead (expression-second-lead-constant expr)))
+          (q-retrieve-hashed-list q-hashes constr lead second-lead)))
+
+(define (q-hashes-walk-possible-matchers proc q-hashes expr)
+        (let ((constr (expression-constructor expr))
+              (lead (expression-lead-constant expr))
+              (second-lead (expression-second-lead-constant expr)))
+          (walk proc
+                (q-matches-to-constructor-and-leads q-hashes constr
+                    lead second-lead))
+          (if (expression? lead)
+              (walk proc
+                    (q-matches-to-constructor-and-leads q-hashes constr
+                        'no-lead-constant second-lead)))
+          (if (expression? second-lead)
+              (walk proc
+                    (q-matches-to-constructor-and-leads q-hashes constr
+                        lead 'no-lead-constant)))
+          (if (and (expression? lead) (expression? second-lead))
+              (walk proc
+                    (q-matches-to-constructor-and-leads q-hashes constr
+                        'no-lead-constant 'no-lead-constant)))))
+
+(define (q-seek-root table expr)
+        (let ((q (q-retrieve-&-update table expr)))
+          (and q (q-class-expr-or-next q))))
+
+(define (q-seek-defined? table expr)
+        (let ((q (q-retrieve-&-update table expr)))
+          (and q (q-class-defined? q))))
+
+(define (q-make-expr-defined q-classes q-hashes e)
+        (let ((q (q-insert-expr q-classes q-hashes e)))
+          (set (q-class-defined? q) value-true)))
+
+(define (q-insert-expr q-classes q-hashes e)
+        (let ((q (q-retrieve-&-update q-classes e)))
+          (or q
+              (let ((q (make-initial-q-class e)))
+                (q-install-hash q-hashes e)
+                (set (table-entry q-classes e) q)
+                q))))
+
+(define (q-equate-exprs q-classes q-hashes e1 e2)
+        (let ((q1 (q-insert-expr q-classes q-hashes e1))
+              (q2 (q-insert-expr q-classes q-hashes e2)))
+          (or (eq? q1 q2) (join-q-classes q1 q2))
+          (return)))
+
+(define (q-same-class? q-classes e1 e2)
+        (let ((q1 (q-retrieve-&-update q-classes e1)))
+          (and q1
+               (or (eq? (q-expression q1) e2)
+                   (eq? q1 (q-retrieve-&-update q-classes e2))))))
+
+(define q-matches-to-constructor-and-leads q-retrieve-hashed-list)
+
+(define (q-walk-matches-to-constructor-and-first-lead q-hashes proc
+            constr lead)
+        (q-walk-matches-int proc
+            (cond
+              ((table-entry q-hashes constr) =>
+               (lambda (2-d) (table-entry 2-d lead)))
+              (else nil))))
+
+(define (q-walk-matches-to-constructor q-hashes proc constr)
+        (let ((2-d (table-entry q-hashes constr)))
+          (if (table? 2-d)
+              (walk-table
+                  (lambda (lead 1-d)
+                    (ignore lead)
+                    (q-walk-matches-int proc 1-d))
+                  2-d))
+          (return)))
+
+(define (q-walk-matches-int proc 1-d)
+        (if (table? 1-d)
+            (walk-table
+                (lambda (second-lead matches)
+                  (ignore second-lead)
+                  (walk proc matches))
+                1-d))
+        (return))

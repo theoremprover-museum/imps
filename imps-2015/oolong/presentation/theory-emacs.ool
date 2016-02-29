@@ -1,0 +1,212 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment (presentation theory-emacs))
+
+(define (t-e-write-theorems theory)
+        (with-open-ports ((file (open imps-theorems-file '(out))))
+          (writec file #\()
+          (walk (lambda (thm)
+                  (if (theorem-name thm)
+                      (block (format file "(~S "
+                                     (theorem-downcased-name thm))
+                        (walk (lambda (var)
+                                (format file " ~S ~S" (name var)
+                                        (sort-list->string
+                                         (sort->list
+                                          (expression-sorting var)))))
+                              (newly-bound-variables thm))
+                        (format file ")~%"))))
+                (theory-theorems theory))
+          (writec file #\))
+          (force-output file)))
+
+(define (t-e-emacs-read-theorems theory)
+        (emacs-eval "(imps-read-theorems-from-file ~S)"
+            (theory-name-string theory)))
+
+(define (t-e-deliver-theorems theory)
+        (if (not (theory? theory))
+            (imps-error "t-e-deliver-theorems Bogus theory ~S" theory))
+        (t-e-write-theorems theory) (t-e-emacs-read-theorems theory))
+
+(define (t-e-write-definitions theory)
+        (with-open-ports ((file (open imps-definitions-file '(out))))
+          (writec file #\()
+          (walk (lambda (def)
+                  (format file "~S~%"
+                          (string-downcase!
+                              (format nil "~A"
+                                      (name (definition-constant def))))))
+                (theory-definitions theory))
+          (writec file #\))
+          (force-output file)))
+
+(define (t-e-emacs-read-definitions theory)
+        (emacs-eval "(imps-read-definitions-from-file ~S)"
+            (theory-name-string theory)))
+
+(define (t-e-deliver-definitions theory)
+        (if (not (theory? theory))
+            (imps-error "t-e-deliver-definitions: Bogus theory ~S"
+                theory))
+        (t-e-write-definitions theory)
+        (t-e-emacs-read-definitions theory))
+
+(define (t-e-write-recursive-definitions theory)
+        (with-open-ports ((file (open imps-recursive-definitions-file '(out))))
+          (writec file #\()
+          (walk (lambda (const)
+                  (format file "~S~%"
+                          (string-downcase!
+                              (format nil "~A" (name const)))))
+                (theory-recursively-defined-constants theory))
+          (writec file #\))
+          (force-output file)))
+
+(define (t-e-emacs-read-recursive-definitions theory)
+        (emacs-eval "(imps-read-recursive-definitions-from-file ~S)"
+            (theory-name-string theory)))
+
+(define (t-e-deliver-recursive-definitions theory)
+        (if (not (theory? theory))
+            (imps-error
+                "t-e-deliver-recursive-definitions: Bogus theory ~S"
+                theory))
+        (t-e-write-recursive-definitions theory)
+        (t-e-emacs-read-recursive-definitions theory))
+
+(define (t-e-write-macetes theory)
+        (with-open-ports ((file (open imps-macetes-file '(out))))
+          (writec file #\()
+          (walk (lambda (tact)
+                  (format file "~S~%"
+                          (string-downcase!
+                              (format nil "~A" (name tact)))))
+                (theory-nonsimple-interactive-macetes theory))
+          (writec file #\))
+          (force-output file)))
+
+(define (t-e-emacs-read-macetes theory)
+        (emacs-eval "(imps-read-macetes-from-file ~S)"
+            (theory-name-string theory)))
+
+(define (t-e-deliver-macetes theory)
+        (if (not (theory? theory))
+            (imps-error "t-e-deliver-macetes: Bogus theory ~S" theory))
+        (t-e-write-macetes theory) (t-e-emacs-read-macetes theory))
+
+(define (t-e-write-commands . theory) (ignore theory)
+        (with-open-ports ((file (open imps-command-file '(out))))
+          (writec file #\()
+          (walk (lambda (command)
+                  (format file "(~S ~A ~A)~%"
+                          (string-downcase!
+                              (format nil "~A" (name command)))
+                          (string-downcase!
+                              (format nil "~A"
+                                      (dg-command-retrieval-protocol
+                                       command)))
+                          (string-downcase!
+                              (format nil "~A"
+                                      (dg-command-transmission-protocol
+                                       command)))))
+                (dg-commands))
+          (writec file #\))
+          (force-output file)))
+
+(define (t-e-emacs-read-commands . theory) (ignore theory)
+        (emacs-eval "(imps-read-commands-from-file)"))
+
+(define (t-e-deliver-commands . theory) (ignore theory)
+        (t-e-write-commands) (t-e-emacs-read-commands))
+
+(define (t-e-write-theory-interpretations . theory) (ignore theory)
+        (with-open-ports ((file (open imps-theory-interpretations-file '(out))))
+          (writec file #\()
+          (walk-table
+              (lambda (k v)
+                (if (translation-theory-interpretation? v)
+                    (format file "~S~%"
+                            (string-downcase! (format nil "~A" k)))))
+              *name-translation-table*)
+          (writec file #\))
+          (force-output file)))
+
+(define (t-e-emacs-read-theory-interpretations . theory)
+        (ignore theory)
+        (emacs-eval "(imps-read-theory-interpretations-from-file)"))
+
+(define (t-e-deliver-theory-interpretations . theory) (ignore theory)
+        (t-e-write-theory-interpretations)
+        (t-e-emacs-read-theory-interpretations))
+
+(define (write-in-command-file v)
+        (with-open-ports ((file (open imps-command-file '(out))))
+          (format file "~S~%" v)
+          (force-output file)
+          (emacs-eval "(imps-read-and-insert-in-command-buffer)")
+          (return)))
+
+(define (theorem-name->var-sort-list thm-name)
+        (let ((thm (name->theorem-1 thm-name)))
+          (cond
+            ((not (theorem? thm)) 'theorem-not-loaded)
+            ((universal? thm)
+             (iterate iter
+                      ((vals nil) (vars (newly-bound-variables thm)))
+                      (if (null? vars) (reverse! vals)
+                          (let ((var (car vars)))
+                            (iter (cons* (sort-list->string
+                                          (sort->list
+                                           (expression-sorting var)))
+                                         (name var) vals)
+                                  (cdr vars))))))
+            (else nil))))

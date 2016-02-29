@@ -1,0 +1,344 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment (inferences domain-range-inference))
+
+(define (theory-immediately-entails-defined? theory term)
+        (cond
+          ((necessarily-defined? term) value-true)
+          ((theory-summarily-defined? theory term) value-true)
+          ((theory-entails-undefined? theory term) value-false)
+          (else value-false)))
+
+(define (theory-entails-defined? theory term)
+        (cond
+          ((necessarily-defined? term) value-true)
+          ((theory-summarily-defined? theory term) value-true)
+          ((theory-entails-undefined? theory term) value-false)
+          ((theory-no-critical-subterms? theory term)
+           (theory-make-summarily-defined theory term) value-true)
+          (else value-false)))
+
+(define (theory-entails-undefined? theory term)
+        (or (necessarily-undefined? term)
+            (and (application? term)
+                 (any? (lambda (arg sort)
+                         (theory-exclude-term-coercion? theory arg
+                             sort))
+                       (arguments term)
+                       (expression-domains (operator term))))))
+
+(define (theory-exclude-term-coercion? theory term coerced-sort)
+        (or (sorts-necessarily-disjoint? (expression-sorting term)
+                coerced-sort)
+            (theory-coercion-nowhere-defined? theory
+                (expression-sorting term) coerced-sort)
+            (and (application? term)
+                 (let ((expected-sorts
+                           (expression-domains (operator term)))
+                       (args (arguments term)))
+                   (any? (lambda (term coerced-sort)
+                           (theory-exclude-term-coercion? theory term
+                               coerced-sort))
+                         args expected-sorts)))))
+
+(define (theory-no-critical-subterms? theory term)
+        (null? (theory-critical-subterms-and-sorts theory term
+                   (expression-sorting term))))
+
+(define (clean-term-sort-list term-sort-list)
+        (iterate iter ((term-sort-list term-sort-list) (so-far nil))
+                 (cond
+                   ((null? term-sort-list) (reverse! so-far))
+                   ((let ((first (car term-sort-list)))
+                      (any? (lambda (p) (equal? p first)) so-far))
+                    (iter (cdr term-sort-list) so-far))
+                   (else (iter (cdr term-sort-list)
+                               (cons (car term-sort-list) so-far))))))
+
+(define (theory-critical-subterms-and-sorts theory term desired-sort)
+        (clean-term-sort-list
+            (crude-critical-subterms-and-sorts theory term
+                desired-sort)))
+
+(define (crude-critical-subterms-and-sorts theory term desired-sort)
+        (cond
+          ((and (necessarily-defined? term)
+                (theory-coercion-everywhere-defined? theory
+                    (expression-sorting term) desired-sort))
+           nil)
+          ((application? term)
+           (application-critical-subterms-and-sorts theory term
+               desired-sort))
+          ((conditional-term? term)
+           (conditional-critical-subterms-and-sorts theory term
+               desired-sort))
+          (else (list (cons term desired-sort)))))
+
+(define (application-critical-subterms-and-sorts theory term
+            desired-sort)
+        (cond
+          ((theory-sort-closed-under-fn? theory desired-sort
+               (operator term))
+           (apply append
+                  (map (lambda (arg)
+                         (crude-critical-subterms-and-sorts theory arg
+                             desired-sort))
+                       (arguments term))))
+          ((and (theory-coercion-everywhere-defined? theory
+                    (expression-sorting term) desired-sort)
+                (theory-fn-everywhere-defined? theory (operator term)))
+           (apply append
+                  (map (lambda (arg desired-arg-sort)
+                         (crude-critical-subterms-and-sorts theory arg
+                             desired-arg-sort))
+                       (arguments term)
+                       (expression-domains (operator term)))))
+          (else (list (cons term desired-sort)))))
+
+(define (conditional-critical-subterms-and-sorts theory term
+            desired-sort)
+        (destructure (((() conseq alt) (expression-components term)))
+            (append (crude-critical-subterms-and-sorts theory conseq
+                        desired-sort)
+                    (crude-critical-subterms-and-sorts theory alt
+                        desired-sort))))
+
+(define (tc-test-coercion context term expected-sort persist)
+        (or (theory-coercion-everywhere-defined? theory
+                (expression-sorting term) expected-sort)
+            (context-entails-defined-in-sort? context term
+                expected-sort persist)))
+
+(define (theory-context-test-top-level-term-coercions? theory-context
+            term persist)
+        (or (necessarily-defined? term)
+            (and (application? term)
+                 (every? (lambda (term expected-sort)
+                           (tc-test-coercion theory-context term
+                               expected-sort persist))
+                         (arguments term)
+                         (expression-domains (operator term))))))
+
+(define (theory-context-simplify-convergence-in-sort context expr
+            persist)
+        (let ((theory (context-theory context))
+              (term (context-simplify-1 context
+                        (car (expression-components expr)) persist))
+              (expected-sort
+                  (expression-sorting
+                      (cadr (expression-components expr)))))
+          (cond
+            ((theory-exclude-term-coercion? theory term expected-sort)
+             falsehood)
+            ((theory-context-entails-defined-in-sort? context term
+                 expected-sort persist)
+             truth)
+            ((theory-coercion-everywhere-defined? theory
+                 (expression-sorting term) expected-sort)
+             (is-defined term))
+            (else (defined-in term expected-sort)))))
+
+(define (theory-context-simplify-convergence context expr persist)
+        (let ((term (context-simplify-1 context
+                        (car (expression-components expr)) persist)))
+          (cond
+            ((theory-context-entails-defined? context term persist)
+             truth)
+            ((and (application? term)
+                  (theory-fn-everywhere-defined?
+                      (context-theory context) (operator term)))
+             (conjunction-simplifier
+                 (map (lambda (arg sort)
+                        (theory-context-simplify-convergence-in-sort
+                            context (defined-in arg sort) persist))
+                      (arguments term)
+                      (higher-sort-domains
+                          (expression-sorting (operator term))))))
+            (else (is-defined term)))))
+
+(define (theory-context-entails-defined? theory-context term persist)
+        (let ((theory (context-theory theory-context)))
+          (or (theory-immediately-entails-defined? theory term)
+              (let ((term-sort-list
+                        (theory-critical-subterms-and-sorts theory term
+                            (expression-sorting term))))
+                (every? (lambda (p)
+                          (let ((critical-term (car p)) (sort (cdr p)))
+                            (theory-context-entails-defined-in-sort-1?
+                                theory-context critical-term sort
+                                persist)))
+                        term-sort-list)))))
+
+(define (theory-context-immediately-entails-defined-in-sort?
+            theory-context term sorting)
+        (null? (theory-critical-subterms-and-sorts
+                   (context-theory theory-context) term sorting)))
+
+(define (theory-context-entails-undefined? theory-context term persist)
+        (cond
+          ((necessarily-undefined? term) value-true)
+          ((application? term)
+           (theory-context-entails-internal? theory-context term
+               (theory-undefinedness-condition
+                   (context-theory theory-context) (operator term))
+               persist))
+          (else value-false)))
+
+(define (theory-context-entails-defined-in-sort? theory-context term
+            to-sort persist)
+        (let ((term-sort-list
+                  (theory-critical-subterms-and-sorts
+                      (context-theory theory-context) term to-sort)))
+          (every? (lambda (p)
+                    (let ((critical-term (car p)) (sort (cdr p)))
+                      (theory-context-entails-defined-in-sort-1?
+                          theory-context critical-term sort persist)))
+                  term-sort-list)))
+
+(define (theory-context-entails-defined-in-sort-1? theory-context term
+            to-sort persist)
+        (let ((theory (context-theory theory-context))
+              (from-sort (expression-sorting term))
+              (op (operator term)))
+          (or (context-trivially-entails-defined-in-sort?
+                  theory-context term to-sort)
+              (and (context-trivially-entails-defined? theory-context
+                       term)
+                   (any? (lambda (known)
+                           (theory-context-entails-neutral-internal?
+                               theory-context term
+                               (or (theory-sort-coercion-condition
+                                    theory (type-of-sort known)
+                                    to-sort)
+                                   (theory-sort-coercion-condition
+                                    theory known to-sort))
+                               (-1+ persist)))
+                         (cons from-sort
+                               (context-term-defined-sorts
+                                   theory-context term))))
+              (and (application? term)
+                   (let ((condition
+                             (or (theory-sort-definedness-condition
+                                     (context-theory theory-context) op
+                                     to-sort)
+                                 (and (sort-necessarily-included?
+                                       (expression-range op) to-sort)
+                                      (theory-definedness-condition
+                                       (context-theory theory-context)
+                                       op)))))
+                     (theory-context-entails-internal? theory-context
+                         term condition persist))))))
+
+(define *non-looping-max* 2)
+
+(define (theory-context-entails-internal? theory-context term condition
+            persist)
+        (bind (((context-simplification-persistence)
+                (min *non-looping-max* (-1+ persist)))
+               ((dont-work-on-definedness) value-true))
+              (and (not-negative? (context-simplification-persistence))
+                   (expression? condition)
+                   (sequent-entailed?
+                       (build-sequent
+                           (context-add-assumptions theory-context
+                               (theory-context-neutral-value-info
+                                   theory-context term))
+                           (apply apply-operator condition
+                                  (arguments term)))))))
+
+(define (theory-context-entails-neutral-internal? theory-context term
+            condition persist)
+        (bind (((context-simplification-persistence)
+                (min *non-looping-max* (-1+ persist)))
+               ((dont-work-on-definedness) value-true))
+              (and (not-negative? (context-simplification-persistence))
+                   (expression? condition)
+                   (sequent-entailed?
+                       (build-sequent
+                           (context-add-assumptions theory-context
+                               (theory-context-neutral-value-info
+                                   theory-context term))
+                           (apply-operator condition term))))))
+
+(define (theory-context-neutral-value-info theory-context term)
+        (let ((theory (context-theory theory-context)))
+          (iterate iter
+                   ((args (arguments term)) (value-assertions nil))
+                   (if (null? args)
+                       (map! (lambda (v)
+                               (context-simplify theory-context v 1))
+                             (reverse! value-assertions))
+                       (let ((first-arg (car args)) (rest (cdr args)))
+                         (if (application? first-arg)
+                             (let ((sub-op (operator first-arg))
+                                   (sub-args (arguments first-arg)))
+                               (let ((v-c
+                                      (theory-value-condition theory
+                                       sub-op)))
+                                 (if (and v-c
+                                      (every?
+                                       (lambda (sub-arg expected-sort)
+                                         (context-immediately-entails?
+                                          theory-context
+                                          (defined-in sub-arg
+                                           expected-sort)))
+                                       sub-args
+                                       (expression-domains sub-op)))
+                                     (iter rest
+                                      (cons
+                                       (apply apply-operator v-c
+                                        (append sub-args
+                                         (list
+                                          (apply apply-operator sub-op
+                                           sub-args))))
+                                       value-assertions))
+                                     (iter rest value-assertions))))
+                             (iter rest value-assertions)))))))

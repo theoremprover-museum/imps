@@ -1,0 +1,143 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment other-forms)
+
+(define-syntax (view-expr expr-string . expr-forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 expr-forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args
+                 '(fully-parenthesize fully no-quasi-constructors
+                      no-qcs tex)
+                 '(language syntax) nil)
+             (let ((fully? (or (memq? 'fully-parenthesize modifiers)
+                               (memq? 'fully modifiers)))
+                   (qcs? (not (or (memq? 'no-quasi-constructors
+                                         modifiers)
+                                  (memq? 'no-qcs modifiers))))
+                   (tex? (memq? 'tex modifiers))
+                   (language-or-theory-name
+                       (cadr (assq 'language keyword-args))))
+               (def-form-syntax-bind 
+                   keyword-args
+                   (list 'bind
+                         (list (list '(fully-parenthesize)
+                                     (list 'quote fully?))
+                               (list '(use-quasi-constructor-form?)
+                                     (list 'quote qcs?)))
+                         (list 'let*
+                               (list (list 'language
+                                      (list 'and
+                                       (list 'quote
+                                        language-or-theory-name)
+                                       (list 'or
+                                        (list 'name->language
+                                         (list 'quote
+                                          language-or-theory-name))
+                                        (list 'theory-language
+                                         (list 'name->theory
+                                          (list 'quote
+                                           language-or-theory-name))))))
+                                     (list 'expression
+                                      (list 'if 'language
+                                       (list 'qr expr-string 'language)
+                                       (list 'qr expr-string))))
+                               (list* 'if (list 'quote tex?)
+                                      '((xview expression)
+                                        (print expression (standard-output))))
+                               'repl-wont-print))))))
+
+(define-syntax (load-section section-name . expr-forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 expr-forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args '(reload-files-only reload quick-load)
+                 nil nil)
+             (let ((reload-files-only?
+                       (memq? 'reload-files-only modifiers))
+                   (reload? (memq? 'reload modifiers))
+                   (quick? (memq? 'quick-load modifiers)))
+               (list 'load-imps-section (list 'quote section-name)
+                     (list 'quote reload-files-only?)
+                     (list 'quote reload?)
+                     (list 'or '(quick-load?) (list 'quote quick?))))))
+
+(define-syntax (include-files . expr-forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 expr-forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args '(reload quick-load) '(files) '(files))
+             (let ((reload? (memq? 'reload modifiers))
+                   (quick? (memq? 'quick-load modifiers))
+                   (filespecs (cdr (assq 'files keyword-args))))
+               (list 'bind
+                     (list (list '(quick-load?)
+                                 (list 'or '(quick-load?)
+                                       (list 'quote quick?))))
+                     (list 'load-imps-files (list 'quote filespecs)
+                           (list 'quote reload?))))))
+
+(define-syntax
+    (ensemble-dont-translate-constant ensemble-name expr-string)
+    (list 'dont-translate-constant
+          (list 'name->theory-ensemble (list 'quote ensemble-name))
+          (list 'qr expr-string
+                (list 'theory-language
+                      (list 'theory-ensemble-base-theory
+                            (list 'name->theory-ensemble
+                                  (list 'quote ensemble-name)))))))
+
+;;;(define (auxiliary-proof-file filename)
+;;;        (set (current-name-proof-script-alist)
+;;;             (filestring->name-proof-script-alist filename)))

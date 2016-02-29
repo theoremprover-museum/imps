@@ -1,0 +1,379 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment translation-match)
+
+(define (translation-and-substitution-match source-theory target-theory
+            assumptions fixed-theories expr-1 expr-2 safe?)
+        (let* ((fixed-theories (compress-theories fixed-theories))
+               (translation
+                   (translation-match source-theory target-theory
+                       assumptions fixed-theories expr-1 expr-2)))
+          (if (fail? translation) (return (fail) (fail))
+              (let* ((trans-expr-1
+                         (translate-expression translation expr-1))
+                     (substitution
+                         (if safe? (match expr-2 trans-expr-1)
+                             (unsafe-match expr-2 trans-expr-1))))
+                (if (fail? substitution) (return (fail) (fail))
+                    (return translation substitution))))))
+
+(define try-to-build-translation?
+        (make-simple-switch 'try-to-build-translation? boolean? value-true))
+
+(define (translation-match source-theory target-theory assumptions
+            fixed-theories expr-1 expr-2)
+        (receive (sort-alist constant-alist)
+                 (build-translation-components expr-1 expr-2)
+                 (let* ((fixed-theories
+                            (compress-theories fixed-theories))
+                        (sort-alist
+                            (cleanse-sort-or-constant-alist sort-alist
+                                fixed-theories 'sort))
+                        (constant-alist
+                            (cleanse-sort-or-constant-alist
+                                constant-alist fixed-theories
+                                'constant)))
+                   (cond
+                     ((or (fail? sort-alist) (fail? constant-alist))
+                      (fail))
+                     ((let ((translation
+                                (find-first-encompassing-theory-interpretation
+                                    source-theory target-theory
+                                    assumptions fixed-theories
+                                    sort-alist constant-alist)))
+                        (and (succeed? translation) translation)))
+                     ((and (try-to-build-translation?)
+                           (let ((translation
+                                     (build-translation source-theory
+                                      target-theory assumptions
+                                      fixed-theories sort-alist
+                                      constant-alist value-false value-false
+                                      value-true 'return-false)))
+                             (and (translation? translation)
+                                  (theory-interpretation-check
+                                      translation)
+                                  translation))))
+                     (else (fail))))))
+
+(define (cleanse-sort-or-constant-alist alist fixed-theories kind)
+        (iterate loop ((alist alist) (new-alist nil))
+                 (cond
+                   ((fail? alist) (fail))
+                   ((null? alist) new-alist)
+                   ((and (eq? kind 'sort)
+                         (any? (lambda (th)
+                                 (theory-resolved-sort? th
+                                     (caar alist)))
+                               fixed-theories))
+                    (loop (cdr alist) new-alist))
+                   ((and (eq? kind 'constant)
+                         (any (lambda (th)
+                                (and (theory-constant? th (caar alist))
+                                     (car alist)))
+                              fixed-theories))
+                    =>
+                    (lambda (pair)
+                      (if (eq? (car pair) (cdr pair))
+                          (loop (cdr alist) new-alist) (fail))))
+                   (else (loop
+                           (cdr alist)
+                           (cons (car alist) new-alist))))))
+
+(define (build-translation-components expr-1 expr-2)
+        (build-translation-components-aux expr-1 expr-2 nil nil))
+
+(define (build-translation-components-from-list exprs-1 exprs-2)
+        (build-translation-components-from-list-aux exprs-1 exprs-2 nil
+            nil))
+
+(define (build-translation-components-aux expr-1 expr-2 sort-alist
+            constant-alist)
+        (let ((comps-1 (expression-components expr-1))
+              (comps-2 (expression-components expr-2)))
+          (if comps-1
+              (if (and (eq? (expression-constructor expr-1)
+                            (expression-constructor expr-2))
+                       (= (length comps-1) (length comps-2)))
+                  (build-translation-components-from-list-aux comps-1
+                      comps-2 sort-alist constant-alist)
+                  (return (fail) (fail)))
+              (let ((new-sort-alist
+                        (translation-match-sort
+                            (expression-sorting expr-1)
+                            (expression-sorting expr-2) sort-alist)))
+                (if (succeed? new-sort-alist)
+                    (if (constant? expr-1)
+                        (let ((new-constant-alist
+                                  (translation-match-constant expr-1
+                                      expr-2 constant-alist)))
+                          (if (succeed? new-constant-alist)
+                              (return
+                                new-sort-alist
+                                new-constant-alist)
+                              (return (fail) (fail))))
+                        (return new-sort-alist constant-alist))
+                    (return (fail) (fail)))))))
+
+(define (build-translation-components-from-list-aux exprs-1 exprs-2
+            sort-alist constant-alist)
+        (iterate loop
+                 ((exprs-1 exprs-1) (exprs-2 exprs-2)
+                  (sort-alist sort-alist)
+                  (constant-alist constant-alist))
+                 (if (null? exprs-1) (return sort-alist constant-alist)
+                     (receive (new-sort-alist new-constant-alist)
+                              (build-translation-components-aux
+                                  (car exprs-1) (car exprs-2)
+                                  sort-alist constant-alist)
+                              (if (succeed? new-sort-alist)
+                                  (loop
+                                    (cdr exprs-1)
+                                    (cdr exprs-2)
+                                    new-sort-alist
+                                    new-constant-alist)
+                                  (return (fail) (fail)))))))
+
+(define (translation-match-constant expr-1 expr-2 constant-alist)
+        (if (not (eq? (sort-category (expression-sorting expr-1))
+                      (sort-category (expression-sorting expr-2))))
+            (fail)
+            (let ((look-up (assq expr-1 constant-alist)))
+              (if look-up
+                  (if (alpha-equivalent? (cdr look-up) expr-2)
+                      constant-alist (fail))
+                  (add-set-element (cons expr-1 expr-2) constant-alist)))))
+
+(define (translation-match-sort left-sort right-sort sort-alist)
+        (cond
+          ((or (fail? sort-alist)
+               (not (eq? (sort-category left-sort)
+                         (sort-category right-sort))))
+           (fail))
+          ((name left-sort)
+           (translation-match-named-sort left-sort right-sort
+               sort-alist))
+          ((and (higher-sort? left-sort) (higher-sort? right-sort)
+                (= (length (higher-sort-domains left-sort))
+                   (length (higher-sort-domains right-sort))))
+           (let ((new-right-sort
+                     (enclosing-maximal-higher-sort right-sort)))
+             (translation-match-maximal-higher-sort left-sort
+                 new-right-sort sort-alist)))
+          (else (fail))))
+
+(define (translation-match-named-sort left-sort right-sort sort-alist)
+        (let ((pair (assq left-sort sort-alist)))
+          (cond
+            ((not pair)
+             (add-set-element (cons left-sort right-sort) sort-alist))
+            ((sorts-may-overlap? right-sort (cdr pair))
+             (let ((new-pair
+                       (cons left-sort
+                             (sorting-lub right-sort (cdr pair)))))
+               (add-set-element new-pair (delq pair sort-alist))))
+            (else (fail)))))
+
+(define (translation-match-maximal-higher-sort left-sort right-sort
+            sort-alist)
+        (iterate iter
+                 ((left-sorts
+                      (cons (higher-sort-range left-sort)
+                            (higher-sort-domains left-sort)))
+                  (right-sorts
+                      (cons (higher-sort-range right-sort)
+                            (higher-sort-domains right-sort)))
+                  (new-sort-alist sort-alist))
+                 (cond
+                   ((fail? new-sort-alist) (fail))
+                   ((null? left-sorts) new-sort-alist)
+                   ((iter (cdr left-sorts) (cdr right-sorts)
+                          (translation-match-sort (car left-sorts)
+                              (car right-sorts) new-sort-alist))))))
+
+(define (translation-match-variables source-theory target-theory
+            assumptions fixed-theories var-list expr-list
+            . just-translation)
+        (receive (sort-alist constant-alist)
+                 (build-translation-components-from-list var-list
+                     expr-list)
+                 (let* ((fixed-theories
+                            (compress-theories fixed-theories))
+                        (sort-alist
+                            (cleanse-sort-or-constant-alist sort-alist
+                                fixed-theories 'sort)))
+                   (ignore constant-alist)
+                   (cond
+                     ((fail? sort-alist) (fail))
+                     ((let ((translation
+                                (find-first-encompassing-theory-interpretation
+                                    source-theory target-theory
+                                    assumptions fixed-theories
+                                    sort-alist nil)))
+                        (and (succeed? translation) translation)))
+                     ((and (try-to-build-translation?)
+                           (let ((translation
+                                     (build-translation source-theory
+                                      target-theory assumptions
+                                      fixed-theories sort-alist nil
+                                      value-false value-false value-true
+                                      'return-false)))
+                             (and (translation? translation)
+                                  (or just-translation
+                                      (theory-interpretation-check
+                                       translation))
+                                  translation))))
+                     (else (fail))))))
+
+(define (find-first-encompassing-theory-interpretation source-theory
+            target-theory assumptions fixed-theories sort-alist
+            constant-alist)
+        (if (and (null? sort-alist) (null? constant-alist))
+            (let* ((fixed-theories (compress-theories fixed-theories))
+                   (translations
+                       (find-encompassing-translations source-theory
+                           target-theory assumptions fixed-theories
+                           sort-alist constant-alist))
+                   (encompassing-theory-interpretations
+                       (set-separate translation-theory-interpretation?
+                           translations)))
+              (if (empty-set? encompassing-theory-interpretations)
+                  (fail)
+                  (first-set-element
+                      encompassing-theory-interpretations)))
+            (let ((pair (if (not (null? constant-alist))
+                            (car constant-alist) (car sort-alist))))
+              (find-first-encompassing-trans-in-list source-theory
+                  target-theory assumptions fixed-theories sort-alist
+                  constant-alist
+                  (table-entry *pair-theory-interp-table* pair)))))
+
+(define (find-encompassing-translations source-theory target-theory
+            assumptions fixed-theories sort-alist constant-alist)
+        (let ((fixed-theories (compress-theories fixed-theories))
+              (successes the-empty-set))
+          (walk (lambda (pair0)
+                  (if (sub-theory? source-theory (car pair0))
+                      (walk (lambda (pair1)
+                              (if (sub-theory? (car pair1)
+                                      target-theory)
+                                  (walk (lambda (pair2)
+                                          (if
+                                           (subset-with-equal?
+                                            (car pair2) assumptions)
+                                           (walk
+                                            (lambda (pair3)
+                                              (if
+                                               (subset-with-equal?
+                                                fixed-theories
+                                                (car pair3))
+                                               (walk
+                                                (lambda (pair4)
+                                                  (if
+                                                   (translation-extends-alists?
+                                                    (cdr pair4)
+                                                    sort-alist
+                                                    constant-alist)
+                                                   (set successes
+                                                    (add-set-element
+                                                     (cdr pair4)
+                                                     successes))))
+                                                (cdr pair3))))
+                                            (cdr pair2))))
+                                        (cdr pair1))))
+                            (cdr pair0))))
+                (cdr *global-translation-alist*))
+          successes))
+
+(define (find-first-encompassing-trans-in-list source-theory
+            target-theory assumptions fixed-theories sort-alist
+            constant-alist trans-list)
+        (any (lambda (trans)
+               (and (sub-theory? source-theory
+                        (translation-source-theory trans))
+                    (sub-theory? (translation-target-theory trans)
+                        target-theory)
+                    (subset-with-equal? (translation-assumptions trans)
+                        assumptions)
+                    (every? (lambda (th1)
+                              (any? (lambda (th2)
+                                      (sub-theory? th1 th2))
+                                    (translation-fixed-theories trans)))
+                            fixed-theories)
+                    (translation-extends-alists? trans sort-alist
+                        constant-alist)
+                    trans))
+             trans-list))
+
+(define (translation-extends-alists? trans sort-alist constant-alist)
+        (if (translation-enrich? trans) (enrich-translation trans))
+        (and (every? (lambda (pair)
+                       (or (mem? equal? pair
+                                 (translation-sort-alist trans))
+                           (mem? equal? pair
+                                 (translation-defined-sort-alist trans))
+                           (and (eq? (car pair) (cdr pair))
+                                (memq? (car pair)
+                                       (translation-fixed-sorts trans)))))
+                     sort-alist)
+             (every? (lambda (pair)
+                       (or (mem? equal? pair
+                                 (translation-constant-alist trans))
+                           (mem? equal? pair
+                                 (translation-defined-constant-alist
+                                     trans))
+                           (and (eq? (car pair) (cdr pair))
+                                (memq? (car pair)
+                                       (translation-fixed-constants
+                                        trans)))))
+                     constant-alist)))
+
+(define fixed-theories-set
+        (make-simple-switch 'fixed-theories-set is-set? the-empty-set))

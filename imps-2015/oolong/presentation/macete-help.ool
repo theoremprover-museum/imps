@@ -1,0 +1,424 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment macete-help)
+
+(define *keys-macete-table*
+        (make-hash-table equal? '*keys-macete-table*))
+
+(define (retrieve-macetes-from-key key)
+        (table-entry *keys-macete-table* key))
+
+(define (enter-macete-by-key macete key)
+        (set (table-entry *keys-macete-table* key)
+             (add-set-element macete
+                 (table-entry *keys-macete-table* key))))
+
+(define *qc-to-transportable-key-table*
+        (make-table '*qc-to-key-table*))
+
+(define *qc-to-elementary-key-table*
+        (make-table '*qc-to-elementary-key-table*))
+
+(define (enter-key-by-qc-and-lead key)
+        (if (caddr key)
+            (walk (lambda (qc-constr)
+                    (set (table-entry *qc-to-transportable-key-table*
+                             qc-constr)
+                         (cons key
+                               (table-entry
+                                   *qc-to-transportable-key-table*
+                                   qc-constr))))
+                  (cons (expression-constructor (car key))
+                        (expression-quasi-constructors (car key))))
+            (push (two-d-table-entry *qc-to-elementary-key-table*
+                      (expression-constructor (car key))
+                      (expression-lead-constant (car key)))
+                  key)))
+
+(define (retrieve-key-by-qc-and-lead expr)
+        (let ((constr (expression-constructor expr))
+              (qc-or-c (expression-quasi-constructor-if-enabled-or-constructor
+                           expr))
+              (lead (expression-lead-constant expr)))
+          (append (table-entry *qc-to-transportable-key-table* qc-or-c)
+                  (two-d-table-entry *qc-to-elementary-key-table*
+                      constr lead)
+                  (if (expression? lead)
+                      (two-d-table-entry *qc-to-elementary-key-table*
+                          constr 'no-lead-constant)
+                      nil))))
+
+(define (macete-keys macete)
+        (cond
+          ((elementary-macete? macete)
+           (list (list (elementary-macete-lhs macete)
+                       (theorem-home-theory
+                           (elementary-macete->formula macete))
+                       value-false (bidirectional-macete? macete))))
+          ((transportable-macete? macete)
+           (list (list (transportable-macete-lhs macete)
+                       (transportable-macete-source-theory macete)
+                       value-true (bidirectional-macete? macete))))
+          ((composite-macete? macete)
+           (funcall (constructor-key-amalgamator
+                        (macete-constructor macete))
+                    (map macete-keys (macete-components macete))))
+          (else nil)))
+
+(define (macete-is-deinition-or-variable-lhs? macete)
+        (receive (m-lhs m-rhs theory)
+                 (if (elementary-macete? macete)
+                     (return
+                       elementary-macete-lhs
+                       elementary-macete-rhs
+                       (theorem-home-theory
+                           (elementary-macete->formula macete)))
+                     (if (transportable-macete? macete)
+                         (return
+                           transportable-macete-lhs
+                           transportable-macete-rhs
+                           (transportable-macete-source-theory macete))
+                         (return nil nil nil)))
+                 (if m-lhs
+                     (let ((lhs (funcall m-lhs macete)))
+                       (or (variable? lhs)
+                           (and (constant? lhs)
+                                (or (let
+                                     ((def
+                                       (theory-get-definition theory
+                                        (name lhs))))
+                                      (and def
+                                       (alpha-equivalent?
+                                        (funcall m-rhs macete)
+                                        (definition-defining-expr def))))
+                                    (let
+                                     ((def
+                                       (theory-get-recursive-definition
+                                        theory (name lhs))))
+                                      (and def
+                                       (alpha-equivalent?
+                                        (funcall m-rhs macete)
+                                        (recursive-definition-rec-defining-expr
+                                         def lhs))))))))
+                     value-false)))
+
+(define (usable-macete? macete)
+        (and (not (macete-is-deinition-or-variable-lhs? macete))
+             (cond
+               ((elementary-macete? macete)
+                (let ((th (theorem-home-theory
+                              (elementary-macete->formula macete))))
+                  (and (theory? th)
+                       (macete-sound-in-theory? macete th))))
+               ((transportable-macete? macete)
+                (let ((th (transportable-macete-source-theory macete)))
+                  (and (theory? th)
+                       (macete-sound-in-theory? macete th))))
+               ((composite-macete? macete)
+                (any? usable-macete? (macete-components macete)))
+               (else value-true))))
+
+(define (insert-macete-key macete)
+        (if (usable-macete? macete)
+            (iterate loop ((keys (macete-keys macete)))
+                     (if (null? keys) (return)
+                         (block (enter-key-by-qc-and-lead (car keys))
+                           (enter-macete-by-key macete (car keys))
+                           (loop (cdr keys)))))))
+
+(define (quick-match? expr pattern)
+        (cond
+          ((variable? pattern)
+           (if (sorts-may-overlap? (expression-sorting expr)
+                   (expression-sorting pattern))
+               value-true value-false))
+          ((constant? pattern) (if (eq? expr pattern) value-true value-false))
+          ((and (eq? (expression-constructor pattern)
+                     (expression-constructor expr))
+                (= (length (expression-components pattern))
+                   (length (expression-components expr))))
+           (every? (lambda (x y) (quick-match? x y))
+                   (expression-components expr)
+                   (expression-components pattern)))
+          (else value-false)))
+
+(define (translation-quick-match? source-theory target-theory
+            fixed-theories expr pattern)
+        (receive (sort-alist constant-alist)
+                 (build-translation-components pattern expr)
+                 (and (succeed? sort-alist) (succeed? constant-alist)
+                      (every? (lambda (pair)
+                                (if (eq? (car pair) unit%sort)
+                                    (eq? (cdr pair) unit%sort) value-true))
+                              sort-alist)
+                      (let ((constant-alist
+                                (cleanse-sort-or-constant-alist
+                                    constant-alist fixed-theories
+                                    'constant))
+                            (sort-alist
+                                (cleanse-sort-or-constant-alist
+                                    sort-alist fixed-theories 'sort)))
+                        (and (succeed? constant-alist)
+                             (succeed? sort-alist)
+                             (or (any? (lambda (x)
+                                         (not (eq? (car x) (cdr x))))
+                                       sort-alist)
+                                 constant-alist
+                                 (not (structural-sub-theory?
+                                       source-theory target-theory)))
+                             (if (and (null?
+                                       (theory-top-level-axioms
+                                        source-theory))
+                                      (null? constant-alist))
+                                 value-true
+                                 (any? (lambda (pair)
+                                         (find-first-encompassing-trans-in-list
+                                          source-theory target-theory
+                                          nil fixed-theories sort-alist
+                                          constant-alist
+                                          (table-entry
+                                           *pair-theory-interp-table*
+                                           pair)))
+                                       (append constant-alist
+                                        sort-alist))))))))
+
+(define (applicable-macetes-at-top-level target-theory fixed-theories
+            expr parity)
+        (let ((possible-keys (retrieve-key-by-qc-and-lead expr))
+              (macetes the-empty-set))
+          (walk (lambda (key)
+                  (destructure
+                      (((lhs-pattern source-theory transportable?
+                            bidirectional?)
+                        key))
+                      (if (or (< 0 parity) bidirectional?)
+                          (if transportable?
+                              (if (translation-quick-match?
+                                      source-theory target-theory
+                                      fixed-theories expr lhs-pattern)
+                                  (set macetes
+                                       (union macetes
+                                        (retrieve-macetes-from-key key))))
+                              (if (or (null? source-theory)
+                                      (structural-sub-theory?
+                                       source-theory target-theory))
+                                  (if (quick-match? expr lhs-pattern)
+                                      (set macetes
+                                       (union macetes
+                                        (retrieve-macetes-from-key key)))))))))
+                possible-keys)
+          macetes))
+
+(define (quasi-component-parities expr)
+        (let ((constr (expression-quasi-constructor-if-enabled-or-constructor
+                          expr)))
+          (if (constructor? constr)
+              (iterate loop
+                       ((comps (expression-components expr))
+                        (parities nil) (index 0))
+                       (if (null? comps) (reverse! parities)
+                           (loop
+                             (cdr comps)
+                             (cons (funcall (constructor-parity constr)
+                                    index)
+                                   parities)
+                             (1+ index))))
+              (if constr
+                  (let ((qc-components
+                            (quasi-constructor-paths-to-quasi-components
+                                constr)))
+                    (iterate loop
+                             ((comps (expression-quasi-components-if-enabled-or-components
+                                      expr))
+                              (parities nil) (index 0))
+                             (if (null? comps) (reverse! parities)
+                                 (loop
+                                   (cdr comps)
+                                   (cons
+                                    (if
+                                     (<= (length qc-components) index)
+                                     0
+                                     (let
+                                      ((parities
+                                        (map
+                                         (lambda (p)
+                                           (parity-at-path expr p))
+                                         (nth qc-components index))))
+                                       (cond
+                                         ((every? positive? parities)
+                                          1)
+                                         ((every? negative? parities)
+                                          -1)
+                                         (else 0))))
+                                    parities)
+                                   (1+ index)))))
+                  nil))))
+
+(define (applicable-macetes target-theory expr)
+        (let ((fixed-theories (compress-theories (fixed-theories-set))))
+          (iterate loop ((expr expr) (parity 1))
+                   (union (applicable-macetes-at-top-level
+                              target-theory fixed-theories expr parity)
+                          (big-u (map (lambda (e p)
+                                        (loop e (* parity p)))
+                                      (expression-quasi-components-if-enabled-or-components
+                                       expr)
+                                      (quasi-component-parities expr)))))))
+
+(define (applicable-macetes-for-sqn sqn)
+        (map (lambda (x)
+               (string-downcase (symbol->string (macete-name x))))
+             (applicable-macetes
+                 (deduction-graph-theory (sequent-node-graph sqn))
+                 (sequent-node-assertion sqn))))
+
+(define (macete-description mac)
+        (with-output-to-string p
+          (cond
+            ((composite-macete? mac)
+             (format p "~A " (macete-constructor-name mac))
+             (walk (lambda (x)
+                     (format p "~A "
+                             (cond
+                               ((name x)
+                                (string-downcase
+                                    (symbol->string (name x))))
+                               (else "anonymous-macete"))))
+                   (macete-components mac)))
+            ((transportable-macete? mac)
+             (format p "~5T~A~& ==> ~A"
+                     (qp (transportable-macete-lhs mac))
+                     (qp (transportable-macete-rhs mac))))
+            ((elementary-macete? mac)
+             (format p "~5T~A~& ==> ~A"
+                     (qp (elementary-macete-lhs mac))
+                     (qp (elementary-macete-rhs mac))))
+            (else (format nil "~A is not the name of a macete.")))))
+
+(define (applicable-macetes-for-sqn-with-description sqn)
+        (map (lambda (x)
+               (format nil "~A~&~A~&"
+                       (string-downcase
+                           (symbol->string (macete-name x)))
+                       (macete-description x)))
+             (applicable-macetes
+                 (deduction-graph-theory (sequent-node-graph sqn))
+                 (sequent-node-assertion sqn))))
+
+(define (macete-latex-description mac port)
+        (cond
+          ((composite-macete? mac)
+           (display-composite-macete-in-tex-format-without-theorems mac
+               port))
+          ((transportable-macete? mac)
+           (tex-display-non-composite-macete-actively mac port))
+          ((elementary-macete? mac)
+           (tex-display-non-composite-macete-actively mac port))
+          (else (format port "~A is not the name of a macete."
+                        (backslash-special-chars (macete-name mac))))))
+
+(comment (define (elementary-or-transportable-macete-latex-description
+                     macete port)
+                 (let ((lhs (if (elementary-macete? macete)
+                                (elementary-macete-lhs macete)
+                                (transportable-macete-lhs macete)))
+                       (rhs (if (elementary-macete? macete)
+                                (elementary-macete-rhs macete)
+                                (transportable-macete-rhs macete))))
+                   (format port "\\begin{quote}~& ")
+                   (format port "\\begin{description}~& ")
+                   (format port "\\item[Replace:]")
+                   (display-object-in-tex-format lhs port)
+                   (format port "\\item[By:]")
+                   (display-object-in-tex-format rhs port)
+                   (let ((reqs (macete-requirements macete)))
+                     (cond
+                       ((null? reqs))
+                       ((null? (cdr reqs))
+                        (format port "\\item[Subject to:]~& ")
+                        (display-object-in-tex-format (car reqs) port))
+                       (else (format port
+                                     "\\item[Subject] to the conditions:~& \\begin{itemize}~& ")
+                             (walk (lambda (req)
+                                     (format port "~&  \\item ")
+                                     (display-object-in-tex-format req
+                                      port))
+                                   reqs)
+                             (format port "~& \\end{itemize}~& "))))
+                   (format port "\\end{description}~& ")
+                   (format port "\\end{quote}~& "))))
+
+(define (latex-description-for-applicable-macetes applicables)
+        (initialize-tex-port-and-apply
+            (lambda (xtv-port)
+              (format xtv-port "\\begin{enumerate}~& ")
+              (walk (lambda (x)
+                      (format xtv-port "\\item {\\bf ~A:}"
+                              (backslash-special-chars (macete-name x)))
+                      (macete-latex-description x xtv-port))
+                    applicables)
+              (format xtv-port "\\end{enumerate}~& "))))
+
+(define last-applicables
+        (make-simple-switch 'last-applicables list? nil))
+
+(define (find-applicables-with-latex-description sqn)
+        (let ((applicables
+                  (sort (applicable-macetes
+                            (deduction-graph-theory
+                                (sequent-node-graph sqn))
+                            (sequent-node-assertion sqn))
+                        (lambda (x y)
+                          (or (elementary-macete? x)
+                              (transportable-macete? x)
+                              (composite-macete? y))))))
+          (set (last-applicables) applicables)
+          (latex-description-for-applicable-macetes applicables)))

@@ -1,0 +1,244 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment expand)
+
+(define (essential-multiplicative-arguments processor expr)
+        (iterate loop ((expr expr))
+                 (cond
+                   ((multiplication? processor expr)
+                    (apply append
+                           (map #'loop (associative-arguments expr))))
+                   ((and (exponentiation? processor expr)
+                         (multiplication? processor (1starg expr)))
+                    (map (lambda (x)
+                           (apply-operator (^r processor) x
+                               (2ndarg expr)))
+                         (loop (1starg expr))))
+                   (else (list expr)))))
+
+(define (expand* processor expr params)
+        (let ((pre-pre-simp
+                  (multiply-expression-list processor
+                      (map! (lambda (x)
+                              (if (exponentiation? processor x)
+                                  (receive (base expr-list)
+                                           (string-out-nested-exponentiation
+                                            processor x params)
+                                           (let
+                                            ((expt
+                                              (multiply-expression-list
+                                               (exponent-processor
+                                                processor)
+                                               expr-list params))
+                                             (^r
+                                              (^r processor)))
+                                             (apply-operator ^r base
+                                              expt)))
+                                  (algebraic-processor-simplify
+                                      processor x params)))
+                            (essential-multiplicative-arguments
+                                processor expr))
+                      params)))
+          (if (multiplication? processor pre-pre-simp)
+              (let ((pre-simp
+                        (multiply-expression-list processor
+                            (map! (lambda (x)
+                                    (if (exponentiation? processor x)
+                                     (expand^ processor x params) x))
+                                  (associative-arguments pre-pre-simp))
+                            params)))
+                (if (multiplication? processor pre-simp)
+                    (cross-multiply-expr-list processor
+                        (associative-arguments pre-simp) params)
+                    pre-simp))
+              (if (exponentiation? processor pre-pre-simp)
+                  (expand^ processor pre-pre-simp params) pre-pre-simp))))
+
+(define (cross-multiply processor expr sum-of-products)
+        (if (addition? processor expr)
+            (map-independently cons (associative-arguments expr)
+                sum-of-products)
+            (map (lambda (x) (cons expr x)) sum-of-products)))
+
+(define (cross-multiply-expr-list processor expr-list params)
+        (sum-of-products->expression processor
+            (iterate repeat ((expr-list expr-list) (sum-prods '(())))
+                     (cond
+                       ((null? expr-list) sum-prods)
+                       (else (cross-multiply processor (car expr-list)
+                                 (repeat (cdr expr-list) sum-prods)))))
+            params))
+
+(define (product->expression processor product params)
+        (multiply-expression-list processor product params))
+
+(define (sum-of-products->expression processor sum-of-products params)
+        (sum-expression-list processor
+            (map (lambda (y) (product->expression processor y params))
+                 sum-of-products)
+            params))
+
+(define (expand^ processor expr params)
+        (receive (base expr-list)
+                 (string-out-nested-exponentiation processor expr
+                     params)
+                 (let ((expt (multiply-expression-list
+                                 (exponent-processor processor)
+                                 expr-list params))
+                       (^r (^r processor)))
+                   (cond
+                     ((scalar-constant-=0?
+                          (exponent-processor processor) expt)
+                      (^formal processor base expt params))
+                     ((scalar-constant-=1?
+                          (exponent-processor processor) expt)
+                      base)
+                     ((and (scalar-constant?
+                               (exponent-processor processor) expt)
+                           (integer?
+                               (scalar-constant->numerical-object
+                                   (exponent-processor processor) expt))
+                           (>=0? (scalar-constant->numerical-object
+                                     (exponent-processor processor)
+                                     expt))
+                           (addition? processor base))
+                      (binomial-expansion processor base expt params))
+                     ((multiplication? processor base)
+                      (let* ((args (associative-arguments base))
+                             (expd-args
+                                 (map (lambda (x)
+                                        (apply-operator ^r x expt))
+                                      args)))
+                        (multiply-expression-list processor expd-args params)))
+                     (else (^formal processor base expt params))))))
+
+(define (binomial-expansion processor base expt params)
+        (enforce (lambda (x) (addition? processor x)) base)
+        (sum-of-products-of-powers->expression processor
+            (binomial processor (1starg base) (2ndarg base) expt)
+            params))
+
+(define (binomial processor a b expt)
+        (let ((n (scalar-constant->numerical-object
+                     (exponent-processor processor) expt)))
+          (iterate iter ((i 0) (sum-prod nil))
+                   (if (<= i n)
+                       (iter (1+ i)
+                             (cons (list
+                                    (list
+                                     (number->scalar-constant processor
+                                      (combination n i))
+                                     (number->exponent-constant
+                                      processor 1))
+                                    (list a
+                                     (number->exponent-constant
+                                      processor (- n i)))
+                                    (list b
+                                     (number->exponent-constant
+                                      processor i)))
+                                   sum-prod))
+                       sum-prod))))
+
+(define (sum-of-products-of-powers->expression processor
+            sum-of-products params)
+        (sum-expression-list processor
+            (map (lambda (y)
+                   (algebraic-processor-simplify processor
+                       (product-of-powers->expression processor y
+                           params)
+                       params))
+                 sum-of-products)
+            params))
+
+(define (product-of-powers->expression processor product-of-powers
+            params)
+        (let ((numerical-constant-1
+                  (number->scalar-constant processor 1)))
+          (multiply-expression-list processor
+              (map (lambda (z)
+                     (cond
+                       ((scalar-constant-=0?
+                            (exponent-processor processor) (cadr z))
+                        numerical-constant-1)
+                       ((scalar-constant-=1?
+                            (exponent-processor processor) (cadr z))
+                        (car z))
+                       ((addition? processor (car z))
+                        (binomial-expansion processor (car z) (cadr z)
+                            params))
+                       (else (apply-operator (^r processor) (car z)
+                                 (cadr z)))))
+                   product-of-powers)
+              params)))
+
+(define (map-independently proc list1 list2)
+        (let ((collect nil))
+          (walk (lambda (x)
+                  (walk (lambda (y) (push collect (funcall proc x y)))
+                        list2))
+                list1)
+          (reverse! collect)))
+
+(define (divide-list the-list)
+        (let ((l (quotient (length the-list) 2)))
+          (iterate loop ((1sthalf nil) (2ndhalf the-list) (num 0))
+                   (if (>= num l) (return (reverse! 1sthalf) 2ndhalf)
+                       (loop
+                         (cons (car 2ndhalf) 1sthalf)
+                         (cdr 2ndhalf)
+                         (1+ num))))))
+
+(define (combination n m)
+        (cond
+          ((> m (/ n 2)) (combination n (- n m)))
+          (else (do ((result 1 (/ (* result n1) m1)) (n1 n (-1+ n1))
+                     (m1 1 (1+ m1)))
+                    ((> m1 m) result)))))

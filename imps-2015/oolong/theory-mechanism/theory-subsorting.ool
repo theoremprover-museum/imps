@@ -1,0 +1,152 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment theory-subsorting)
+
+(define-structure-type theory-subsorting type-table table theory
+    (((print self port)
+      (format port "#{IMPS-theory-subsorting ~A ~S}"
+              (theory-subsorting-theory self) (object-hash self)))))
+
+(define (theory-types theory)
+        (set-separate sort-is-type?
+            (sorts-resolved (theory-language theory))))
+
+(define (theory-atomic-subsorts theory)
+        (set-separate (lambda (sort) (not (sort-is-type? sort)))
+            (sorts-resolved (theory-language theory))))
+
+(define (install-immediate-supersorts table sorting atomic-sortings
+            theory)
+        (walk (lambda (atom)
+                (and (not (eq? sorting atom))
+                     (sorts-may-overlap? sorting atom)
+                     (or (sorting-leq sorting atom)
+                         (theory-coercion-everywhere-defined? theory
+                             sorting atom))
+                     (push (table-entry table sorting) atom)))
+              atomic-sortings))
+
+(define (close-supersort-table table)
+        (iterate iter ()
+                 (let ((repeat? value-false))
+                   (walk-table
+                       (lambda (subsort supersorts)
+                         (walk (lambda (super)
+                                 (let ((supersupers
+                                        (table-entry table super)))
+                                   (walk
+                                    (lambda (supersuper)
+                                      (if
+                                       (not
+                                        (memq? supersuper supersorts))
+                                       (block (set repeat? value-true)
+                                         (push
+                                          (table-entry table subsort)
+                                          supersuper))))
+                                    supersupers)))
+                               supersorts))
+                       table)
+                   (and repeat? (iter)))))
+
+(define (supersort-table-add-coercion table from-sort to-sort)
+        (push (table-entry table from-sort) to-sort)
+        (close-supersort-table table))
+
+(define (build-theory-subsorting theory)
+        (let ((subsorting (make-theory-subsorting)) (id (name theory)))
+          (set (theory-subsorting-type-table subsorting)
+               (make-sorting-hash-table
+                   (concatenate-symbol 'type-subsorts-for- id)))
+          (set (theory-subsorting-table subsorting)
+               (make-sorting-hash-table
+                   (concatenate-symbol 'subsorting-for- id)))
+          (set (theory-subsorting-theory subsorting) theory)
+          (let ((atomic-subsorts (theory-atomic-subsorts theory))
+                (ss-table (theory-subsorting-table subsorting)))
+            (walk (lambda (sub-sort)
+                    (push (table-entry
+                              (theory-subsorting-type-table subsorting)
+                              (type-of-sort sub-sort))
+                          sub-sort))
+                  atomic-subsorts)
+            (walk (lambda (sorting)
+                    (install-immediate-supersorts ss-table sorting
+                        atomic-subsorts theory))
+                  atomic-subsorts)
+            (close-supersort-table ss-table))
+          subsorting))
+
+(define (theory-subsorting-sorting-leq subsorting sort1 sort2)
+        (cond
+          ((not (sorts-may-overlap? sort1 sort2)) value-false)
+          ((sorting-leq sort1 sort2))
+          ((and (name sort1) (name sort2))
+           (memq? sort2
+                  (table-entry (theory-subsorting-table subsorting)
+                      sort1)))
+          ((theory-coercion-everywhere-defined?
+               (theory-subsorting-theory subsorting) sort1 sort2))
+          ((name sort1)
+           (theory-subsorting-sorting-leq subsorting
+               (enclosing-sort sort1) sort2))
+          ((name sort2) value-false)
+          (else (and (theory-subsorting-sorting-leq subsorting
+                         (higher-sort-range sort1)
+                         (higher-sort-range sort2))
+                     (every? (lambda (sort1 sort2)
+                               (theory-subsorting-sorting-leq
+                                   subsorting sort1 sort2))
+                             (higher-sort-domains sort1)
+                             (higher-sort-domains sort2))))))
+
+(define (theory-sorting-leq theory sort1 sort2)
+        (theory-subsorting-sorting-leq
+            (theory-subsorting-structure theory) sort1 sort2))

@@ -1,0 +1,183 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment rewrite-rules)
+
+(define *rewrite-rules-table* (make-table '*rewrite-rules-table*))
+
+(define-settable-operation (simplify-logically-first? rule))
+
+(define-operation (rewrite-rule-lhs rule))
+
+(define-operation (rewrite-rule-rhs rule))
+
+(define-predicate rewrite-rule?)
+
+(define-operation (rewrite-rule-formula rule))
+
+(define-settable-operation (rewrite-rule-trigger rule))
+
+(define (make-rewrite-rule formula rule)
+        (let ((simp-comps? value-false))
+          (labels (((trigger context reqs persist subst) (ignore subst)
+                    (return
+                      (bind (((accumulate-undischarged-minor-premises?)
+                              value-false))
+                            (tc-prove-requirements context reqs
+                                persist))
+                      nil)))
+            (imps-enforce expression? (car rule))
+            (imps-enforce expression? (cdr rule))
+            (let ((jointly-exposed-vars
+                      (jointly-exposed-variables (car rule) (cdr rule))))
+              (object (lambda (context expr persist)
+                        (let ((expr (if simp-comps?
+                                     (simplify-logically context expr
+                                      persist)
+                                     expr)))
+                          (let ((subst-alist (match expr (car rule))))
+                            (if (fail? subst-alist)
+                                (return expr nil value-false)
+                                (let ((reqs
+                                       (restricted-substitution-definedness-conditions
+                                        subst-alist
+                                        jointly-exposed-vars)))
+                                  (receive (fire? remaining-reqs)
+                                           (funcall trigger context
+                                            reqs persist subst-alist)
+                                           (if fire?
+                                            (return
+                                              (apply-substitution
+                                               subst-alist (cdr rule))
+                                              remaining-reqs
+                                              value-false)
+                                            (return expr nil value-false))))))))
+                      (((setter simplify-logically-first?) soi new-val)
+                       (set simp-comps? new-val))
+                      ((simplify-logically-first? soi) simp-comps?)
+                      (((setter rewrite-rule-trigger) soi new-val)
+                       (set trigger new-val))
+                      ((rewrite-rule-trigger soi) trigger)
+                      ((rewrite-rule-lhs soi) (car rule))
+                      ((rewrite-rule-rhs soi) (cdr rule))
+                      ((rewrite-rule-formula rule) formula)
+                      ((rewrite-rule? soi) value-true))))))
+
+(define (theory-install-rewrite-rule theory theorem)
+        (let ((formula (theorem-formula theorem)))
+          (set (table-entry *rewrite-rules-table* theorem)
+               (build-and-install-rewrite-rules-from-formula theory
+                   formula))))
+
+(define (theory-add-rewrite-rule theory formula rule)
+        (let ((rewrite-rule (make-rewrite-rule formula rule))
+              (constr (expression-quasi-constructor-or-constructor
+                          (car rule)))
+              (lead (expression-lead-constant (car rule))))
+          (theory-install-transform theory constr lead rewrite-rule)
+          (install-transform-as-rewrite-rule rewrite-rule)
+          (theory-install-transform-in-algebraic-processors theory
+              rewrite-rule)
+          rewrite-rule))
+
+(define (build-and-install-rewrite-rules-from-formula theory formula)
+        (let ((body (universal-matrix formula nil)))
+          (cond
+            ((conjunction? body)
+             (big-u (map (lambda (x)
+                           (build-and-install-rewrite-rules-from-formula
+                               theory x))
+                         (ultimate-conjuncts (list body)))))
+            ((or (equation? body) (quasi-equation? body)
+                 (biconditional? body))
+             (let ((source (if (quasi-equation? body)
+                               (quasi-equation-lhs body)
+                               (expression-lhs body)))
+                   (target (if (quasi-equation? body)
+                               (quasi-equation-rhs body)
+                               (expression-rhs body))))
+               (cond
+                 ((equation? source)
+                  (list (theory-add-rewrite-rule theory formula
+                            (cons source target))))
+                 ((negated-equation? source)
+                  (build-and-install-rewrite-rules-from-formula theory
+                      (biconditional (negation-body source)
+                          (negation target))))
+                 (else (list (theory-add-rewrite-rule theory formula
+                                 (cons source target)))))))
+            ((negation? body)
+             (build-and-install-rewrite-rules-from-formula theory
+                 (biconditional (negation-body body) falsehood)))
+            (else (build-and-install-rewrite-rules-from-formula theory
+                      (biconditional body truth))))))
+
+(define (rewrite-usage-simplog1st theorem)
+        (let ((transforms (table-entry *rewrite-rules-table* theorem)))
+          (walk (lambda (transform)
+                  (if (rewrite-rule? transform)
+                      (set (simplify-logically-first? transform)
+                           value-true)))
+                transforms)))
+
+(define (set-rewrite-usage-trigger theorem proc)
+        (let ((transforms (table-entry *rewrite-rules-table* theorem)))
+          (walk (lambda (transform)
+                  (if (rewrite-rule? transform)
+                      (set (rewrite-rule-trigger transform) proc)))
+                transforms)))
+
+(define (rewrite-usage-sort-check-trigger theorem)
+        (rewrite-usage-trigger theorem
+            (lambda (context reqs persist subst)
+              (ignore context persist)
+              (return
+                (substitution-preserves-sort-inclusions? subst)
+                reqs))))

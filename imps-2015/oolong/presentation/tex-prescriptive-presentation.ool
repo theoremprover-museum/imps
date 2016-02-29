@@ -1,0 +1,326 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment tex-prescriptive-presentation)
+
+(define-structure-type tex-summary port relevant-sequent-nodes graph
+    goal-seen? seen-sequent-nodes seen-assertion-sqn-alist
+    seen-context-sqn-alist)
+
+(define (deduction-graph-build-tex-summary dg port)
+        (let ((struct (make-tex-summary)))
+          (set (tex-summary-goal-seen? struct) value-false)
+          (set (tex-summary-graph struct) dg)
+          (set (tex-summary-port struct) port)
+          (set (tex-summary-seen-sequent-nodes struct) nil)
+          (set (tex-summary-seen-context-sqn-alist struct) nil)
+          (set (tex-summary-seen-assertion-sqn-alist struct) nil)
+          struct))
+
+(define (dg-history-entry-sequent-nodes entry)
+        (list (dg-history-entry-sequent-node entry)))
+
+(define (tex-summary-goal-node? tex-summary sqn) (ignore tex-summary)
+        (eq? sqn (deduction-graph-goal (sequent-node-graph sqn))))
+
+(define (tex-summary-sequent-seen? tex-summary sqn)
+        (memq? sqn (tex-summary-seen-sequent-nodes tex-summary)))
+
+(define (tex-summary-context-seen? tex-summary sqn)
+        (assq (sequent-node-context sqn)
+              (tex-summary-seen-context-sqn-alist tex-summary)))
+
+(define (tex-summary-assertion-seen? tex-summary sqn)
+        (assq (sequent-node-assertion sqn)
+              (tex-summary-seen-assertion-sqn-alist tex-summary)))
+
+(define (tex-summary-mark-sqn-as-seen tex-summary sqn)
+        (cond
+          ((tex-summary-goal-node? tex-summary sqn)
+           (set (tex-summary-goal-seen? tex-summary) value-true))
+          ((tex-summary-sequent-seen? tex-summary sqn))
+          ((tex-summary-context-seen? tex-summary sqn)
+           (set (tex-summary-seen-sequent-nodes tex-summary)
+                (cons sqn (tex-summary-seen-sequent-nodes tex-summary)))
+           (set (tex-summary-seen-assertion-sqn-alist tex-summary)
+                (cons (cons (sequent-node-assertion sqn) sqn)
+                      (tex-summary-seen-assertion-sqn-alist
+                          tex-summary))))
+          ((tex-summary-assertion-seen? tex-summary sqn)
+           (set (tex-summary-seen-sequent-nodes tex-summary)
+                (cons sqn (tex-summary-seen-sequent-nodes tex-summary)))
+           (set (tex-summary-seen-context-sqn-alist tex-summary)
+                (cons (cons (sequent-node-context sqn) sqn)
+                      (tex-summary-seen-context-sqn-alist tex-summary))))
+          (else (set (tex-summary-seen-sequent-nodes tex-summary)
+                     (cons sqn
+                           (tex-summary-seen-sequent-nodes tex-summary)))
+                (set (tex-summary-seen-assertion-sqn-alist tex-summary)
+                     (cons (cons (sequent-node-assertion sqn) sqn)
+                           (tex-summary-seen-assertion-sqn-alist
+                               tex-summary)))
+                (set (tex-summary-seen-context-sqn-alist tex-summary)
+                     (cons (cons (sequent-node-context sqn) sqn)
+                           (tex-summary-seen-context-sqn-alist
+                               tex-summary))))))
+
+(define (tex-summary-display-sqn-in-tex-format tex-summary sqn)
+        (let ((port (tex-summary-port tex-summary)))
+          (cond
+            ((and (tex-summary-goal-node? tex-summary sqn)
+                  (tex-summary-goal-seen? tex-summary)))
+            ((tex-summary-sequent-seen? tex-summary sqn))
+            ((tex-summary-context-seen? tex-summary sqn) =>
+             (lambda (e)
+               (format port
+                       "~%~% \\bigskip ~%~%\\noindent{ \\bf Sequent ~a.}"
+                       (sequent-node-number sqn))
+               (display-sequent-free-variables sqn port)
+               (if (sequent-node-assumptions sqn)
+                   (format port
+                           "~%Under the same assumptions as sequent ~A, we have:"
+                           (sequent-node-number (cdr e))))
+               (tex-summary-display-sqn-assertion-in-tex-format
+                   tex-summary sqn)
+               (format port "~%")))
+            ((tex-summary-assertion-seen? tex-summary sqn) =>
+             (lambda (e)
+               (format port
+                       "~%~% \\bigskip ~%~% \\noindent{\\bf Sequent ~a. }"
+                       (sequent-node-number sqn))
+               (display-sequent-free-variables sqn port)
+               (format port "~%The conclusion of sequent ~A holds "
+                       (sequent-node-number (cdr e)))
+               (if (sequent-node-assumptions sqn)
+                   (block (format port " provided ")
+                     (tex-summary-display-sqn-context-in-tex-format
+                         tex-summary sqn))
+                   (format port "."))))
+            (else (if (not (tex-summary-goal-node? tex-summary sqn))
+                      (format port
+                              "~%~% \\bigskip  ~%~%\\noindent{\\bf Sequent ~a.}"
+                              (sequent-node-number sqn))
+                      (format port
+                              " {\\bf Theorem } ~%~% \\bigskip ~%~%"))
+                  (display-sequent-free-variables sqn port)
+                  (if (sequent-node-assumptions sqn)
+                      (block (format port
+                                     " Assume:~%~% \\bigskip ~%~%")
+                        (tex-summary-display-sqn-context-in-tex-format
+                            tex-summary sqn)
+                        (format port "Then")))
+                  (tex-summary-display-sqn-assertion-in-tex-format
+                      tex-summary sqn)))
+          (tex-summary-mark-sqn-as-seen tex-summary sqn)))
+
+(define (tex-summary-display-sqn-assertion-in-tex-format tex-summary
+            sqn)
+        (let ((port (tex-summary-port tex-summary))
+              (expr (sequent-node-assertion sqn))
+              (assums (sequent-node-assumptions sqn)))
+          (if (small-expression? expr)
+              (bind (((maximum-nesting-for-logical-expressions) 0))
+                    (if assums (format port " "))
+                    (display-object-in-tex-format expr port))
+              (block (if assums (format port "~%~%"))
+                (display-single-formula-in-tex-format expr port)))
+          (format port "~%~%")))
+
+(define (tex-summary-display-sqn-context-in-tex-format tex-summary sqn)
+        (let ((port (tex-summary-port tex-summary))
+              (assums (sequent-node-assumptions sqn)))
+          (if assums
+              (block (if (null? (cdr assums))
+                         (let ((expr (car assums)))
+                           (if (small-expression? expr)
+                               (bind (((maximum-nesting-for-logical-expressions)
+                                       0))
+                                     (display-object-in-tex-format expr
+                                      port))
+                               (display-single-formula-in-tex-format
+                                   expr port))
+                           (format port "~%~%"))
+                         (display-expression-list-in-tex-format assums
+                             port))))))
+
+(define (tex-summary-display-history-entry-in-tex-format tex-summary
+            entry last?)
+        (let ((sqns (dg-history-entry-sequent-nodes entry))
+              (port (tex-summary-port tex-summary))
+              (grounded?
+                  (deduction-graph-grounded?
+                      (tex-summary-graph tex-summary)))
+              (last-and-grounded?
+                  (and last?
+                       (deduction-graph-grounded?
+                           (tex-summary-graph tex-summary)))))
+          (walk (lambda (x) (if (string? x) (format port x)))
+                (dg-history-entry-comments entry))
+          (format port " ")
+          (display-command tex-summary entry)
+          (if last-and-grounded?
+              (format port "This completes the proof.")
+              (let ((new-sqns
+                        (if grounded?
+                            (set-intersection
+                                (tex-summary-relevant-sequent-nodes
+                                    tex-summary)
+                                (dg-history-entry-new-nodes entry))
+                            (dg-history-entry-new-nodes entry))))
+                (if new-sqns (format port "This yields"))
+                (if (null? new-sqns)
+                    (if (subset? sqns
+                                 (dg-history-entry-nodes-grounded-by-command
+                                     entry))
+                        (if (null? (cdr sqns))
+                            (format port "This grounds it. ")
+                            (format port "This grounds them. "))
+                        (let ((grounded
+                                  (dg-history-entry-sequent-nodes-grounded-by-command
+                                      entry)))
+                          (if grounded
+                              (block (format port "It grounded ")
+                                (enumerate-a-list-of-sequent-numbers
+                                    tex-summary grounded port)
+                                (format port ".  "))))))
+                (walk (lambda (sqn)
+                        (tex-summary-display-sqn-in-tex-format
+                            tex-summary sqn))
+                      (sort-list new-sqns
+                          (lambda (x y)
+                            (< (sequent-node-number x)
+                               (sequent-node-number y)))))
+                (if new-sqns (format port " ~%~%\\bigskip ~%~%"))))))
+
+(define (sequent-number-or-goal tex-summary sqn)
+        (if (tex-summary-goal-node? tex-summary sqn)
+            " the claim of the theorem" (sequent-node-number sqn)))
+
+(define (enumerate-a-list-of-sequent-numbers tex-summary the-list port)
+        (format-a-list-elegantly port
+            (map (lambda (x) (sequent-number-or-goal tex-summary x))
+                 the-list)))
+
+(define (format-a-list-elegantly port the-list)
+        (let ((n (length the-list)))
+          (if (< 0 n)
+              (iterate loop ((n n) (the-list the-list))
+                       (cond
+                         ((= n 1) (format port " ~a" (car the-list)))
+                         ((= n 2)
+                          (format port "~a  and ~a" (car the-list)
+                                  (cadr the-list)))
+                         (else (format port " ~a, " (car the-list))
+                               (loop (subtract1 n) (cdr the-list))))))))
+
+(define (display-prescriptive-proof-in-tex-format dg port)
+        (bind (((dont-list-free-variables?) value-true))
+              (let ((tex-summary
+                        (deduction-graph-build-tex-summary dg port))
+                    (useful-history-entries nil)
+                    (sequent-nodes-considered nil))
+                (walk (lambda (entry)
+                        (if (not (dg-history-entry-superfluous? entry))
+                            (push useful-history-entries entry)))
+                      (deduction-graph-history dg))
+                (walk (lambda (entry)
+                        (set sequent-nodes-considered
+                             (union sequent-nodes-considered
+                                    (dg-history-entry-sequent-nodes
+                                     entry))))
+                      useful-history-entries)
+                (set (tex-summary-relevant-sequent-nodes tex-summary)
+                     sequent-nodes-considered)
+                (tex-summary-display-sqn-in-tex-format tex-summary
+                    (deduction-graph-goal
+                        (tex-summary-graph tex-summary)))
+                (if (deduction-graph-grounded? dg)
+                    (format port "~%~% \\bigskip ~%~%{\\sc Proof: }")
+                    (format port
+                            "~%~%\\bigskip ~%~%{\\sc Partial Proof: }"))
+                (iterate loop ((entries useful-history-entries))
+                         (cond
+                           ((cdr entries)
+                            (tex-summary-display-history-entry-in-tex-format
+                                tex-summary (car entries) value-false)
+                            (loop (cdr entries)))
+                           (entries (tex-summary-display-history-entry-in-tex-format
+                                     tex-summary (car entries) value-true)
+                                    (loop (cdr entries)))
+                           (else nil))))))
+
+(define (name-for-tex object) (backslash-special-chars (name object)))
+
+(define (deduction-graph-tex-formatter)
+        display-prescriptive-proof-in-tex-format)
+
+(define *command-display-procs* (make-table '*command-display-procs*))
+
+(define (display-command tex-summary entry)
+        (let ((sqns (dg-history-entry-sequent-nodes entry))
+              (arguments (dg-history-entry-arguments entry))
+              (port (tex-summary-port tex-summary))
+              (command (dg-history-entry-command entry)))
+          (let ((proc (table-entry *command-display-procs* command)))
+            (if proc
+                (funcall proc tex-summary entry sqns command arguments
+                         port)
+                (block (format port "Apply  ")
+                  (format port
+                          (string-downcase
+                              (format nil "{\\sc ~A}"
+                                      (name-for-tex command))))
+                  (format port " to ")
+                  (enumerate-a-list-of-sequent-numbers tex-summary sqns
+                      port)
+                  (format port ". "))))))
+
+(define (set-command-display command proc)
+        (set (table-entry *command-display-procs* command) proc))

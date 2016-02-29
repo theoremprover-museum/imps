@@ -1,0 +1,1057 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment theory)
+
+(define-structure-type theory name component-theories language
+    original-language-name axioms top-level-axioms definitions
+    recursive-definitions sort-definitions mc-extensions
+    theorem-hash-table transform-table valid-processors
+    domain-range-handler distinct-constant-table equivalence-relations
+    distinct-constant-list history subsorting-structure table-hash
+    (((name self) (theory-name self))
+     ((print self port)
+      (format port "#{IMPS-theory ~A: ~S}" (object-hash self)
+              (theory-name self)))
+     ((two-d-table-hash self)
+      (let ((hash (theory-table-hash self)))
+        (if (uncomputed? hash)
+            (let ((hash (descriptor-hash self)))
+              (set (theory-table-hash self) hash)
+              hash)
+            hash)))))
+
+(at-top-level
+    (block (set (theory-definitions (stype-master theory-stype)) nil)
+      (set (theory-recursive-definitions (stype-master theory-stype))
+           nil)
+      (set (theory-sort-definitions (stype-master theory-stype)) nil)
+      (set (theory-mc-extensions (stype-master theory-stype)) nil)
+      (set (theory-transform-table (stype-master theory-stype))
+           (make-table 'transform-table))
+      (set (theory-valid-processors (stype-master theory-stype))
+           the-empty-set)
+      (set (theory-domain-range-handler (stype-master theory-stype))
+           value-false)
+      (set (theory-equivalence-relations (stype-master theory-stype))
+           nil)
+      (set (theory-table-hash (stype-master theory-stype))
+           (uncomputed))
+      (set (theory-history (stype-master theory-stype)) nil)))
+
+(define (find-structural-sub-theories theory)
+        (set-union (theory-component-theories theory)
+            (collect-set find-structural-sub-theories
+                (theory-component-theories theory))))
+
+(define (structural-sub-theory? sub-theory theory)
+        (or (eq? sub-theory theory)
+            (any? (lambda (th) (structural-sub-theory? sub-theory th))
+                  (theory-component-theories theory))))
+
+(define (clear-em) (reset-quasi-constructors) (clear-contexts)
+        (clear-processors))
+
+(define (distinct-constant-lists-equivalent? dcl-1 dcl-2)
+        (labels (((halfway? dcl-1 dcl-2)
+                  (iterate iter ((dcl-1 dcl-1))
+                           (cond
+                             ((null? dcl-1) value-true)
+                             ((let ((exemplar (caar dcl-1)))
+                                (any (lambda (constant-set)
+                                       (and
+                                        (memq? exemplar constant-set)
+                                        constant-set))
+                                     dcl-2))
+                              =>
+                              (lambda (constant-set)
+                                (if (set-equal? (car dcl-1)
+                                     constant-set)
+                                    (iter (cdr dcl-1)) value-false)))
+                             (else value-false)))))
+          (and (halfway? dcl-1 dcl-2) (halfway? dcl-2 dcl-1))))
+
+(define (theory-respects-distinct-constants? theory distinct-constants)
+        (let ((table (theory-distinct-constant-table theory)))
+          (iterate iter ((distinct-constants distinct-constants))
+                   (or (null? distinct-constants)
+                       (and (let ((exemplar
+                                      (table-entry table
+                                       (caar distinct-constants))))
+                              (and exemplar
+                                   (every?
+                                    (lambda (c)
+                                      (eq? exemplar
+                                       (table-entry table c)))
+                                    (cdar distinct-constants))))
+                            (iter (cdr distinct-constants)))))))
+
+(define global-theory-table (make-table 'global-theory-table))
+
+(define (enter-theory theory)
+        (push (two-d-table-entry global-theory-table
+                  (theory-language theory)
+                  (reduce-map fx+ 0 expression-descriptor-hash
+                      (theory-axioms theory)))
+              theory))
+
+(define (theories-in-global-theory-table)
+        (let ((accum nil))
+          (walk-table
+              (lambda (key value)
+                (ignore key)
+                (walk-table
+                    (lambda (key value)
+                      (ignore key)
+                      (set accum (append value accum)))
+                    value))
+              global-theory-table)
+          (make-set accum)))
+
+(define (theory-names-in-global-theory-table)
+        (map (lambda (x) (string-downcase (symbol->string x)))
+             (disgorge-names name->theory)))
+
+(define (count-theories)
+        (length (set-separate name (theories-in-global-theory-table))))
+
+(define (find-theory language axioms distinct-constants)
+        (let ((candidates
+                  (two-d-table-entry global-theory-table language
+                      (reduce-map fx+ 0 expression-descriptor-hash
+                          axioms))))
+          (any (lambda (th)
+                 (and (set-equal? (theory-axioms th) axioms)
+                      (distinct-constant-lists-equivalent?
+                          (theory-distinct-constant-list th)
+                          distinct-constants)
+                      th))
+               candidates)))
+
+(define (delete-theory theory)
+        (set (two-d-table-entry global-theory-table
+                 (theory-language theory)
+                 (reduce-map fx+ 0 expression-descriptor-hash
+                     (theory-axioms theory)))
+             (set-difference
+                 (two-d-table-entry global-theory-table
+                     (theory-language theory)
+                     (reduce-map fx+ 0 expression-descriptor-hash
+                         (theory-axioms theory)))
+                 (list theory))))
+
+(define-operation (disgorge-names name->object-fn))
+
+(define name->theory
+        (let ((*theory-name-alist* nil))
+          (operation
+              (lambda (symbol-form)
+                (cond
+                  ((assq symbol-form *theory-name-alist*) => cdr)
+                  (else nil)))
+              ((disgorge-names self)
+               (iterate iter ((names nil) (l *theory-name-alist*))
+                        (if (null? l) (reverse! names)
+                            (iter (cons (caar l) names) (cdr l)))))
+              ((setter self)
+               (lambda (symbol-form new-value)
+                 (imps-enforce theory? new-value)
+                 (imps-enforce possible-symbol-form? symbol-form)
+                 (cond
+                   ((eq? symbol-form nil) nil)
+                   ((assq symbol-form *theory-name-alist*) =>
+                    (lambda (pair)
+                      (format value-true
+                              "~%; WARNING: redefining theory named ~S.~%"
+                              symbol-form)
+                      (set (cdr pair) new-value)))
+                   (else (set *theory-name-alist*
+                              (cons (cons symbol-form new-value)
+                                    *theory-name-alist*)))))))))
+
+(define (theory-name-string theory)
+        (string-downcase! (symbol->string (theory-name theory))))
+
+(define *global-super-theories-alist*
+        (list '*global-super-theories-alist*))
+
+(define (find-structural-super-theories theory)
+        (let ((immed-super-ths
+                  (cdr (assq theory
+                             (cdr *global-super-theories-alist*)))))
+          (set-union immed-super-ths
+              (collect-set find-structural-super-theories
+                  immed-super-ths))))
+
+(define (structural-super-theory? super-theory theory)
+        (structural-sub-theory? theory super-theory))
+
+(define (enter-super-theory theory super-theory)
+        (if (not (element-of-set? theory
+                     (theory-component-theories super-theory)))
+            (imps-error
+                "ENTER-SUPER-THEORY: ~S is not an immediate structural super-theory of ~S."
+                super-theory theory)
+            (let ((rem (cdr *global-super-theories-alist*)))
+              (cond
+                ((assq theory rem) =>
+                 (lambda (pair)
+                   (set (cdr pair)
+                        (add-set-element super-theory (cdr pair)))))
+                (else (set (cdr *global-super-theories-alist*)
+                           (cons (cons theory
+                                       (make-set (list super-theory)))
+                                 rem)))))))
+
+(define (find-super-theory-having-constant theory the-name)
+        (iterate iter
+                 ((super-theories
+                      (find-structural-super-theories theory)))
+                 (cond
+                   ((empty-set? super-theories) value-false)
+                   ((find-constant
+                        (theory-language
+                            (first-set-element super-theories))
+                        the-name)
+                    (first-set-element super-theories))
+                   (else (iter (rest-of-set super-theories))))))
+
+(define (find-super-theory-having-sort theory the-name)
+        (iterate iter
+                 ((super-theories
+                      (find-structural-super-theories theory)))
+                 (cond
+                   ((empty-set? super-theories) value-false)
+                   ((name->sort
+                        (theory-language
+                            (first-set-element super-theories))
+                        the-name)
+                    (first-set-element super-theories))
+                   (else (iter (rest-of-set super-theories))))))
+
+(define (build-theory component-theories new-language new-axioms
+            distinct-constants . symbol-form)
+        (cond
+          ((and (not (null? symbol-form))
+                (or (not (possible-symbol-form? (car symbol-form)))
+                    (eq? nil (car symbol-form))))
+           (imps-error "BUILD-THEORY: ~A is an unsuitable name."
+               (car symbol-form)))
+          ((not (every? theory? component-theories))
+           (imps-error "BUILD-THEORY: ~A is not set of theories."
+               component-theories))
+          ((not (language? new-language))
+           (imps-error "BUILD-THEORY: ~A is not a language."
+               new-language))
+          ((not (every-set-element? theorem? new-axioms))
+           (imps-error "BUILD-THEORY: ~A is not a set of theorems."
+               new-axioms))
+          ((any? (lambda (l)
+                   (any? (lambda (c) (not (constant? c))) l))
+                 distinct-constants)
+           (imps-error "BUILD-THEORY: ~A contains non-constants."
+               distinct-constants))
+          ((any (lambda (l) (and (not (is-set? l)) l))
+                distinct-constants)
+           =>
+           (lambda (non-set)
+             (imps-warning
+                 "BUILD-THEORY: Distinct constant list~&~A~&~A~&~A"
+                 non-set "contains a multiple occurrence."
+                 "The resulting theory will be INCONSISTENT."))))
+        (let* ((component-theories
+                   (add-set-element the-kernel-theory
+                       component-theories))
+               (language
+                   (language-union
+                       (add-set-element new-language
+                           (set-map theory-language component-theories))))
+               (distinct-constants
+                   (apply append
+                          (cons distinct-constants
+                                (map theory-distinct-constant-list
+                                     component-theories))))
+               (old-axioms
+                   (collect-set theory-axioms component-theories))
+               (axioms (set-union old-axioms new-axioms)))
+          (if (and symbol-form (compound-language? language)
+                   (not (compound-language-name language)))
+              (let ((lang-name
+                        (concatenate-symbol (car symbol-form)
+                            '-language)))
+                (set (compound-language-name language) lang-name)
+                (set (name->language lang-name) language)))
+          (cond
+            ((find-theory language (set-map theorem-formula axioms)
+                 distinct-constants)
+             =>
+             (lambda (th)
+               (if (and symbol-form
+                        (not (eq? (name->theory (car symbol-form)) th)))
+                   (set (name->theory (car symbol-form)) th))
+               (if (and symbol-form (not (theory-name th)))
+                   (set (theory-name th) (car symbol-form)))
+               th))
+            (else (let ((theory (make-theory))
+                        (theorems
+                            (collect-set theory-theorems
+                                component-theories))
+                        (definitions
+                            (remove-duplicates eq?
+                                (apply append
+                                       (map theory-definitions
+                                        component-theories))
+				t))
+                        (recursive-definitions
+                            (remove-duplicates eq?
+                                (apply append
+                                       (map
+                                        theory-recursive-definitions
+                                        component-theories))
+				t))
+                        (sort-definitions
+                            (remove-duplicates eq?
+                                (apply append
+                                       (map theory-sort-definitions
+                                        component-theories))
+				t))
+                        (mc-extensions
+                            (remove-duplicates eq?
+                                (apply append
+                                       (map theory-mc-extensions
+                                        component-theories))
+				t))
+                        (history (append-histories
+                                     (map theory-history
+                                      component-theories))))
+                    (set-theory-name theory (car symbol-form))
+                    (set-theory-component-theories theory
+                        component-theories)
+                    (set (theory-language theory) language)
+                    (set (theory-original-language-name theory)
+                         (name new-language))
+                    (set (theory-axioms theory) axioms)
+                    (set (theory-top-level-axioms theory)
+                         (set-diff new-axioms old-axioms))
+                    (set-walk
+                        (lambda (ax)
+                          (update-theory-usage-alist-for-theorem theory
+                              ax))
+                        new-axioms)
+                    (set (theory-distinct-constant-list theory)
+                         distinct-constants)
+                    (set (theory-distinct-constant-table theory)
+                         (make-table))
+                    (let ((table (theory-distinct-constant-table
+                                     theory)))
+                      (walk (lambda (distinct-list)
+                              (let ((exemplar (car distinct-list)))
+                                (walk (lambda (c)
+                                        (set (table-entry table c)
+                                         exemplar))
+                                      distinct-list)))
+                            distinct-constants))
+                    (enter-theory theory)
+                    (set (theory-history theory) history)
+                    (set (theory-definitions theory) definitions)
+                    (set (theory-recursive-definitions theory)
+                         recursive-definitions)
+                    (set (theory-sort-definitions theory)
+                         sort-definitions)
+                    (set (theory-mc-extensions theory) mc-extensions)
+                    (set-theory-transform-table theory)
+                    (set-theory-domain-range-handler theory)
+                    (set-theory-theorems theory theorems new-axioms)
+                    (set (theory-subsorting-structure theory)
+                         (build-theory-subsorting theory))
+                    theory)))))
+
+(define (set-theory-name theory symbol-form)
+        (set (theory-name theory) symbol-form)
+        (if symbol-form (set (name->theory symbol-form) theory)))
+
+(define (set-theory-component-theories theory component-theories)
+        (set (theory-component-theories theory) component-theories)
+        (set-walk
+            (lambda (component-theory)
+              (enter-super-theory component-theory theory))
+            (theory-component-theories theory)))
+
+(define (update-theory-usage-alist-for-theorem theory theorem)
+        (let ((pair (assq theory (theorem-theory-usage-alist theorem))))
+          (set (theorem-theory-usage-alist theorem)
+               (if pair
+                   (cons (cons theory
+                               (set-union (theorem-usage-list theorem)
+                                          (cdr pair)))
+                         (delq pair
+                               (theorem-theory-usage-alist theorem)))
+                   (cons (cons theory (theorem-usage-list theorem))
+                         (theorem-theory-usage-alist theorem))))))
+
+(define (set-theory-transform-table theory)
+        (set (theory-transform-table theory)
+             (join-theory-transform-tables
+                 (map theory-transform-table
+                      (theory-component-theories theory)))))
+
+(define (set-theory-domain-range-handler theory)
+        (set (theory-domain-range-handler theory)
+             (join-d-r-handler-list theory
+                 (map theory-domain-range-handler
+                      (theory-component-theories theory))))
+        (set (d-r-handler-name (theory-domain-range-handler theory))
+             (if (theory-name theory)
+                 (concatenate-symbol (theory-name theory)
+                     '-default-d-r-handler)
+                 'default-d-r-handler))
+        (return))
+
+(define (set-theory-theorems theory theorems new-axioms)
+        (set (theory-theorem-hash-table theory) (make-table))
+        (bind (((omit-theorem-usage-hooks) value-true))
+              (set-walk
+                  (lambda (thm)
+                    (theory-add-theorem-without-event theory thm
+                        value-false))
+                  theorems))
+        (set-walk
+            (lambda (ax)
+              (theory-add-theorem theory ax (theorem-name ax)))
+            new-axioms))
+
+(define (extend-theory theory new-language new-axioms . symbol-form)
+        (apply build-theory (list theory) new-language new-axioms
+               (theory-distinct-constant-list theory) symbol-form))
+
+(define (theory-union theories . symbol-form)
+        (if (null? (cdr theories)) (car theories)
+            (apply build-theory theories the-null-language
+                   the-empty-set
+                   (apply append
+                          (map theory-distinct-constant-list theories))
+                   symbol-form)))
+
+(define (language->theory language)
+        (or (find-theory language the-kernel-theory-axioms nil)
+            (build-theory nil language nil nil)))
+
+(define (sub-theory? sub-theory theory)
+        (or (structural-sub-theory? sub-theory theory)
+            (and (sub-language? (theory-language sub-theory)
+                     (theory-language theory))
+                 (subset? (theory-axioms sub-theory)
+                          (theory-theorems theory))
+                 (theory-respects-distinct-constants? theory
+                     (theory-distinct-constant-list sub-theory)))))
+
+(define subtheory? sub-theory?)
+
+(define (extend-theory-language the-theory the-constants the-resolver
+            . symbol-form)
+        (let* ((new-name
+                   (if symbol-form (car symbol-form)
+                       (retrieve-unused-name name->language
+                           (theory-name the-theory) '-extended-language)))
+               (new (extend-language (theory-language the-theory) the-constants
+                        the-resolver new-name)))
+          (set (language-default-sortings new)
+               (language-default-sortings (theory-language the-theory)))
+          (set (theory-language the-theory) new)
+          (enter-theory the-theory)
+          new))
+
+(define (add-component-theory comp-theory theory)
+        (or (sub-theory? comp-theory theory)
+            (imps-error "ADD-COMPONENT-THEORY: ~A ~A ~A." comp-theory
+                "is not a sub-theory of" theory))
+        (set (theory-component-theories theory)
+             (add-set-element comp-theory
+                 (theory-component-theories theory)))
+        (enter-super-theory comp-theory theory) theory)
+
+(define (theory-top-level-theorems theory) (enforce theory? theory)
+        (let ((lower-level-theorems
+                  (big-u (set-map theory-theorems
+                                  (theory-component-theories theory)))))
+          (set-diff (theory-theorems theory) lower-level-theorems)))
+
+(define (theory-axioms-and-definition-axioms theory)
+        (set-union
+            (big-u (list (theory-axioms theory)
+                         (map sort-definition-axiom
+                              (theory-sort-definitions theory))
+                         (map definition-axiom
+                              (theory-definitions theory))
+                         (map recursive-definition-minimality-axiom
+                              (theory-recursive-definitions theory))))
+            (big-u (map recursive-definition-equation-axioms
+                        (theory-recursive-definitions theory)))))
+
+(define (theory-passive-theorem? theory formula)
+        (catch 'found
+          (walk-possible-matching-theorems
+              (lambda (theorem)
+                (if (eq? theorem formula) (throw 'found value-true)))
+              theory formula)
+          value-false))
+
+(define (theory-theorem? theory formula-or-theorem)
+        (or (trivial-theorem? formula-or-theorem)
+            (cond
+              ((expression? formula-or-theorem)
+               (let ((expr (universal-matrix formula-or-theorem nil)))
+                 (catch 'found
+                   (walk-possible-matching-theorems
+                       (lambda (theorem)
+                         (let* ((pattern (universal-matrix
+                                          (theorem-formula theorem)
+                                          nil))
+                                (subst (match expr pattern)))
+                           (if (and (succeed? subst)
+                                    (every?
+                                     (lambda (component)
+                                       (let
+                                        ((from (substitution-target component))
+                                         (to (substitution-replacement component)))
+                                         (context-immediately-entails-defined-in-sort?
+                                          (theory-null-context theory)
+                                          to (expression-sorting from))))
+                                     subst))
+                               (throw 'found value-true))))
+                       theory expr)
+                   value-false)))
+              ((theorem? formula-or-theorem)
+               (theory-theorem? theory
+                   (theorem-formula formula-or-theorem)))
+              (else value-false))))
+
+(define (theory-get-theorem-from-formula theory formula)
+        (let ((expr (universal-matrix formula nil)))
+          (catch 'found
+            (walk-possible-matching-theorems
+                (lambda (theorem)
+                  (let* ((pattern (universal-matrix
+                                      (theorem-formula theorem) nil))
+                         (subst (match expr pattern)))
+                    (if (and (succeed? subst)
+                             (every? (lambda (component)
+                                       (let
+                                        ((from (substitution-target component))
+                                         (to (substitution-replacement component)))
+                                         (and (formal-symbol? to)
+                                          (eq?
+                                           (expression-sorting from)
+                                           (expression-sorting to)))))
+                                     subst))
+                        (throw 'found theorem))))
+                theory expr)
+            value-false)))
+
+(define (theory-sorts-resolved theory)
+        (sorts-resolved (theory-language theory)))
+
+(define (theory-primitive-sorts theory)
+        (set-diff (theory-sorts-resolved theory)
+            (theory-defined-sorts theory)))
+
+(define (theory-resolved-sort? theory sort)
+        (element-of-set? sort
+            (sorts-resolved (theory-language theory))))
+
+(define (theory-primitive-sort? theory sort)
+        (element-of-set? sort (theory-primitive-sorts theory)))
+
+(define (theory-ind-sorts-resolved theory)
+        (let ((sorts (sorts-resolved (theory-language theory))))
+          (delete-set-element prop sorts)))
+
+(define (theory-constants theory)
+        (language-constants (theory-language theory)))
+
+(define (theory-primitive-constants theory)
+        (set-diff (theory-constants theory)
+            (theory-defined-constants theory)))
+
+(define (theory-constant? theory constant)
+        (element-of-set? constant
+            (language-constants (theory-language theory))))
+
+(define (theory-primitive-constant? theory constant)
+        (element-of-set? constant (theory-primitive-constants theory)))
+
+(define (theory-print-names theory kind port)
+        (print (case kind
+                 ((definitions)
+                  (map definition-constant (theory-definitions theory)))
+                 ((theorems) (map name (theory-theorems theory))))
+               port))
+
+(define omit-theorem-usage-hooks
+        (make-simple-switch 'omit-theorem-usage-hooks boolean? value-false))
+
+(define (theory-add-theorem theory theorem the-name . usage-list)
+        (theory-add-theorem-and-event theory theorem the-name value-true
+            usage-list))
+
+(define (theory-add-theorem-without-event theory theorem the-name
+            . usage-list)
+        (theory-add-theorem-and-event theory theorem the-name value-false
+            usage-list))
+
+(define (theory-add-theorem-and-event theory theorem the-name
+            add-event? usage-list)
+        (let ((old (table-entry *theorem-info-table* theorem)))
+          (if (not old)
+              (build-theorem theory theorem the-name usage-list)
+              (block (or (eq? (theorem-name theorem) the-name)
+                         (and (set (table-entry *name-theorem-table*
+                                    the-name)
+                                   theorem)
+                              (set (theorem-name theorem) the-name)))
+                (set (theorem-usage-list theorem)
+                     (set-union (theorem-usage-list theorem)
+                         usage-list))
+                (or (null? the-name)
+                    (set (theorem-usage-list theorem)
+                         (add-set-element 'elementary-macete
+                             (theorem-usage-list theorem)))))))
+        (let ((formula (theorem-formula theorem)))
+          (or (closed? formula)
+              (imps-error
+                  "THEORY-ADD-THEOREM-AND-EVENT: The theorem formula ~S is not closed."
+                  formula))
+          (or (contains-expression? (theory-language theory) formula)
+              (imps-error "THEORY-ADD-THEOREM-AND-EVENT: ~S ~A ~S"
+                          theorem "is not in the language of" theory))
+          (if (or (null? (theorem-home-theory theorem))
+                  (not (theory-literal-theorem?
+                           (theorem-home-theory theorem) theorem)))
+              (set (theorem-home-theory theorem) theory))
+          (update-theory-usage-alist-for-theorem theory theorem)
+          (let ((theories
+                    (add-set-element theory
+                        (find-structural-super-theories theory))))
+            (set-walk
+                (lambda (theory-x)
+                  (theory-add-theorem-aux theory-x theorem add-event?))
+                theories)
+            theorem)))
+
+(define (theory-add-theorem-aux theory theorem add-event?)
+        (let ((usage-list (theorem-usage-list theorem)))
+          (theory-install-theorem theory theorem)
+          (if add-event? (theory-push-theorem-event theory theorem))
+          (or (omit-theorem-usage-hooks)
+              (theorem-usage-hooks theory theorem usage-list))
+          theorem))
+
+(define (theorem-add-usage theory theorem new-usage)
+        (and (theory-theorem? theory theorem)
+             (block (theorem-usage-hooks theory theorem
+                        (list new-usage))
+               (push (theorem-usage-list theorem) new-usage)
+               new-usage)))
+
+(define (theorem-usage-hooks theory theorem usage-list)
+        (walk (lambda (usage)
+                (let ((hook (cdr (assq usage theorem-usage-hook-alist))))
+                  (and hook (funcall hook theory theorem))))
+              usage-list))
+
+(define (theory-install-simplify-logically-first theory theorem)
+        (ignore theory)
+        (and (memq 'rewrite (theorem-usage-list theorem))
+             (rewrite-usage-simplog1st theorem))
+        (and (memq 'transportable-rewrite (theorem-usage-list theorem))
+             (transportable-rewrite-usage-simplog1st theorem)))
+
+(define theory-install-trigger
+        (lambda (theory theorem) (ignore theory theorem) nil))
+
+(at-top-level
+    (let ((pseudo-recursive-definitions the-empty-set))
+      (define (build-pseudo-recursive-definition theory theorem)
+              (ignore theory)
+              (let ((formula (theorem-formula theorem)))
+                (set pseudo-recursive-definitions
+                     (add-set-element
+                         (retrieve-macete-from-formula formula)
+                         pseudo-recursive-definitions))
+                (let ((transportable-macete
+                          (retrieve-transportable-macete-from-formula
+                              formula)))
+                  (if transportable-macete
+                      (set pseudo-recursive-definitions
+                           (add-set-element
+                               (retrieve-macete-from-formula formula)
+                               pseudo-recursive-definitions))))
+                (set (global-induction-step-hook)
+                     (let ((macete (funcall
+                                    (constructor-name->macete-constructor
+                                     'series)
+                                    pseudo-recursive-definitions)))
+                       (set (macete-name macete) 'recursive-unfolding)
+                       macete)))
+              theorem)))
+
+(define theorem-usage-hook-alist
+        (list (cons 'elementary-macete
+                    theory-install-elementary-macete)
+              (cons 'transportable-macete
+                    theory-install-transportable-macete)
+              (cons 'rewrite theory-install-rewrite-rule)
+              (cons 'transportable-rewrite
+                    theory-install-transportable-rewrite-rule)
+              (cons 'd-r-value theory-install-value-condition)
+              (cons 'd-r-convergence
+                    theory-install-convergence-condition)
+              (cons 'simplify-logically-first
+                    theory-install-simplify-logically-first)
+              (cons 'trigger theory-install-trigger)))
+
+(define (get-theorem-formula the-name)
+        (let ((thm (name->theorem the-name)))
+          (if (theorem? thm) (theorem-formula thm) value-false)))
+
+(define (theory-entails-immediately? theory formula)
+        (let ((seq (theory-assertion->sequent theory formula)))
+          (theory-entails-sequent-immediately? theory seq)))
+
+(define (theory-entails-sequent-immediately? theory sequent)
+        (or (sub-theory? (context-theory (sequent-context sequent))
+                theory)
+            (imps-error
+                "THEORY-ENTAILS-SEQUENT-IMMEDIATELY?: ~S not included within ~S."
+                sequent theory))
+        (context-syllogistically-entails? (sequent-context sequent)
+            (sequent-assertion sequent)))
+
+(define (theory-from-definition form)
+        (receive (the-theory-name the-component-theories the-new-language
+                     the-new-axioms the-distinct-constants)
+                 (destructure-theory-definition form)
+                 (build-theory the-component-theories the-new-language
+                     the-new-axioms the-distinct-constants the-theory-name)))
+
+(define (destructure-theory-definition form)
+        (let ((the-theory-name (imps-enforce symbol? (car form)))
+              (form (cdr form)))
+          (let ((the-component-theories
+                    (destructure-theory-component-theories
+                        (assq-val 'component-theories form)))
+                (the-language
+                    (cond
+                      ((assq-val 'language form) =>
+                       (lambda (l)
+                         (if (language? (name->language (car l)))
+                             (name->language (car l))
+                             (theory-language
+                                 (enforce theory?
+                                          (name->theory (car l)))))))
+                      (else the-null-language))))
+            (let ((full-language
+                      (language-union
+                          (add-set-element the-language
+                              (set-map theory-language
+                                       the-component-theories)))))
+              (return
+                the-theory-name
+		the-component-theories
+                the-language
+                (destructure-theory-axioms (assq-val 'axioms form)
+                    full-language)
+                (destructure-distinct-constants
+                    (assq-val 'distinct-constants form) full-language))))))
+
+(define (destructure-theory-component-theories clause)
+        (iterate iter ((names clause) (theories nil))
+                 (if (null? names) (reverse! theories)
+                     (let ((th (name->theory (car names))))
+                       (if (theory? th)
+                           (iter (cdr names) (cons th theories))
+                           (imps-error
+                               "DESTRUCTURE-THEORY-COMPONENT-THEORIES: Bogus theory name ~S"
+                               (car names)))))))
+
+(define (destructure-distinct-constants clause language)
+        (map (lambda (l)
+               (map (lambda (cn)
+                      (imps-enforce constant?
+                          (find-constant language cn)))
+                    l))
+             clause))
+
+(define (destructure-theory-axioms clause language)
+        (destructure-theorems clause language))
+
+(define (destructure-theorems clause language)
+        (map (lambda (sexp)
+               (destructure (((the-name formula usage) sexp))
+                   (build-theorem nil (qr formula language) the-name
+                       usage)))
+             clause))
+
+(define *destructure-theory-read-proc*
+        (lambda (language input)
+          (funcall (imps-read-proc) input language)))
+
+(define *destructure-theory-print-proc*
+        imps-expression->string-procedure)
+
+(define (theory-theorems-from-definition form)
+        (receive (the-theory-name new-theorems)
+                 (destructure-theory-theorems-definition form)
+                 (set-walk
+                     (lambda (theorem)
+                       (theory-add-theorem (name->theory the-theory-name)
+                           theorem value-false))
+                     new-theorems)))
+
+(define (destructure-theory-theorems-definition form)
+        (let ((the-theory-name (imps-enforce symbol? (car form)))
+              (form (cdr form)))
+          (return
+            the-theory-name
+            (destructure-theorems (assq-val 'theorems form)
+                (theory-language theory)))))
+
+(define (theory-verify-and-add-theorem theory formula the-name
+            usage-list . file-name)
+        (theory-verify-theorem theory formula (car file-name) the-name)
+        (or (proper-list? usage-list)
+            (imps-error "THEORY-VERIFY-AND-ADD-THEOREM: Usage must be given as a list."))
+        (apply theory-add-theorem theory formula the-name usage-list))
+
+(define (theory-verify-modify-and-add-theorem theory formula the-name
+            usage-list translation macete home-theory proof-spec
+            . auxiliary?)
+        (if (not (car auxiliary?))
+            (theory-verify-theorem home-theory formula proof-spec
+                the-name))
+        (cond
+          ((and translation macete)
+           (theory-add-maceted-transported-theorem theory formula
+               the-name usage-list translation macete))
+          ((and translation (not macete))
+           (theory-add-transported-theorem theory formula the-name
+               usage-list translation))
+          ((and (not translation) macete)
+           (theory-add-maceted-theorem theory formula the-name
+               usage-list macete))
+          ((not (eq? theory home-theory))
+           (theory-add-generalized-theorem theory formula the-name
+               usage-list home-theory))
+          (else (apply theory-add-theorem theory formula the-name
+                       usage-list))))
+
+(define (theory-verify-modify-and-add-theorem-aux theory-name
+            formula-spec the-name usage-list the-translation-name
+            the-macete-name home-theory-name proof-spec . reverse?)
+        (let ((formula (if (string? formula-spec)
+                           (qr formula-spec
+                               (theory-language
+                                   (name->theory home-theory-name)))
+                           (theorem-formula
+                               (name->theorem formula-spec)))))
+          (theory-verify-modify-and-add-theorem
+              (name->theory theory-name)
+              (if (null? reverse?) formula (reverse-formula formula))
+              (if (or (null? reverse?) (not the-name)) the-name
+                  (concatenate-symbol 'rev% the-name))
+              (if (null? reverse?) usage-list
+                  (set-difference usage-list
+                      '(rewrite transportable-rewrite)))
+              (and the-translation-name
+                   (name->translation the-translation-name))
+              (and the-macete-name (name->macete the-macete-name))
+              (name->theory home-theory-name) proof-spec
+              (car reverse?))))
+
+(define (theory-verify-theorem theory formula proof-spec the-name)
+        (imps-enforce theory? theory) (imps-enforce formula? formula)
+        (or (contains-expression? (theory-language theory) formula)
+            (imps-error "THEORY-VERIFY-THEOREM: ~S ~A ~S." formula
+                "is not a formula in the of" theory))
+        (cond
+          ((proof-log-port)
+           (log-imps-proof theory formula proof-spec the-name))
+          ((eq? proof-spec 'existing-theorem)
+           (or (theory-theorem? theory formula)
+               (imps-error "THEORY-VERIFY-THEOREM: ~S ~A ~S." formula
+                   "is not known to a theorem of" theory)))
+          (else value-true)))
+
+(define (define-theory-from-definition theory-name language
+            component-theories distinct-constants new-axioms)
+        (let* ((the-theory-name (imps-enforce symbol? theory-name))
+               (the-component-theories
+                   (destructure-theory-component-theories
+                       component-theories))
+               (the-language
+                   (if (null? language) the-null-language
+                       (imps-enforce language?
+                           (name->language language))))
+               (full-language
+                   (language-union
+                       (add-set-element language
+                           (set-map theory-language component-theories))))
+               (distinct-constants
+                   (destructure-distinct-constants distinct-constants
+                       full-language))
+               (new-axioms
+                   (map (lambda (sexp)
+                          (sexp&language->theorem sexp full-language))
+                        new-axioms)))
+          (build-theory the-component-theories the-language new-axioms
+              distinct-constants the-theory-name)))
+
+(define (sexp&language->theorem sexp language)
+        (destructure (((the-name formula usage) sexp))
+            (build-theorem nil (sexp->expression formula language)
+                the-name usage)))
+
+(define (define-theorem theorem-name theory-name formula usage-list
+            proof-file)
+        (let* ((theory (imps-enforce theory?
+                           (name->theory theory-name)))
+               (language
+                   (imps-enforce language? (theory-language theory))))
+          (theory-verify-and-add-theorem theory
+              (sexp->expression formula language) theorem-name
+              usage-list proof-file)))
+
+(define (define-definition definition-name theory-name formula
+            usage-list)
+        (let* ((theory (imps-enforce theory?
+                           (name->theory theory-name)))
+               (language
+                   (imps-enforce language? (theory-language theory)))
+               (defining-expr (sexp->expression formula language)))
+          (theory-build-definition theory definition-name defining-expr
+              (expression-sorting defining-expr) usage-list)))
+
+(define (compress-theories theories)
+        (iterate loop
+                 ((unchecked-theories theories)
+                  (new-theories theories))
+                 (if (empty-set? unchecked-theories) new-theories
+                     (let ((next-th (car unchecked-theories)))
+                       (if (any? (lambda (th)
+                                   (and (not (eq? next-th th))
+                                    (sub-theory? next-th th)))
+                                 new-theories)
+                           (loop
+                             (cdr unchecked-theories)
+                             (delete-set-element next-th new-theories))
+                           (loop
+                             (cdr unchecked-theories)
+                             new-theories))))))
+
+(define (select-common-sub-theories theory-1 theory-2
+            candidate-subtheories)
+        (set-separate
+            (lambda (th)
+              (and (sub-theory? th theory-1) (sub-theory? th theory-2)))
+            candidate-subtheories))
+
+(define (theory-order-definitions theory def-set)
+        (iterate loop
+                 ((events (event-history-events
+                              (theory-history theory)))
+                  (def-list nil))
+                 (if (null? events) def-list
+                     (let ((item (history-event-item (car events))))
+                       (if (and (or (sort-definition? item)
+                                    (definition? item)
+                                    (recursive-definition? item))
+                                (element-of-set? item def-set))
+                           (loop (cdr events) (cons item def-list))
+                           (loop (cdr events) def-list))))))
+
+(define (theory-specific-axioms theory)
+        (set-separate
+            (lambda (ax)
+              (every? (lambda (component-theory)
+                        (not (theory-theorem? component-theory ax)))
+                      (theory-component-theories theory)))
+            (theory-axioms theory)))
+
+(define (theory-specific-theorems theory)
+        (let ((components (find-structural-sub-theories theory))
+              (thm-table (theory-theorem-hash-table theory))
+              (accum nil))
+          (walk-table
+              (lambda (k v)
+                (ignore k)
+                (walk-table
+                    (lambda (k1 thms)
+                      (ignore k1)
+                      (do ((thms thms (cdr thms))) ((null? thms))
+                        (let ((thm (car thms)))
+                          (or (any? (lambda (component-theory)
+                                      (theory-passive-theorem?
+                                       component-theory thm))
+                                    components)
+                              (push accum thm)))))
+                    v))
+              thm-table)
+          (make-set accum)))
+
+(define (theory-specific-theorem-names theory)
+        (map theorem-name (theory-specific-theorems theory)))
+
+(define (theory-sort? theory sort)
+        (and (sort? sort)
+             (contains-sort? (theory-language theory) sort)))
+
+(define (theory-expression? theory expr)
+        (and (expression? expr)
+             (contains-expression? (theory-language theory) expr)))

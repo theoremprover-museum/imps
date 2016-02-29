@@ -1,0 +1,271 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment feasible)
+
+(define-structure-type linear-inequality form constant pred
+    (((print soi pt)
+      (format pt "#{LINEAR-INEQUALITY: ~A ~A ~A}"
+              (linear-inequality-form soi)
+              (linear-inequality-constant soi)
+              (linear-inequality-pred soi)))))
+
+(at-top-level
+    (block (set (linear-inequality-form
+                    (stype-master linear-inequality-stype))
+                nil)
+      (set (linear-inequality-constant
+               (stype-master linear-inequality-stype))
+           0)
+      (set (linear-inequality-pred
+               (stype-master linear-inequality-stype))
+           less?)))
+
+(define (build-linear-inequality form constant pred)
+        (let ((ineq (make-linear-inequality)))
+          (set (linear-inequality-form ineq) form)
+          (set (linear-inequality-constant ineq) constant)
+          (set (linear-inequality-pred ineq) pred)
+          ineq))
+
+(define-integrable (linear-inequalities-equal? ineq1 ineq2)
+    (and (eq? (linear-inequality-pred ineq1)
+              (linear-inequality-pred ineq2))
+         (= (linear-inequality-constant ineq1)
+            (linear-inequality-constant ineq2))
+         (set-equal-with-pred? inequality-entries-equal?
+             (linear-inequality-form ineq1)
+             (linear-inequality-form ineq2))))
+
+(define-integrable (inequality-entries-equal? entry1 entry2)
+    (and (= (cdr entry1) (cdr entry2)) (eq? (car entry1) (car entry2))))
+
+(define-integrable (inequality-included? ineq ineqs)
+    (mem? linear-inequalities-equal? ineq ineqs))
+
+(define (linear-inequality-variables ineq)
+        (map car (linear-inequality-form ineq)))
+
+(define (linear-inequality-extract-coefficient ineq var)
+        (let ((val (assq var (linear-inequality-form ineq))))
+          (if val (cdr val) 0)))
+
+(define (inequality-contains-universally-quantified-variable? ineq)
+        (any? (lambda (x)
+                (and (variable? (car x))
+                     (not (memq? (car x)
+                                 (linear-inequality-uninstantiable-variables
+                                     ineq)))))
+              (linear-inequality-form ineq)))
+
+(define (obviously-infeasible? ineq)
+        (and (null? (linear-inequality-form ineq))
+             (not (funcall (linear-inequality-pred ineq) 0
+                           (linear-inequality-constant ineq)))))
+
+(define (linear-inequality-redundant? ineq)
+        (and (null? (linear-inequality-form ineq))
+             (funcall (linear-inequality-pred ineq) 0
+                      (linear-inequality-constant ineq))))
+
+(define (linear-inequality-set-obviously-infeasible? ineqs)
+        (any? obviously-infeasible? ineqs))
+
+(define (linear-inequality-add-monomial ineq var coeff)
+        (if (not (= coeff 0))
+            (set (linear-inequality-form ineq)
+                 (cons (cons var coeff) (linear-inequality-form ineq))))
+        ineq)
+
+(define (linear-inequality-eliminate-variable ineq var)
+        (let* ((coeff (linear-inequality-extract-coefficient ineq var)))
+          (if (not (= coeff 0))
+              (let ((new-ineq (make-linear-inequality)))
+                (set (linear-inequality-constant new-ineq)
+                     (/ (linear-inequality-constant ineq) coeff))
+                (set (linear-inequality-pred new-ineq)
+                     (linear-inequality-pred ineq))
+                (set (linear-inequality-form new-ineq)
+                     (iterate do-list
+                              ((rest (linear-inequality-form ineq))
+                               (form nil))
+                              (cond
+                                ((null? rest) form)
+                                ((eq? (caar rest) var)
+                                 (do-list (cdr rest) form))
+                                (else (do-list (cdr rest)
+                                       (cons
+                                        (cons (caar rest)
+                                         (- (/ (cdar rest) coeff)))
+                                        form))))))
+                new-ineq)
+              ineq)))
+
+(define (inequality-subtract ineq1 ineq2)
+        (let ((ineq (make-linear-inequality))
+              (vars (set-union (linear-inequality-variables ineq1)
+                        (linear-inequality-variables ineq2))))
+          (set (linear-inequality-pred ineq)
+               (if (or (eq? less? (linear-inequality-pred ineq1))
+                       (eq? less? (linear-inequality-pred ineq2)))
+                   less? not-greater?))
+          (set (linear-inequality-constant ineq)
+               (- (linear-inequality-constant ineq1)
+                  (linear-inequality-constant ineq2)))
+          (walk (lambda (var)
+                  (linear-inequality-add-monomial ineq var
+                      (- (linear-inequality-extract-coefficient ineq2
+                             var)
+                         (linear-inequality-extract-coefficient ineq1
+                             var))))
+                vars)
+          ineq))
+
+(define-structure-type separator neutral lhs rhs)
+
+(at-top-level
+    (block (set (separator-neutral (stype-master separator-stype)) nil)
+      (set (separator-lhs (stype-master separator-stype)) nil)
+      (set (separator-rhs (stype-master separator-stype)) nil)))
+
+(define (linear-inequality-separate ineq var separator kappa)
+        (let ((var-coeff
+                  (linear-inequality-extract-coefficient ineq var)))
+          (cond
+            ((> var-coeff 0)
+             (push (separator-rhs separator)
+                   (linear-inequality-eliminate-variable ineq var)))
+            ((< var-coeff 0)
+             (push (separator-lhs separator)
+                   (linear-inequality-eliminate-variable ineq var)))
+            ((= var-coeff 0)
+             (if (obviously-infeasible? ineq) (throw kappa value-true)
+                 (if (and (not (linear-inequality-redundant? ineq))
+                          (not (inequality-included? ineq
+                                   (separator-neutral separator))))
+                     (push (separator-neutral separator) ineq)))))
+          separator))
+
+(define (separator-build-inequality-set separator kappa)
+        (let ((ineqs (separator-neutral separator)))
+          (walk (lambda (lhs)
+                  (walk (lambda (rhs)
+                          (let ((new-ineq
+                                    (inequality-subtract rhs lhs)))
+                            (if (obviously-infeasible? new-ineq)
+                                (throw kappa value-true)
+                                (if (and
+                                     (not
+                                      (linear-inequality-redundant?
+                                       new-ineq))
+                                     (not
+                                      (inequality-included? new-ineq
+                                       ineqs)))
+                                    (push ineqs new-ineq)))))
+                        (separator-rhs separator)))
+                (separator-lhs separator))
+          ineqs))
+
+(define (linear-inequality-set-eliminate-variable ineqs var kappa)
+        (let ((separator (make-separator)))
+          (walk (lambda (ineq)
+                  (linear-inequality-separate ineq var separator kappa))
+                ineqs)
+          (separator-build-inequality-set separator kappa)))
+
+(define (linear-inequality-set-infeasible? ineqs)
+  (if (linear-inequality-set-obviously-infeasible? ineqs) value-true
+      (let ((kappa 'linear-inequality-set-infeasible))
+	(catch kappa
+	  (let ((vars (big-u (map linear-inequality-variables
+				  ineqs))))
+	    (iterate loop ((vars vars) (ineqs ineqs))
+	      (cond
+	       ((null? vars) value-false)
+	       (else (let ((vars (minimize-variable-costs ineqs vars)))
+		       (loop
+			(cdr vars)
+			(linear-inequality-set-eliminate-variable
+			 ineqs (car vars) kappa)))))))))))
+
+(define (variable-side ineq var)
+        (let ((coeff (linear-inequality-extract-coefficient ineq var)))
+          (if (< 0 coeff) (return 1 0)
+              (if (< coeff 0) (return 0 1) (return 0 0)))))
+
+(define (variable-cost ineqs var)
+        (iterate loop ((ineqs ineqs) (pos-num 0) (neg-num 0))
+                 (if (null? ineqs) (fx* pos-num neg-num)
+                     (receive (pos neg) (variable-side (car ineqs) var)
+                              (loop
+                                (cdr ineqs)
+                                (fx+ pos-num pos)
+                                (fx+ neg-num neg))))))
+
+(define (minimize-variable-costs ineqs vars)
+        (iterate loop
+                 ((current-var (car vars)) (seen nil)
+                  (remaining (cdr vars))
+                  (current-min (variable-cost ineqs (car vars))))
+                 (if (or (fx= current-min 0) (null? remaining))
+                     (cons current-var (append! seen remaining))
+                     (let ((try-min (variable-cost ineqs
+                                     (car remaining))))
+                       (if (<= current-min try-min)
+                           (loop
+                             current-var
+                             (cons (car remaining) seen)
+                             (cdr remaining)
+                             current-min)
+                           (loop
+                             (car remaining)
+                             (cons current-var seen)
+                             (cdr remaining)
+                             try-min))))))

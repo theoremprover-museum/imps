@@ -1,0 +1,403 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment read-interface)
+
+(define (implode char-list)
+        (let ((port (string->input-port (list->string char-list))))
+          (set (port-read-table port) *vanilla-read-table*)
+          (read port)))
+
+(define (dot? char) (char= char #\.))
+
+(define (colon? char) (char= char #\:))
+
+(define (minus? char) (char= char #\-))
+
+(define (underscore? char) (char= char #\_))
+
+(define (vertical? char) (char= char #\|))
+
+(define (decimal-digit? x) (digit? x 10))
+
+(define (quotient? char) (char= char #\/))
+
+(define (dollar? char) (char= char #\$))
+
+(define (percent? char) (char= char #\%))
+
+(define (ampersand? char) (char= char #\&))
+
+(define (left-bracket? char) (char= char #\[))
+
+(define (right-bracket? char) (char= char #\]))
+
+(define (text-char? char)
+        (or (underscore? char) (percent? char) (dollar? char)
+            (alphabetic? char) (ampersand? char)))
+
+(define (read-identifier-token port)
+        (iterate collect-chars ((current-token nil))
+                 (cond
+                   ((or (eof? (peek-char port))
+                        (not (or (decimal-digit? (peek-char port))
+                                 (text-char? (peek-char port)))))
+                    (implode (reverse! current-token)))
+                   (else (collect-chars
+                             (cons (read-char port) current-token))))))
+
+(define (read-decimal-part partial-char-sequence port)
+        (iterate loop ((current-token partial-char-sequence))
+                 (let ((peek (peek-char port)))
+                   (cond
+                     ((or (eof? peek) (not (decimal-digit? peek)))
+                      (implode (reverse! current-token)))
+                     (else (loop
+                             (cons (read-char port) current-token)))))))
+
+(define (read-modular-base partial-char-sequence port)
+        (iterate loop ((current-token nil))
+                 (let ((peek (peek-char port)))
+                   (cond
+                     ((or (eof? peek) (not (decimal-digit? peek)))
+                      (modular (implode (reverse!
+                                         partial-char-sequence))
+                               (implode (reverse! current-token))))
+                     (else (loop
+                             (cons (read-char port) current-token)))))))
+
+(define (read-numerical-token port)
+        (iterate loop ((current-token nil))
+                 (let ((peek (peek-char port)))
+                   (cond
+                     ((dot? peek)
+                      (read-decimal-part
+                          (cons (read-char port) current-token) port))
+                     ((vertical? peek) (read-char port)
+                      (read-modular-base current-token port))
+                     ((or (eof? peek) (not (decimal-digit? peek)))
+                      (implode (reverse! current-token)))
+                     (else (loop
+                             (cons (read-char port) current-token)))))))
+
+(define (peek-non-whitespace-char port)
+        (let ((n (peek-char port)))
+          (if (whitespace? n)
+              (block (read-char port) (peek-non-whitespace-char port))
+              n)))
+
+(define (read-bracketed-token port)
+        (if (start-reading-expression-list?)
+            (block (set (start-reading-expression-list?) value-false)
+              (let ((c (read-char port))) (implode (list c))))
+            (let ((c (read-char port))
+                  (n (peek-non-whitespace-char port)))
+              (if (or (minus? n) (decimal-digit? n))
+                  (iterate loop ((current-token nil))
+                           (let ((peek (peek-char port)))
+                             (cond
+                               ((eof? peek)
+                                (imps-error
+                                    "Tokenizer: End of file encountered with unmatched [."))
+                               ((right-bracket? peek) (read-char port)
+                                (let ((token
+                                       (implode
+                                        (reverse! current-token))))
+                                  (imps-enforce number? token)
+                                  token))
+                               (else (loop
+                                       (cons (read-char port)
+                                        current-token))))))
+                  (implode (list c))))))
+
+(define (read-significant-char-sequence port)
+        (let ((c1 (read-char port)))
+          (if (eof? c1) '|;|
+              (let ((c2 (read-char port)))
+                (cond
+                  ((eof? c2) (implode (list c1)))
+                  ((significant-char-sequence? port (list c1 c2))
+                   (look-for-extension (implode (list c1 c2)) port))
+                  (else (unread-char port)
+                        (look-for-extension (implode (list c1)) port)))))))
+
+(define (look-for-extension partial-token port)
+        (if (underscore? (peek-char port))
+            (let ((next-token (read port)))
+              (symbol-append partial-token next-token))
+            partial-token))
+
+(define-operation (significant-char-sequence? port chars))
+
+(define-operation (make-significant-char-sequence port chars))
+
+(define-operation (seen-chars soi))
+
+(define-operation (flush-seen-chars soi))
+
+(define (make-tokenizer-generator)
+        (let ((significant-char-sequences nil))
+          (object (lambda (port)
+                    (let ((read-chars nil))
+                      (join (object nil
+                                    ((read soi)
+                                     (let ((peek (peek-char soi)))
+                                       (cond
+                                         ((eof? peek) '|;|)
+                                         ((decimal-digit? peek)
+                                          (read-numerical-token soi))
+                                         ((dot? peek)
+                                          (read-numerical-token soi))
+                                         ((left-bracket? peek)
+                                          (read-bracketed-token soi))
+                                         ((whitespace? peek)
+                                          (read-char soi) (read soi))
+                                         ((text-char? peek)
+                                          (read-identifier-token soi))
+                                         ((colon? peek) (read-char soi)
+                                          '|:|)
+                                         (else
+                                          (read-significant-char-sequence
+                                           soi)))))
+                                    ((peek-char soi)
+                                     (let ((c (peek-char port)))
+                                       (if (eof? c) #\; c)))
+                                    ((read-char soi)
+                                     (let ((c (read-char port)))
+                                       (if (eof? c) #\;
+                                        (block (push read-chars c) c))))
+                                    ((unread-char soi)
+                                     (let ((c (unread-char port)))
+                                       (pop read-chars)
+                                       c))
+                                    ((flush-seen-chars soi)
+                                     (set read-chars nil))
+                                    ((seen-chars soi) read-chars)
+                                    ((significant-char-sequence? soi
+                                      chars)
+                                     (mem? equal? chars
+                                      significant-char-sequences))
+                                    ((print soi pt)
+                                     (format pt "{Tokenizer-port ~a}"
+                                      (object-hash soi))))
+                            port)))
+                  ((make-significant-char-sequence soi symbol)
+                   (let ((chars (string->list
+                                    (string-downcase!
+                                     (symbol->string symbol)))))
+                     (if (or (text-char? (car chars))
+                             (> (length chars) 2))
+                         (imps-error
+                             "MAKE-SIGNIFICANT-CHAR-SEQUENCE:Invalid significant character sequence ~a"
+                             symbol))
+                     (push significant-char-sequences chars)
+                     symbol)))))
+
+(define (possible-significant-char-sequence symbol)
+        (let ((str (symbol->string symbol)))
+          (not (or (text-char? (string-head str))
+                   (decimal-digit? (string-head str))))))
+
+(define-settable-operation (parser-tokenizer parser))
+
+(define-operation (parser-operator-table soi))
+
+(define-predicate parser?)
+
+(define (make-parser)
+        (let ((operator-table
+                  (make-table 'string-parser-operator-table))
+              (port->tokenizer nil))
+          (object nil ((parser-tokenizer soi) port->tokenizer)
+                  (((setter parser-tokenizer) soi new-val)
+                   (set port->tokenizer new-val))
+                  ((parser-operator-table soi) operator-table)
+                  ((parser? soi) value-true)
+                  ((print soi pt)
+                   (format pt "#{Parser ~a}" (object-hash soi))))))
+
+(define (postpend-semicolon-to-port port)
+        (let ((empty? value-false))
+          (join (object nil
+                        ((read-char self)
+                         (if empty? eof
+                             (let ((ch (read-char port)))
+                               (if (eof? ch)
+                                   (block (set empty? value-true) #\;) ch))))
+                        ((unread-char self)
+                         (if empty? (set empty? value-false)
+                             (unread-char port))))
+                port)))
+
+(define (parse-top-level parser input)
+        (let ((p1 (input-port->stream-parser
+                      (if (string? input)
+                          (string->input-port
+                              (string-append input ";"))
+                          (postpend-semicolon-to-port input))
+                      parser)))
+          (if (char= (peek-non-whitespace-char p1) #\;)
+              (block (read-char p1) eof) (read p1))))
+
+(define (input-string->expression parser language input)
+        (let ((sexp (parse-top-level parser input)))
+          (sexp->expression language
+              (if (use-old-apply-operator-form?) sexp
+                  (insert-apply-operators-in-sexp sexp)))))
+
+(define (apparent-sort-argument-for-constructor? symbol)
+        (memq? symbol '(falselike undefined is-defined-in-sort)))
+
+(define (insert-apply-operators-in-sexp sexp)
+        (if (atom? sexp) sexp
+            (if (list? sexp)
+                (if (symbol-means-constructor-or-quasi-constructor?
+                        (car sexp))
+                    (if (symbol-means-binding-constructor? (car sexp))
+                        (if (apparent-sort-argument-for-constructor?
+                                (car sexp))
+                            (block (let ((s1 (reverse! sexp)))
+                                     (set (cdr s1)
+                                      (map!
+                                       insert-apply-operators-in-sexp
+                                       (cdr s1)))
+                                     (reverse! s1)))
+                            (block (let ((s1 (reverse! sexp)))
+                                     (set (car s1)
+                                      (insert-apply-operators-in-sexp
+                                       (car s1)))
+                                     (reverse! s1))))
+                        (map! insert-apply-operators-in-sexp sexp))
+                    (cons 'apply-operator
+                          (map! insert-apply-operators-in-sexp sexp)))
+                (imps-error "Ca n'a ni queue ni tete! ~A" sexp))))
+
+(define (copy-parser parser)
+        (let* ((new-parser (make-parser))
+               (operator-table (parser-operator-table new-parser)))
+          (set (parser-tokenizer new-parser) (parser-tokenizer parser))
+          (walk-table
+              (lambda (key val)
+                (set (table-entry operator-table key) val))
+              (parser-operator-table parser))
+          new-parser))
+
+(define-operation (input-next-token port))
+
+(define-operation (next-token port))
+
+(define-operation (return-token port token))
+
+(define-operation report-error)
+
+(define (input-port->token-reader port)
+        (let ((look-ahead nil))
+          (join (object nil
+                        ((input-next-token soi)
+                         (if look-ahead (pop look-ahead) (read port)))
+                        ((next-token soi)
+                         (if look-ahead (car look-ahead)
+                             (block (push look-ahead (read port))
+                               (car look-ahead))))
+                        ((return-token soi token)
+                         (push look-ahead token) token))
+                port)))
+
+(define (input-port->stream-parser port parser)
+        (let ((operator-table (parser-operator-table parser))
+              (p1 (input-port->token-reader
+                      (funcall (parser-tokenizer parser) port))))
+          (join (object nil
+                        ((parser-operator-table soi) operator-table)
+                        ((read soi)
+                         (block0 (parse-matching-binding soi '|;|)
+                                 (input-next-token soi)))
+                        ((report-error parser format-string . args)
+                         (let ((left (line-left p1))
+                               (right (line-right p1)))
+                           (flush-seen-chars p1)
+                           (apply imps-error
+                                  (format nil
+                                          "Parsing error: ~A ~%~%~A <<== ~A."
+                                          format-string left right)
+                                  args)))
+                        ((print soi pt)
+                         (format pt "#{IMPS-stream-parser ~a}"
+                                 (object-hash soi))))
+                p1)))
+
+(define (line-right port)
+        (iterate loop ((accum nil))
+                 (let ((c (read-char port)))
+                   (if (or (eof? c) (char= c '#\;)
+                           (char= c '#\Newline))
+                       (block (list->string (reverse! accum)))
+                       (loop (cons c accum))))))
+
+(define (line-left port)
+        (iterate loop ((accum nil) (rest (seen-chars port)))
+                 (if (or (null? rest) (eof? (car rest))
+                         (char= (car rest) '#\Newline))
+                     (list->string accum)
+                     (loop (cons (car rest) accum) (cdr rest)))))
+
+(define (coerce-symbol-to-token tokenizer token)
+        (if (symbol? token)
+            (let ((port (funcall tokenizer
+                                 (string->input-port
+                                     (symbol->string token)))))
+              (if (not (eq? (read port) token))
+                  (make-significant-char-sequence tokenizer token))
+              value-true)
+            (if (proper-list? token)
+                (map (lambda (x) (coerce-symbol-to-token tokenizer x))
+                     token)
+                (imps-error
+                    "COERCE-SYMBOL-TO-TOKEN: not an s-expression"))))

@@ -1,0 +1,207 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment commands)
+
+(define-predicate dg-command?)
+
+(define-operation (dg-command-name command))
+
+(define-operation (dg-command-retrieval-protocol command))
+
+(define-operation (dg-command-transmission-protocol command))
+
+(define-settable-operation (dg-command-argument-check command))
+
+(define *command-table* (make-table '*command-table*))
+
+(define (name->command the-name)
+        (table-entry *command-table* the-name))
+
+(define (build-command procedure the-name retrieval-protocol
+            transmission-protocol arg-check)
+        (or (null? the-name) (symbol? the-name)
+            (imps-error "BUILD-COMMAND: Invalid name ~S." the-name))
+        (or (and (symbol? retrieval-protocol)
+                 (symbol? transmission-protocol))
+            (imps-error "BUILD-COMMAND: ~A ~S ~A ~S ~A."
+                "Retrieval and transmission protocols"
+                retrieval-protocol "and" transmission-protocol
+                "must be symbols"))
+        (let ((obj (make-object))
+              (proc-101
+                  (object procedure ((name command) the-name)
+                          ((dg-command? soi) value-true)
+                          ((dg-command-name soi) the-name)
+                          ((dg-command-retrieval-protocol soi)
+                           retrieval-protocol)
+                          ((dg-command-transmission-protocol soi)
+                           transmission-protocol)
+                          ((dg-command-argument-check soi) arg-check)
+                          (((setter dg-command-argument-check) soi
+                            new-val)
+                           (set arg-check new-val))
+                          ((print soi port)
+                           (format port "#{IMPS-dg-command ~A: ~S}"
+                                   (object-hash soi) the-name)))))
+          (labels (((fun-93 command) the-name) ((fun-94 soi) value-true)
+                   ((fun-95 soi) the-name)
+                   ((fun-96 soi) retrieval-protocol)
+                   ((fun-97 soi) transmission-protocol)
+                   ((fun-98 soi) arg-check)
+                   ((fun-99 soi new-val) (set arg-check new-val))
+                   ((fun-100 soi port)
+                    (format port "#{IMPS-dg-command ~A: ~S}"
+                            (object-hash soi) the-name)))
+            (refurnish-object obj proc-101 (name fun-93)
+                (dg-command? fun-94) (dg-command-name fun-95)
+                (dg-command-retrieval-protocol fun-96)
+                (dg-command-transmission-protocol fun-97)
+                (dg-command-argument-check fun-98)
+                ((setter dg-command-argument-check) fun-99)
+                (print fun-100))
+
+;;changed by jt oct-10-2009.  One doesn't want to put null names on the *command-table*.
+
+            (if (and (symbol? the-name) the-name)
+                (set (table-entry *command-table* the-name) obj))
+            obj)))
+
+(define (deduction-graph-apply-command-interface dg-or-number
+            command-or-name sqn-data aux comments)
+        (bind (((raise-name-error?) value-true))
+              (if (null? sqn-data) value-false
+                  (let* ((dg (cond
+                               ((deduction-graph? dg-or-number)
+                                dg-or-number)
+                               ((and (number? dg-or-number)
+                                     (dgrv-index->dg dg-or-number)))
+                               (else (imps-error
+                                      "DEDUCTION-GRAPH-APPLY-COMMAND-INTERFACE: ~A is neither a deduction graph nor the index of one."
+                                      dg-or-number))))
+                         (command (coerce-to-command command-or-name))
+                         (sqns (map (lambda (x)
+                                      (dg-coerce-to-sequent-node dg x))
+                                    sqn-data)))
+                    (let ((last-index (deduction-graph-last-index dg)))
+                      (iterate loop
+                               ((sqns sqns)
+                                (last-index-before-command last-index))
+                               (if (null? sqns) value-true
+                                   (let*
+                                    ((sqn (car sqns))
+                                     (jump-from-previous
+                                      (ac-interface-compute-jump sqn
+                                       (car
+                                        (deduction-graph-history dg)))))
+                                     (apply
+                                      (dg-command-argument-check
+                                       command)
+                                      sqn aux)
+                                     (apply command sqn aux)
+                                     (build-and-post-dg-history-entry
+                                      dg command sqn aux
+                                      last-index-before-command
+                                      jump-from-previous comments)
+                                     (loop
+                                       (cdr sqns)
+                                       (deduction-graph-last-index dg)))))
+                      (or (and (sequent-node? (car sqns))
+                               (sequent-node-first-new-descendent
+                                   last-index (car sqns)))
+                          value-true))))))
+
+(define (head-nodes-grounded-by-last-entry dg)
+        (if (null? (deduction-graph-history dg)) nil
+            (let ((sqns nil))
+              (walk (lambda (x)
+                      (if (and (eq? (name (dg-history-entry-command x))
+                                    'annotate)
+                               (memq? 'begin-block
+                                      (dg-history-entry-arguments x))
+                               (immediately-grounded?
+                                   (dg-history-entry-sequent-node x)))
+                          (push sqns (dg-history-entry-sequent-node x))))
+                    (deduction-graph-history dg))
+              (set-intersection sqns
+                  (dg-history-entry-nodes-grounded-by-command
+                      (car (deduction-graph-history dg)))))))
+
+(define (ac-interface-compute-jump sqn history-entry)
+        (and history-entry
+             (receive (up path)
+                      (relative-position-in-dg
+                          (dg-history-entry-first-unsupported-relative
+                              history-entry)
+                          sqn)
+                      (if (and (or (not (number? up)) (zero? up))
+                               (null? path))
+                          value-false (cons up path)))))
+
+(define (deduction-graph-apply-command command sqns aux . comments)
+        (deduction-graph-apply-command-interface
+            (sequent-node-graph (car sqns)) command sqns aux comments))
+
+(define (dg-commands)
+        (let ((commands nil))
+          (walk-table
+              (lambda (name command)
+                (ignore name)
+                (push commands command))
+              *command-table*)
+          commands))
+
+(define (build-universal-command procedure the-name arg-check
+            . retrieval-protocol)
+        (build-command procedure the-name
+            (if (null? (car retrieval-protocol))
+                'default-argument-retrieval-protocol
+                (car retrieval-protocol))
+            'default-argument-transmission-protocol arg-check))

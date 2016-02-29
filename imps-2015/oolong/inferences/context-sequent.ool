@@ -1,0 +1,903 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment (inferences context-sequent))
+
+(define (context-contains-entry? context entry)
+        (or (q-same-class? (context-q-classes context) entry truth)
+            (let ((c (context-predecessor context)))
+              (and c
+                   (let ((val (context-contains-entry? c entry)))
+                     (if val (install-context-entry context entry))
+                     val)))
+            (any (lambda (a) (context-exprs-equal? context entry a))
+                 (context-assumptions context))))
+
+(define (context-passively-contains-entry? context entry)
+        (q-same-class? (context-q-classes context) entry truth))
+
+(define (context-absurd? c) (context-absurd-flag c))
+
+(define (context-add-bound-variables c n-bvs)
+        (set (context-variables c)
+             (set-union n-bvs (context-variables c)))
+        (set (context-bound-variables c)
+             (set-union n-bvs (context-bound-variables c))))
+
+(define (equate-to-alpha-root context expr)
+        (let ((root (expression-alpha-root expr)))
+          (or (not (expression? root)) (eq? expr root)
+              (q-equate-exprs (context-q-classes context)
+                  (context-q-hashes context) expr root))))
+
+(define (context-quasi-equate-exprs context expr1 expr2)
+        (context-add-bound-variables context
+            (set-union (bound-variables expr1) (bound-variables expr2)))
+        (equate-to-alpha-root context expr1)
+        (if (not (eq? expr1 expr2))
+            (block (equate-to-alpha-root context expr2)
+              (q-equate-exprs (context-q-classes context)
+                  (context-q-hashes context) expr1 expr2)))
+        (let ((root (context-q-root context expr1))
+              (theory (context-theory context)))
+          (if (or (theory-constants-distinct? theory expr1 expr2)
+                  (theory-constants-distinct? theory root expr2)
+                  (theory-constants-distinct? theory expr1 root))
+              (make-context-absurd context))))
+
+(define (context-equate-exprs context expr1 expr2)
+        (context-quasi-equate-exprs context expr1 expr2)
+        (q-make-expr-defined (context-q-classes context)
+            (context-q-hashes context) expr1)
+        (add-context-term-sort context expr1
+            (expression-sorting expr1))
+        (add-context-term-sort context expr2
+            (expression-sorting expr2))
+        (let ((term-sorts
+                  (set-union (context-term-defined-sorts context expr1)
+                      (context-term-defined-sorts context expr2))))
+          (set (table-entry (context-term-sorts context) expr1)
+               term-sorts)
+          (set (table-entry (context-term-sorts context) expr2)
+               term-sorts)))
+
+(define (context-q-root-if-any context expr)
+        (q-seek-root (context-q-classes context) expr))
+
+(define (context-q-root context expr)
+        (let ((q-root (q-seek-root (context-q-classes context) expr)))
+          (or q-root expr)))
+
+(define (context-walk-q-classes proc c)
+        (walk-table proc (context-q-classes c)))
+
+(define (context-walk-entries 1-proc c)
+        (let ((classes (context-q-classes c)))
+          (context-walk-q-classes
+              (lambda (e q)
+                (ignore q)
+                (if (q-same-class? classes e truth) (funcall 1-proc e)))
+              c)))
+
+(define (context-count-q-population context)
+        (let ((total 0))
+          (context-walk-q-classes
+              (lambda (e q) (ignore e q) (increment total)) context)
+          total))
+
+(define (context-print-entries c)
+        (context-walk-entries (lambda (e) (format value-true "~S~%~%" e))
+            c))
+
+(define (context-print-q-members c)
+        (context-walk-q-classes
+            (lambda (e q)
+              (format value-true "~&Entry: ~S~&Class: ~S~&" e q))
+            c))
+
+(define (install-context-entry c new-entry)
+        (context-equate-exprs c new-entry truth) (return))
+
+(define (make-context-absurd c) (set (context-absurd-flag c) value-true))
+
+(define (context-theory context)
+        (let ((th (context-theory-slot context)))
+          (if (theory? th) th the-kernel-theory)))
+
+(define (context-transform-handler context)
+        (theory-transform-handler (context-theory context)))
+
+(define (add-context-equation c lhs rhs)
+        (context-equate-exprs c lhs rhs))
+
+(define (add-context-quasi-equation c lhs rhs)
+        (context-quasi-equate-exprs c lhs rhs))
+
+(define (add-context-convergence c term)
+        (add-context-term-sort c term (expression-sorting term))
+        (if (not (necessarily-defined? term))
+            (context-equate-exprs c term term) value-true))
+
+(define (context-exprs-equal? context e1 e2)
+        (or (and (eq? e1 e2) (context-expr-defined? context e1))
+            (let ((q-classes (context-q-classes context)))
+              (and (q-same-class? q-classes e1 e2)
+                   (q-seek-defined? q-classes e1)))
+            (let ((c (context-predecessor context)))
+              (and c
+                   (let ((val (context-exprs-equal? c e1 e2)))
+                     (if val (add-context-equation context e1 e2))
+                     val)))))
+
+(define (context-exprs-quasi-equal? context e1 e2)
+        (or (eq? e1 e2)
+            (let ((q-classes (context-q-classes context)))
+              (q-same-class? q-classes e1 e2))
+            (let ((c (context-predecessor context)))
+              (and c
+                   (let ((val (context-exprs-quasi-equal? c e1 e2)))
+                     (if val
+                         (add-context-quasi-equation context e1 e2))
+                     val)))))
+
+(define (context-expr-defined? context e1)
+        (or (necessarily-defined? e1)
+            (q-seek-defined? (context-q-classes context) e1)
+            (let ((c (context-predecessor context)))
+              (and c
+                   (let ((val (context-expr-defined? c e1)))
+                     (if val (add-context-convergence context e1))
+                     val)))))
+
+(define (context-walk-possible-matchers proc context expr)
+        (q-hashes-walk-possible-matchers proc
+            (context-q-hashes context) expr))
+
+(define (context-walk-possible-matching-entries proc context expr)
+        (let ((classes (context-q-classes context)))
+          (context-walk-possible-matchers
+              (lambda (e)
+                (if (q-same-class? classes e truth) (funcall proc e)))
+              context expr)))
+
+(define (context-walk-matches-to-constructor-and-first-lead proc
+            context expr)
+        (let ((constr (expression-constructor expr))
+              (lead (expression-lead-constant expr)))
+          (q-walk-matches-to-constructor-and-first-lead
+              (context-q-hashes context) proc constr lead)))
+
+(define (context-walk-entries-constructor-and-first-lead proc context
+            constr lead)
+        (let ((classes (context-q-classes context)))
+          (q-walk-matches-to-constructor-and-first-lead
+              (context-q-hashes context)
+              (lambda (e)
+                (if (q-same-class? classes e truth) (funcall proc e)))
+              constr lead)))
+
+(define (context-any-matcher? pred context expr)
+        (catch 'found
+          (context-walk-possible-matchers
+              (lambda (e) (if (funcall pred e) (throw 'found value-true)))
+              context expr)
+          value-false))
+
+(define (context-any-matching-entry? pred context expr)
+        (let ((classes (context-q-classes context)))
+          (context-any-matcher?
+              (lambda (e)
+                (and (q-same-class? classes e truth) (funcall pred e)))
+              context expr)))
+
+(define (context-walk-equalities proc context)
+        (let ((classes (context-q-classes context)))
+          (q-walk-matches-to-constructor (context-q-hashes context)
+              (lambda (e)
+                (if (q-same-class? classes e truth) (funcall proc e)))
+              equality)))
+
+(define (context-walk-negated-equalities-or-quasi-equalities proc
+            context)
+        (let ((classes (context-q-classes context)))
+          (q-walk-matches-to-constructor (context-q-hashes context)
+              (lambda (e)
+                (if (and (or (equation?
+                                 (car (expression-components e)))
+                             (quasi-equation?
+                                 (car (expression-components e))))
+                         (q-same-class? classes e truth))
+                    (funcall proc e)))
+              negation)))
+
+(define print-contexts-verbosely?
+        (make-simple-switch 'print-contexts-verbosely? boolean?
+            value-false))
+
+(define (add-context-entries context new-entries)
+  (walk (lambda (new-entry)
+	  (add-context-entry context new-entry))
+	new-entries)
+  context)
+
+(define (add-context-entry context new-entry)
+        (or 
+	 ;;(accumulate-undischarged-minor-premises?)
+	    (truth? new-entry)
+            (context-passively-contains-entry? context new-entry)
+            (walk (lambda (formula)
+                    (add-context-entry-do-addition context formula))
+                  (cons new-entry
+                        (append (reduce-conjunctions-and-universals
+                                    (list new-entry)
+                                    (context-variables context))
+                                (let ((conjunctive-component-lists
+                                       (map
+                                        (lambda (d-c)
+                                          (conjunctive-components d-c))
+                                        (disjunctive-components
+                                         new-entry))))
+                                  (if (not
+                                       (null?
+                                        conjunctive-component-lists))
+                                      (big-cap
+                                       conjunctive-component-lists)
+                                      nil))))))
+        context)
+
+(define do-debug? (make-simple-switch 'do-debug? boolean? value-false))
+
+(define (add-context-term-sort context term sort)
+        (set (table-entry (context-term-sorts context) term)
+             (add-set-element sort
+                 (table-entry (context-term-sorts context) term)))
+        (and (function? term) (term-sort-trigger context term sort))
+        (return))
+
+(define (term-sort-trigger context op sort)
+        (q-walk-matches-to-constructor (context-q-hashes context)
+            (lambda (app)
+              (and (eq? (operator app) op)
+                   (walk (lambda (arg arg-sort)
+                           (add-context-term-sort context arg arg-sort))
+                         (arguments app) (higher-sort-domains sort))))
+            apply-operator))
+
+(define (context-term-defined-sorts context term)
+        (table-entry (context-term-sorts context) term))
+
+(define (add-context-entry-do-addition context new-entry)
+        (context-add-bound-variables context
+            (bound-variables new-entry))
+        (install-context-entry context new-entry)
+        (cond
+          ((context-new-entry-absurd? context new-entry)
+           (make-context-absurd context))
+          ((quasi-equation? new-entry)
+           (add-context-quasi-equation context
+               (quasi-equation-lhs new-entry)
+               (quasi-equation-rhs new-entry)))
+          (else (select (expression-constructor new-entry)
+                        ((equality)
+                         (add-context-entry-add-equation context
+                             new-entry))
+                        ((apply-operator)
+                         (add-context-entry-add-application context
+                             new-entry))
+                        ((is-defined)
+                         (or (necessarily-defined?
+                                 (convergence-term new-entry))
+                             (add-context-entry-add-convergence context
+                                 new-entry)))
+                        ((is-defined-in-sort)
+                         (or (necessarily-defined-in-sort?
+                                 (convergence-term new-entry)
+                                 (convergence-sort new-entry))
+                             (add-context-entry-add-sort-convergence
+                                 context new-entry)))
+                        ((negation)
+                         (let ((flush (flush-not new-entry)))
+                           (or (eq? new-entry flush)
+                               (add-context-entry context flush))))
+                        ((biconditional)
+                         (let ((lhs (expression-lhs new-entry))
+                               (rhs (expression-rhs new-entry)))
+                           (add-context-equation context lhs rhs)
+                           (install-context-entry context
+                               (implication lhs rhs))
+                           (install-context-entry context
+                               (implication rhs lhs))))
+                        ((if-form)
+                         (let ((comps (expression-components new-entry)))
+                           (let ((test (nth comps 0))
+                                 (conseq (nth comps 1))
+                                 (alt (nth comps 2)))
+                             (install-context-entry context
+                                 (implication test conseq))
+                             (install-context-entry context
+                                 (implication (push-not test) alt))))))))
+        (return))
+
+(define (add-context-entry-add-equation context new-entry)
+        (let ((lhs (expression-lhs new-entry))
+              (rhs (expression-rhs new-entry)))
+          (let ((lhs-sort (expression-sorting lhs))
+                (rhs-sort (expression-sorting rhs)))
+            (let ((preferred-sort
+                      (or (and (sorting-leq lhs-sort rhs-sort)
+                               lhs-sort)
+                          (and (sorting-leq rhs-sort lhs-sort)
+                               rhs-sort))))
+              (add-context-equation context lhs rhs)
+              (walk (lambda (cnv) (add-context-entry context cnv))
+                    (immediately-consequent-convergences lhs
+                        (or preferred-sort lhs-sort)))
+              (walk (lambda (cnv) (add-context-entry context cnv))
+                    (immediately-consequent-convergences rhs
+                        (or preferred-sort rhs-sort)))))))
+
+(define (add-context-entry-add-application context new-entry)
+        (walk (lambda (term sort)
+                (if (term-or-fn? term)
+                    (add-context-entry context (defined-in term sort))))
+              (arguments new-entry)
+              (higher-sort-domains
+                  (expression-sorting (operator new-entry))))
+        (if (lambda-application? new-entry)
+            (add-context-entry context
+                (beta-reduce-recklessly new-entry))))
+
+(define (add-context-entry-add-convergence context new-entry)
+        (let ((term (car (expression-components new-entry))))
+          (add-context-convergence context term)
+          (cond
+            ((application? term)
+             (let ((known-sorts
+                       (cons (expression-sorting (operator term))
+                             (context-term-defined-sorts context
+                                 (operator term)))))
+               (walk (lambda (known)
+                       (walk (lambda (arg expected-sort)
+                               (add-context-entry context
+                                   (defined-in arg expected-sort)))
+                             (arguments term)
+                             (higher-sort-domains known)))
+                     known-sorts)))
+            ((conditional-term? term)
+             (if (necessarily-undefined?
+                     (conditional-alternative term))
+                 (add-context-entry context (conditional-test term)))
+             (if (necessarily-undefined? (conditional-consequent term))
+                 (add-context-entry context
+                     (push-not (conditional-test term))))))
+          (walk (lambda (cnv) (add-context-entry context cnv))
+                (immediately-consequent-convergences term
+                    (expression-sorting term)))))
+
+(define (add-context-entry-add-sort-convergence context new-entry)
+        (let ((term (car (expression-components new-entry)))
+              (sort (expression-sorting
+                        (cadr (expression-components new-entry)))))
+          (add-context-term-sort context term sort)
+          (add-context-entry context (is-defined term))
+          (walk (lambda (cnv) (add-context-entry context cnv))
+                (immediately-consequent-convergences term sort))))
+
+(define (context-new-entry-absurd? context new-entry)
+        (and (not (truth? new-entry))
+             (or (context-absurd? context)
+                 (context-contains-entry? context falsehood)
+                 (falsehood? new-entry)
+                 (let ((neg-entry (push-not new-entry)))
+                   (or (context-contains-entry? context neg-entry)
+                       (context-contains-entry? context
+                           (expression-alpha-root neg-entry))
+                       (mem? alpha-equivalent? neg-entry
+                             (context-assumptions context))))
+                 (and (negated-equation? new-entry)
+                      (let* ((equation
+                                 (car (expression-components new-entry)))
+                             (lhs (expression-lhs equation))
+                             (rhs (expression-rhs equation)))
+                        (context-exprs-equal? context lhs rhs)))
+                 (and (negated-convergence? new-entry)
+                      (let ((term (car (expression-components
+                                        (car
+                                         (expression-components
+                                          new-entry))))))
+                        (or (necessarily-defined? term)
+                            (context-expr-defined? context term))))
+                 (and (or (convergence? new-entry)
+                          (convergence-in-sort? new-entry))
+                      (necessarily-undefined?
+                          (car (expression-components new-entry))))
+                 (let ((simp (partially-simplified-form context
+                                 new-entry)))
+                   (and (not (eq? new-entry simp))
+                        (< (expression-height simp)
+                           (expression-height new-entry))
+                        (context-new-entry-absurd? context simp)))
+                 (let ((root (context-q-root context new-entry)))
+                   (and root
+                        (< (expression-height root)
+                           (expression-height new-entry))
+                        (context-new-entry-absurd? context root))))))
+
+(define-structure-type context theory-slot assumptions q-classes
+    q-hashes partially-simplified term-sorts free-variables
+    bound-variables variables assumption-variables absurd-flag
+    predecessor assumptions-already-simplified? sequents
+    (((print self port)
+      (if (print-contexts-verbosely?)
+          (format port "#{IMPS-context ~S~%~A}" (object-hash self)
+                  (assumptions->string assumptions))
+          (format port "#{IMPS-context ~S}" (object-hash self))))))
+
+(at-top-level
+    (block (set (context-theory-slot (stype-master context-stype))
+                value-false)
+      (set (context-free-variables (stype-master context-stype)) nil)
+      (set (context-bound-variables (stype-master context-stype)) nil)
+      (set (context-variables (stype-master context-stype)) nil)
+      (set (context-absurd-flag (stype-master context-stype)) value-false)
+      (set (context-assumptions-already-simplified?
+               (stype-master context-stype))
+           value-false)
+      (set (context-sequents (stype-master context-stype)) nil)))
+
+(define theory-context? context?)
+
+(define-operation sensor)
+
+(define partially-simplified-form
+        (object (lambda (context expr)
+                  (or (table-entry
+                          (context-partially-simplified context) expr)
+                      (let ((c (context-predecessor context)))
+                        (if c (partially-simplified-form c expr) expr))))
+                ((setter self)
+                 (lambda (context expr new-value)
+                   (cond
+                     ((and (truth? new-value)
+                           (not (context-contains-entry? context expr)))
+                      (add-context-entry context expr)
+                      (set (table-entry
+                               (context-partially-simplified context)
+                               expr)
+                           new-value))
+                     (else (set (table-entry
+                                    (context-partially-simplified
+                                     context)
+                                    expr)
+                                new-value)))))
+                ((sensor self)
+                 (lambda (context expr)
+                   (expression?
+                       (table-entry
+                           (context-partially-simplified context) expr))))))
+
+(define (transitive-partially-simplified-form context expr)
+        (let ((simp1 (partially-simplified-form context expr)))
+          (if (alpha-equivalent? simp1 expr) expr
+              (let ((simp2 (transitive-partially-simplified-form
+                               context simp1)))
+                (if (not (alpha-equivalent? simp2 simp1))
+                    (set (partially-simplified-form context expr)
+                         simp2))
+                simp2))))
+
+(define *theory-context-table* (settable-alist theory? set-table?))
+
+(define (clear-contexts) (set q-access-total 0)
+        (define *theory-context-table*
+                (settable-alist theory? set-table?))
+        (return))
+
+(define (max-index theory)
+        (let ((table (*theory-context-table* theory))
+              (assumptions nil))
+          (walk-table
+              (lambda (k v)
+                (ignore v)
+                (set assumptions (set-union k assumptions)))
+              table)
+          (length (make-set assumptions))))
+
+(define (context-predecessor-chain-length context)
+        (let ((pred (context-predecessor context)))
+          (if pred (1+ (context-predecessor-chain-length pred)) 1)))
+
+(define (context-subcontext-count context)
+        (let ((as (context-assumptions context))
+              (table (*theory-context-table* (context-theory context)))
+              (count 0))
+          (walk-table
+              (lambda (asses context)
+                (if (subset? asses as) (increment count)))
+              table)
+          count))
+
+(define (context-predecessors&subsets context)
+        (return
+          (context-predecessor-chain-length context)
+          (context-subcontext-count context)))
+
+(define (retrieve-context theory assumptions)
+        (table-entry
+            (or (*theory-context-table* theory)
+                (block (set (*theory-context-table* theory)
+                            (make-set-table (theory-name theory)))
+                  (*theory-context-table* theory)))
+            assumptions))
+
+(define (theory-null-context theory)
+        (or (retrieve-context theory nil)
+            (let ((c (make-context)))
+              (set (context-theory-slot c) theory)
+              (set (context-assumptions c) nil)
+              (set (context-q-classes c) (make-table 'q-classes))
+              (set (context-q-hashes c) (make-two-d-table 'q-hashes))
+              (set (context-partially-simplified c)
+                   (make-table 'partially-simplified))
+              (set (context-term-sorts c) (make-table 'term-sorts))
+              (set (context-assumption-variables c) nil)
+              (set (context-predecessor c) value-false)
+              (set (table-entry (*theory-context-table* theory) nil) c)
+              c)))
+
+(define (empty-context) (theory-null-context the-kernel-theory))
+
+(define the-null-context empty-context)
+
+(define theory-empty-context theory-null-context)
+
+(define (empty-context? context) (null? (context-assumptions context)))
+
+(define (context-add-assumptions context new-assumptions)
+        (let ((new-assumptions
+                  (delete-set-element truth new-assumptions)))
+          (let ((old (context-assumptions context)))
+            (receive (really-new all)
+                     (iterate iter
+                              ((really-new nil) (all old)
+                               (rest new-assumptions))
+                              (cond
+                                ((null? rest) (return really-new all))
+                                ((mem? alpha-equivalent? (car rest)
+                                       all)
+                                 (iter really-new all (cdr rest)))
+                                ((context-contains-entry? context
+                                     (car rest))
+                                 (iter really-new (cons (car rest) all)
+                                       (cdr rest)))
+                                (else (iter
+                                       (cons (car rest) really-new)
+                                       (cons (car rest) all)
+                                       (cdr rest)))))
+                     (let ((theory (context-theory context)))
+                       (or (retrieve-context theory all)
+                           (let ((c (make-context)))
+                             (receive (classes hashes)
+                                      (initialize-q-tables 'context)
+                                      (set (context-theory-slot c)
+                                       (context-theory context))
+                                      (set (context-assumptions c) all)
+                                      (set (context-q-hashes c) hashes)
+                                      (set (context-q-classes c)
+                                       classes)
+                                      (set
+                                       (context-partially-simplified c)
+                                       (make-table
+                                        'partially-simplified))
+                                      (set (context-term-sorts c)
+                                       (make-table 'term-sorts))
+                                      (set (context-predecessor c)
+                                       context)
+                                      (set (context-free-variables c)
+                                       (collect-set free-variables all))
+                                      (set (context-bound-variables c)
+                                       (set-union
+                                        (context-bound-variables
+                                         context)
+                                        (collect-set bound-variables
+                                         really-new)))
+                                      (set (context-variables c)
+                                       (set-union
+                                        (context-free-variables c)
+                                        (context-bound-variables c)))
+                                      (set
+                                       (context-assumption-variables c)
+                                       (append
+                                        (collect-set free-variables
+                                         all)
+                                        (collect-set bound-variables
+                                         all)))
+                                      (add-context-entries c all)
+                                      (set
+                                       (table-entry
+                                        (*theory-context-table* theory)
+                                        all)
+                                       c)
+                                      c))))))))
+
+(define (context-add-assumption context new-assumption)
+        (context-add-assumptions context (list new-assumption)))
+
+(define (build-context theory assumptions)
+        (receive (basis additions)
+                 (iterate iter ((active assumptions) (inactive nil))
+                          (cond
+                            ((null? active)
+                             (return
+                               (theory-null-context theory)
+                               (reverse! inactive)))
+                            ((retrieve-context theory active) =>
+                             (lambda (c)
+                               (return c (reverse! inactive))))
+                            (else (iter (cdr active)
+                                        (cons (car active) inactive)))))
+                 (if (null? additions) basis
+                     (context-add-assumptions basis additions))))
+
+(define (context->theory-context theory context)
+        (if (eq? theory (context-theory-slot context)) context
+            (let ((asses (context-assumptions context)))
+              (build-context theory asses))))
+
+(define (context-omit-assumptions context omissions)
+        (if (null? omissions) context
+            (build-context (context-theory context)
+                (set-difference (context-assumptions context)
+                    omissions))))
+
+(define (context-omit-assumption context omission)
+        (context-omit-assumptions context (list omission)))
+
+(define (rebinding-filter-context formula context)
+        (let ((nbvs (newly-bound-variables formula)))
+          (labels (((suspicious-variables? exp-or-context)
+                    (non-null-intersection?
+                        (free-variables exp-or-context) nbvs)))
+            (if (and (binding-expression? formula)
+                     (suspicious-variables? context))
+                (context-omit-assumptions context
+                    (set-separate
+                        (lambda (assumption)
+                          (suspicious-variables? assumption))
+                        (context-assumptions context)))
+                context))))
+
+(define requantification-filter-context rebinding-filter-context)
+
+(define (requantification-filter-context-and-using formula context
+            using)
+        (labels (((suspicious-variables? exp-or-context)
+                  (non-null-intersection?
+                      (free-variables exp-or-context)
+                      (newly-bound-variables formula))))
+          (if (not (binding-expression? formula))
+              (return context using)
+              (return
+                (context-omit-assumptions context
+                    (set-separate
+                        (lambda (assumption)
+                          (suspicious-variables? assumption))
+                        (context-assumptions context)))
+                (set-separate
+                    (lambda (used) (not (suspicious-variables? used)))
+                    using)))))
+
+(define (requantification? formula context . using)
+        (let ((new-vars (newly-bound-variables formula)))
+          (or (not (null-intersection? new-vars
+                       (context-free-variables context)))
+              (any? (lambda (f)
+                      (not (null-intersection? new-vars
+                               (free-variables f))))
+                    using))))
+
+(define (requantification-on-path? formula context path)
+        (if (null? path) value-false
+            (or (requantification? formula context)
+                (receive (new-formula new-path)
+                         (host-and-path-after-step formula path)
+                         (requantification-on-path? new-formula context
+                             new-path)))))
+
+(define (context-and-additions-at-path context host path using)
+        (if (null? path) (return context using)
+            (receive (new-context new-using)
+                     (requantification-filter-context-and-using host
+                         context using)
+                     (receive (new-host new-path)
+                              (host-and-path-after-step host path)
+                              (context-and-additions-at-path
+                                  new-context new-host new-path
+                                  (set-union new-using
+                                      (funcall
+                                       (constructor-lc-incrementer
+                                        (expression-constructor host))
+                                       (expression-components host)
+                                       (car path))))))))
+
+(define (local-context-at-path context host path)
+        (receive (new-context additions)
+                 (context-and-additions-at-path context host path nil)
+                 (context-add-assumptions new-context additions)))
+
+(define (local-context-at-virtual-path context host path)
+        (let* ((paths (expand-virtual-path host path))
+               (contexts
+                   (map (lambda (path)
+                          (local-context-at-path context host path))
+                        paths)))
+          (if contexts
+              (build-context (context-theory context)
+                  (big-cap (map context-assumptions contexts)))
+              (theory-null-context (context-theory context)))))
+
+(define-structure-type sequent context assertion free-variables
+    bound-variables entailment-flag
+    (((print self port)
+      (format port "#{IMPS-sequent ~S: ~A -> ~A}" (object-hash self)
+              (sequent-context self) (sequent-assertion self)))))
+
+(set (sequent-entailment-flag (stype-master sequent-stype)) value-false)
+
+(define (retrieve-sequent context assertion)
+        (let ((entries (context-sequents context)))
+          (any (lambda (seq)
+                 (and (eq? (sequent-assertion seq) assertion) seq))
+               entries)))
+
+(define (build-sequent context assertion)
+        (or (formula? assertion)
+            (imps-error "BUILD-SEQUENT: ~A is a non-formula."
+                assertion))
+        (or (retrieve-sequent context assertion)
+            (let ((seq (make-sequent)))
+              (set (sequent-context seq) context)
+              (set (sequent-assertion seq) assertion)
+              (set (sequent-free-variables seq)
+                   (set-union (free-variables context)
+                       (free-variables assertion)))
+              (set (sequent-bound-variables seq)
+                   (set-union (bound-variables context)
+                       (bound-variables assertion)))
+              (push (context-sequents context) seq)
+              (if (context-trivially-entails? context assertion)
+                  (set (sequent-entailment-flag seq) value-true))
+              seq)))
+
+(define (make-sequent-entailed sequent)
+;;  (or (accumulate-undischarged-minor-premises?)     (block)
+  (set (sequent-entailment-flag sequent) value-true)
+  (add-context-entry (sequent-context sequent)
+		     (sequent-assertion sequent)))
+
+(define (assertion->sequent assertion)
+        (build-sequent (the-null-context) assertion))
+
+(define (theory-assertion->sequent theory assertion)
+        (build-sequent (theory-null-context theory) assertion))
+
+(define (sequent-assumptions seq)
+        (context-assumptions (sequent-context seq)))
+
+(define (sequent-add-assumption sequent assumption)
+        (build-sequent
+            (context-add-assumption (sequent-context sequent)
+                assumption)
+            (sequent-assertion sequent)))
+
+(define (sequent-change-free-variables sequent avoid-vars)
+        (let ((avoid-vars
+                  (set-intersection avoid-vars
+                      (free-variables sequent)))
+              (assumptions (sequent-assumptions sequent))
+              (assertion (sequent-assertion sequent))
+              (theory (context-theory (sequent-context sequent))))
+          (build-sequent
+              (build-context theory
+                  (map (lambda (a)
+                         (expression-change-free-variables a
+                             avoid-vars))
+                       assumptions))
+              (expression-change-free-variables assertion avoid-vars))))
+
+(define (sequent-theory sequent)
+        (context-theory (sequent-context sequent)))
+
+(define (sequent->theory-sequent theory sequent)
+        (build-sequent
+            (context->theory-context theory (sequent-context sequent))
+            (sequent-assertion sequent)))
+
+(define (sequent->sentence sequent)
+        (if (empty-context? (sequent-context sequent))
+            (universal-closure (sequent-assertion sequent))
+            (let ((hyps (sequent-assumptions sequent)))
+              (universal-closure
+                  (implication (conjunction-simplifier hyps)
+                      (sequent-assertion sequent))))))
+
+(define (sequents-alpha-equivalent? seq1 seq2)
+        (and (alpha-equivalent? (sequent-assertion seq1)
+                 (sequent-assertion seq2))
+             (let ((a2s (sequent-assumptions seq2)))
+               (every? (lambda (a1)
+                         (any? (lambda (a2) (alpha-equivalent? a1 a2))
+                               a2s))
+                       (sequent-assumptions seq1)))
+             (let ((a1s (sequent-assumptions seq1)))
+               (every? (lambda (a2)
+                         (any? (lambda (a1) (alpha-equivalent? a2 a1))
+                               a1s))
+                       (sequent-assumptions seq2)))))
+
+;;;(define (context-sequent-max-&-average)
+;;;        (let ((max-sequents 0) (number-of-contexts 0)
+;;;              (number-of-sequents 0))
+;;;          (walk-table
+;;;              (lambda (context subtable)
+;;;                (ignore context)
+;;;                (increment number-of-contexts)
+;;;                (let ((num 0))
+;;;                  (walk-table
+;;;                      (lambda (assertion sequent)
+;;;                        (ignore assertion sequent)
+;;;                        (increment num))
+;;;                      subtable)
+;;;                  (set max-sequents (max max-sequents num))
+;;;                  (set number-of-sequents (+ max-sequents num))))
+;;;              *sequent-table*)
+;;;          (return
+;;;            max-sequents
+;;;            (->float (/ number-of-sequents number-of-contexts)))))

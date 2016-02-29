@@ -1,0 +1,250 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment variable-sorts-matching)
+
+(define (variable-sorts-match expr-1 expr-2 fixed-sorts)
+        (let ((fixed-sorts-alist
+                  (map (lambda (sort) (cons sort sort)) fixed-sorts)))
+          (receive (bound-sort-alist free-sort-alist)
+                   (variable-sorts-match-aux expr-1 expr-2
+                       fixed-sorts-alist nil nil)
+                   (merge-and-check-sort-alists bound-sort-alist
+                       free-sort-alist))))
+
+(define (variable-sorts-match-from-lists exprs-1 exprs-2 fixed-sorts)
+        (let ((fixed-sorts-alist
+                  (map (lambda (sort) (cons sort sort)) fixed-sorts)))
+          (receive (bound-sort-alist free-sort-alist)
+                   (variable-sorts-match-from-lists-aux exprs-1 exprs-2
+                       fixed-sorts-alist nil nil)
+                   (merge-and-check-sort-alists bound-sort-alist
+                       free-sort-alist))))
+
+(define (merge-and-check-sort-alists bound-sort-alist free-sort-alist)
+        (if (fail? bound-sort-alist) (fail)
+            (let ((sort-alist
+                      (merge-sort-alists bound-sort-alist
+                          free-sort-alist)))
+              (if (and (succeed? sort-alist)
+                       (every? (lambda (pair)
+                                 (good-sort-pair? sort-alist pair))
+                               sort-alist))
+                  sort-alist (fail)))))
+
+(define (merge-sort-alists bound-sort-alist free-sort-alist)
+        (iterate loop
+                 ((b-sort-alist bound-sort-alist)
+                  (f-sort-alist free-sort-alist))
+                 (if (null? f-sort-alist) b-sort-alist
+                     (let* ((alpha (caar f-sort-alist))
+                            (alpha-f-sort-alist
+                                (set-separate
+                                    (lambda (pair)
+                                      (eq? (car pair) alpha))
+                                    f-sort-alist))
+                            (new-f-sort-alist
+                                (set-diff f-sort-alist
+                                    alpha-f-sort-alist)))
+                       (cond
+                         ((assq alpha b-sort-alist) =>
+                          (lambda (pair1)
+                            (if (every? (lambda (pair2)
+                                          (sorting-leq (cdr pair2)
+                                           (cdr pair1)))
+                                        alpha-f-sort-alist)
+                                (loop b-sort-alist new-f-sort-alist)
+                                (fail))))
+                         (else (let ((lub
+                                      (big-sorting-lub
+                                       (map cdr alpha-f-sort-alist))))
+                                 (loop
+                                   (add-set-element (cons alpha lub)
+                                    b-sort-alist)
+                                   new-f-sort-alist))))))))
+
+(define (variable-sorts-match-aux expr-1 expr-2 b-sort-alist
+            f-sort-alist exoscopes)
+        (cond
+          ((fail? b-sort-alist) (return (fail) (fail)))
+          ((constant? expr-1)
+           (if (and (constant? expr-2) (eq? expr-1 expr-2))
+               (let ((c-sort (expression-sorting expr-1)))
+                 (vs-match-sort c-sort c-sort b-sort-alist f-sort-alist
+                     'bound))
+               (return (fail) (fail))))
+          ((variable? expr-1)
+           (let ((sort-1 (expression-sorting expr-1))
+                 (sort-2 (expression-sorting expr-2)))
+             (cond
+               ((not (element-of-set? expr-1 exoscopes))
+                (vs-match-sort sort-1 sort-2 b-sort-alist f-sort-alist
+                    'free))
+               ((variable? expr-2)
+                (vs-match-sort sort-1 sort-2 b-sort-alist f-sort-alist
+                    'bound))
+               (else (return (fail) (fail))))))
+          ((or (constant? expr-2) (variable? expr-2))
+           (return (fail) (fail)))
+          (else (let ((constr-1 (expression-constructor expr-1))
+                      (constr-2 (expression-constructor expr-2))
+                      (comps-1 (expression-components expr-1))
+                      (comps-2 (expression-components expr-2)))
+                  (cond
+                    ((not (and (eq? constr-1 constr-2)
+                               (= (length comps-1) (length comps-2))))
+                     (return (fail) (fail)))
+                    ((= (length comps-1) 0)
+                     (return b-sort-alist f-sort-alist))
+                    (else (let ((new-exoscopes
+                                    (if (binding-constructor? constr-1)
+                                     (set-union
+                                      (binding-variables expr-1)
+                                      exoscopes)
+                                     exoscopes)))
+                            (variable-sorts-match-from-lists-aux
+                                comps-1 comps-2 b-sort-alist
+                                f-sort-alist new-exoscopes))))))))
+
+(define (variable-sorts-match-from-lists-aux exprs-1 exprs-2
+            b-sort-alist f-sort-alist exoscopes)
+        (iterate loop
+                 ((exprs-1 exprs-1) (exprs-2 exprs-2)
+                  (b-sort-alist b-sort-alist)
+                  (f-sort-alist f-sort-alist))
+                 (cond
+                   ((fail? b-sort-alist) (return (fail) (fail)))
+                   ((null? exprs-1) (return b-sort-alist f-sort-alist))
+                   (else (receive (new-b-sort-alist new-f-sort-alist)
+                                  (variable-sorts-match-aux
+                                      (car exprs-1) (car exprs-2)
+                                      b-sort-alist f-sort-alist
+                                      exoscopes)
+                                  (loop
+                                    (cdr exprs-1)
+                                    (cdr exprs-2)
+                                    new-b-sort-alist
+                                    new-f-sort-alist))))))
+
+(define (vs-match-sort sort-1 sort-2 b-sort-alist f-sort-alist flag)
+        (cond
+          ((not (eq? (sort-category sort-1) (sort-category sort-2)))
+           (return (fail) (fail)))
+          ((name sort-1)
+           (vs-match-named-sort sort-1 sort-2 b-sort-alist f-sort-alist
+               flag))
+          ((and (higher-sort? sort-1) (higher-sort? sort-2)
+                (= (length (higher-sort-domains sort-1))
+                   (length (higher-sort-domains sort-1))))
+           (cond
+             ((and (eq? flag 'bound) (name sort-2))
+              (return (fail) (fail)))
+             ((eq? flag 'bound)
+              (vs-match-maximal-higher-sort sort-1 sort-2 b-sort-alist
+                  f-sort-alist flag))
+             (else (let ((new-sort-2
+                             (if (name sort-2)
+                                 (enclosing-maximal-higher-sort sort-2)
+                                 sort-2)))
+                     (vs-match-maximal-higher-sort sort-1 new-sort-2
+                         b-sort-alist f-sort-alist flag)))))
+          (else (return (fail) (fail)))))
+
+(define (vs-match-named-sort sort-1 sort-2 b-sort-alist f-sort-alist
+            flag)
+        (if (and (eq? sort-1 prop) (not (eq? sort-2 prop)))
+            (return (fail) (fail))
+            (if (eq? flag 'free)
+                (return
+                  b-sort-alist
+                  (add-set-element (cons sort-1 sort-2) f-sort-alist))
+                (let ((pair (assq sort-1 b-sort-alist)))
+                  (cond
+                    ((not pair)
+                     (return
+                       (add-set-element (cons sort-1 sort-2)
+                           b-sort-alist)
+                       f-sort-alist))
+                    ((eq? sort-2 (cdr pair))
+                     (return b-sort-alist f-sort-alist))
+                    (else (return (fail) (fail))))))))
+
+(define (vs-match-maximal-higher-sort sort-1 sort-2 b-sort-alist
+            f-sort-alist flag)
+        (iterate loop
+                 ((sorts-1 (cons (higher-sort-range sort-1)
+                                 (higher-sort-domains sort-1)))
+                  (sorts-2 (cons (higher-sort-range sort-2)
+                                 (higher-sort-domains sort-2)))
+                  (new-b-sort-alist b-sort-alist)
+                  (new-f-sort-alist f-sort-alist))
+                 (cond
+                   ((fail? new-f-sort-alist) (return (fail) (fail)))
+                   ((not (= (length sorts-1) (length sorts-2)))
+                    (return (fail) (fail)))
+                   ((null? sorts-1)
+                    (return new-b-sort-alist new-f-sort-alist))
+                   (else (receive (b-s-alist f-s-alist)
+                                  (vs-match-sort (car sorts-1)
+                                      (car sorts-2) new-b-sort-alist
+                                      new-f-sort-alist flag)
+                                  (loop
+                                    (cdr sorts-1)
+                                    (cdr sorts-2)
+                                    b-s-alist
+                                    f-s-alist))))))
+
+(define (good-sort-pair? sort-alist pair)
+        (or (base-sort-is-type? (car pair))
+            (let ((alpha (cdr pair))
+                  (beta (sort-substitute-sort sort-alist
+                            (enclosing-sort (car pair)))))
+              (and (succeed? beta) (sorts-may-overlap? alpha beta)
+                   (sorting-leq alpha beta)))))

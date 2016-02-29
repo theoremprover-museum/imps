@@ -1,0 +1,253 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment presentation-interface)
+
+(define-operation (formatter-operator-table soi))
+
+(define-operation (present-tree soi token-list bp))
+
+(define-settable-operation (composite-presentation-method soi))
+
+(define-settable-operation (default-prefix-presentation-method soi))
+
+(define (make-tree-formatter)
+        (let ((operator-table (make-table 'print-table))
+              (prefix-presentation-method value-false))
+          (labels (((procedure-for-composite-operators formatter op
+                        args binding-power)
+                    (parenthesize-conditionally (> binding-power 200)
+                        (list *pp-block* 1
+                              (present-tree formatter op 200)
+                              (list *pp-break* 0) '|(|
+                              (alternate-insert '|,|
+                                  (map (lambda (z)
+                                         (present-tree formatter z 0))
+                                       args))
+                              '|)|))))
+            (object nil
+                    ((composite-presentation-method soi)
+                     procedure-for-composite-operators)
+                    (((setter composite-presentation-method) soi
+                      new-proc)
+                     (set procedure-for-composite-operators new-proc))
+                    ((formatter-operator-table soi) operator-table)
+                    ((default-prefix-presentation-method soi)
+                     prefix-presentation-method)
+                    (((setter default-prefix-presentation-method) soi
+                      new-val)
+                     (set prefix-presentation-method new-val))
+                    ((present-tree soi parse-tree binding-power)
+                     (cond
+                       ((atom? parse-tree) parse-tree)
+                       ((and (list? parse-tree)
+                             (atom? (car parse-tree)))
+                        (funcall (presentation-method soi
+                                     (car parse-tree))
+                                 soi (car parse-tree) (cdr parse-tree)
+                                 binding-power))
+                       (else (funcall (composite-presentation-method
+                                       soi)
+                                      soi (car parse-tree)
+                                      (cdr parse-tree) binding-power))))))))
+
+(define (copy-formatter formatter)
+        (let* ((new-formatter (make-tree-formatter))
+               (operator-table
+                   (formatter-operator-table new-formatter)))
+          (walk-table
+              (lambda (key val)
+                (set (table-entry operator-table key) val))
+              (formatter-operator-table formatter))
+          new-formatter))
+
+(define *port-line-length* 60)
+
+(define *pp-block* 'string-print-block-marker)
+
+(define *pp-break* 'break)
+
+(define (break-dist es after)
+        (if (null? es) after
+            (let ((first (car es)) (rest (cdr es)))
+              (cond
+                ((string? first)
+                 (+ (string-length first) (break-dist rest after)))
+                ((eq? *pp-block* (car first))
+                 (+ (caddr first) (break-dist rest after)))
+                (else 0)))))
+
+(define (really-pr e margin port)
+        (let ((space margin))
+          (labels (((blanks n)
+                    (if (> n 0)
+                        (block (display " " port)
+                          (set space (- space 1))
+                          (blanks (- n 1)))))
+                   ((nl) (newline port) (set space margin))
+                   ((printing es block-space after forced-break-flag)
+                    (if (null? es) forced-break-flag
+                        (let ((e (car es)) (es (cdr es)))
+                          (printing es block-space after
+                              (cond
+                                ((string? e) (display e port)
+                                 (set space
+                                      (- space (string-length e)))
+                                 forced-break-flag)
+                                ((eq? *pp-block* (car e))
+                                 (or (printing (cdddr e)
+                                      (- space (cadr e))
+                                      (break-dist es after)
+                                      (> (e-length e) space))
+                                     forced-break-flag))
+                                ((eq? *pp-break* (car e))
+                                 (if (and (not forced-break-flag)
+                                      (<=
+                                       (+ (cadr e)
+                                        (break-dist es after))
+                                       space))
+                                     (block (blanks (cadr e)) value-false)
+                                     (block (nl)
+                                       (blanks (- margin block-space))
+                                       value-true)))
+                                ((eq? 'newline (car e)) (nl)
+                                 (blanks (- margin block-space))
+                                 value-true)
+                                (else (printing e block-space after
+                                       forced-break-flag))))))))
+            (printing (list e) margin 0 value-false))))
+
+(define (e-length e)
+        (cond
+          ((null? e) 0)
+          ((string? e) (string-length e))
+          ((eq? *pp-block* (car e)) (caddr e))
+          ((eq? *pp-break* (car e)) (cadr e))
+          ((eq? 'newline (car e)) 120)
+          ((pair? e) (+ (e-length (car e)) (e-length (cdr e))))
+          (else (imps-error "E-LENGTH: ~A. Neither fish nor fowl." e))))
+
+(define (stringify x)
+        (cond
+          ((null? x) x)
+          ((string? x) x)
+          ((symbol? x)
+           (format nil (string-downcase! (symbol->string x))))
+          ((non-negative-integer? x) (format nil "~a" x))
+          ((number? x) (format nil "[~a]" x))
+;;added by jt Mon Nov 17 12:40:36 EST 1997
+	  ((numerical-object? x) (with-output-to-string p (print x p)))
+          ((atom? x) (format nil "~a" x))
+          ((and (pair? x) (eq? (car x) *pp-break*)) x)
+          ((and (pair? x) (eq? (car x) *pp-block*))
+           (let* ((indent (cadr x)) (modify-x (stringify (cddr x)))
+                  (len (e-length modify-x)))
+             (list* *pp-block* indent len modify-x)))
+          ((pair? x) (set (car x) (stringify (car x)))
+           (set (cdr x) (stringify (cdr x))) x)
+          (else (imps-error "Neither fish nor fowl."))))
+
+(define (output-port->imps-output-port port formatter)
+        (let ((ob (make-object)))
+;;Modified by jt Tue Jan 20 18:57:42 EST 1998
+          (labels (((fun-102 soi tree . junk)
+		    (ignore junk)
+                    (let ((tree (if (use-old-apply-operator-form?) tree
+                                    (drop-apply-operators tree))))
+                      (really-pr
+                          (stringify (present-tree formatter tree 0))
+                          *port-line-length* port))))
+            (refurnish-object ob nil (write fun-102))
+            (join ob port))))
+
+(define (drop-apply-operators tree)
+        (if (atom? tree) tree
+            (if (list? tree)
+                (if (eq? (car tree) 'apply-operator)
+                    (map! drop-apply-operators (cdr tree))
+                    (map! drop-apply-operators tree))
+                (imps-error "Ca n'a ni queue ni tete! ~A" tree))))
+
+(define (sexp->output-string formatter tree)
+        (with-output-to-string port
+          (let ((pt (output-port->imps-output-port port formatter)))
+            (write pt
+                   (if (use-old-apply-operator-form?) tree
+                       (drop-apply-operators tree))))))
+
+(define (output-port->imps-output-port-for-sorts port)
+        (let ((ob (make-object)))
+;;Modified by jt Tue Jan 20 18:57:42 EST 1998
+          (labels (((fun-103 soi tree . junk)
+		    (ignore junk)
+                    (iterate write-atoms-to-port
+                             ((x (present-list-with-sets tree)))
+                             (if (< *port-line-length* (hpos soi))
+                                 (set (hpos soi) 0))
+                             (cond
+                               ((null? x))
+                               ((string? x) (format soi x))
+                               ((symbol? x)
+                                (format soi
+                                        (string-downcase!
+                                         (symbol->string x))))
+                               ((non-negative-integer? x)
+                                (format soi "~a" x))
+                               ((atom? x) (format soi "~a" x))
+                               (else (write-atoms-to-port (car x))
+                                     (write-atoms-to-port (cdr x))))
+                             (return))))
+            (refurnish-object ob nil (write fun-103))
+            (join ob port))))
+
+(define (sort-list->string tree)
+        (with-output-to-string port
+          (let ((pt (output-port->imps-output-port-for-sorts port)))
+            (write pt tree))))

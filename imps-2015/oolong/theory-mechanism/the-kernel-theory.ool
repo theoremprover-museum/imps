@@ -1,0 +1,119 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment the-kernel-theory)
+
+(define the-kernel-language
+        (language-from-definition
+            '(the-kernel-language (base-types unit%sort)
+                 (constants (an%individual unit%sort)))))
+
+(define unit%sort (name->sort the-kernel-language 'unit%sort))
+
+(define sort-of-arbitrary-individual unit%sort)
+
+(define arbitrary-individual
+        (find-constant the-kernel-language 'an%individual))
+
+(define unit-sort-defining-axiom
+        (let* ((unit-sort (name->sort the-kernel-language 'unit%sort))
+               (a (find-constant the-kernel-language 'an%individual))
+               (var (find-variable 'x unit-sort))
+               (formula (forall (equality var a) var)))
+          (build-theorem nil formula 'unit-sort-defining-axiom nil)))
+
+(define unit-sort-rewrite-rule
+        (let* ((unit-sort (name->sort the-kernel-language 'unit%sort))
+               (var1 (find-variable 'x unit-sort))
+               (var2 (find-variable 'y unit-sort))
+               (formula (forall (biconditional (equality var1 var2)
+                                    (the-true))
+                                var1 var2)))
+          (build-theorem nil formula value-false '(rewrite))))
+
+(define the-kernel-theory-axioms (list unit-sort-defining-axiom))
+
+(define the-kernel-theory-theorems
+        (list unit-sort-defining-axiom unit-sort-rewrite-rule))
+
+(define the-kernel-theory
+        (let ((theory (make-theory)))
+          (set-theory-name theory 'the-kernel-theory)
+          (set (theory-component-theories theory) nil)
+          (set (theory-language theory) the-kernel-language)
+          (set (theory-axioms theory) the-kernel-theory-axioms)
+          (set (theory-top-level-axioms theory)
+               the-kernel-theory-axioms)
+          (set-walk
+              (lambda (ax)
+                (update-theory-usage-alist-for-theorem theory ax))
+              the-kernel-theory-theorems)
+          (set (theory-distinct-constant-list theory) nil)
+          (set (theory-distinct-constant-table theory) (make-table))
+          (enter-theory theory)
+          (set (theory-history theory) (begin-event-history))
+          (set (theory-definitions theory) the-empty-set)
+          (set (theory-recursive-definitions theory) the-empty-set)
+          (set (theory-sort-definitions theory) the-empty-set)
+          (set (theory-transform-table theory)
+               (make-table 'kernel-theory-transform-table))
+          (set (theory-domain-range-handler theory)
+               (build-d-r-handler theory
+                   (concatenate-symbol (theory-name theory)
+                       'the-kernel-theory-default-d-r-handler)))
+          (set-theory-theorems theory nil the-kernel-theory-theorems)
+          (set (theory-distinct-constant-table theory) (make-table))
+          (set (theory-subsorting-structure theory)
+               (build-theory-subsorting theory))
+          theory))
+
+(define kernel-theory? (lambda (th) (eq? th the-kernel-theory)))
+
+(set (current-theory) the-kernel-theory)

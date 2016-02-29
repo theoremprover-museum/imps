@@ -1,0 +1,1052 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment (inferences context-entailment))
+
+(define (context-entails? context formula)
+        (or (context-trivially-entails? context formula)
+            (truth? (context-insistently-simplify context formula
+                        (context-simplification-persistence)))))
+
+(define (context-insistently-simplify context expr persist)
+        (if (and (formula? expr)
+                 (context-trivially-entails? context expr))
+            truth
+            (iterate iter ((expr expr))
+                     (let ((simplified
+                               (context-simplify context expr persist)))
+                       (if (or (eq? simplified expr)
+                               (alpha-equivalent? simplified expr))
+                           expr (iter simplified))))))
+
+(define (context-immediately-entails? context formula)
+        (truth? (context-simplify context formula
+                    (context-low-simplification-persistence))))
+
+(define (context-simplify-virgin context expr persist)
+        (funcall (prune-simplification context-insistently-simplify)
+                 context expr persist))
+
+(define (context-trivially-entails? context expr)
+  (flet (((fn context expr)
+	  (cond
+	   ((truth? expr))
+	   ((context-absurd? context))
+	   ((mem? alpha-equivalent? expr
+		  (context-assumptions context)))
+	   ((context-contains-entry? context expr))
+	   ((convergence? expr)
+	    (let ((term (convergence-term expr)))
+	      (or (context-match-check-definedness? context
+						    term)
+		  (context-trivially-entails-defined? context
+						      term))))
+	   ((convergence-in-sort? expr)
+	    (context-trivially-entails-defined-in-sort?
+	     context (convergence-term expr)
+	     (convergence-sort expr)))
+	   ((quasi-equation? expr)
+	    (context-trivially-entails-quasi-equal? context
+						    (quasi-equation-lhs expr)
+						    (quasi-equation-rhs expr)))
+	   ((equation? expr)
+	    (context-trivially-entails-equal? context
+					      (expression-lhs expr) (expression-rhs expr)))
+	   (else value-false))))
+    (or (fn context expr)
+	(fn context (recursive-constructor-simplify expr)))))
+
+(define dont-work-on-definedness
+        (make-simple-switch 'dont-work-on-definedness boolean? value-false))
+
+(define undischarged-minor-premises 
+        (make-simple-switch 'undischarged-minor-premises
+            list? value-false))
+
+(define accumulate-undischarged-minor-premises?
+        (make-simple-switch 'accumulate-undischarged-minor-premises?
+            boolean? value-false))
+
+;(define dont-taint-contexts
+;        (make-simple-switch 'dont-taint-contexts
+;            list? value-false))
+
+(define simplify-non-virgins?
+        (make-simple-switch 'simplify-non-virgins? boolean? value-true))
+
+(define (simplify-with-partially-simplified-form context expr proc)
+        (if (or (simplify-non-virgins?)
+                (not (funcall (sensor partially-simplified-form)
+                              context expr)))
+            (let ((expr1 (transitive-partially-simplified-form context
+                             expr)))
+              (let ((expr2 (funcall proc context expr1)))
+                (imps-enforce expression? expr2)
+                (if (null? (undischarged-minor-premises))
+                    (block (if (not (alpha-equivalent? expr expr2))
+                               (set (partially-simplified-form context
+                                     expr)
+                                    expr2))
+                      (if (not (alpha-equivalent? expr1 expr2))
+                          (set (partially-simplified-form context
+                                   expr1)
+                               expr2))))
+                expr2))
+            (transitive-partially-simplified-form context expr)))
+
+(define (make-simplification-procedure proc syntactic-restriction?)
+        (lambda (context expr persist)
+          (if (or (context-expr-defined? context expr)
+                  (context-expr-defined? context
+                      (expression-alpha-root expr)))
+              (equate-to-alpha-root context expr))
+          (context-simplify-installer context expr
+              (simplify-with-partially-simplified-form context expr
+                  (object (lambda (context expr)
+                            (if (and (not (negative? persist))
+                                     (funcall syntactic-restriction?
+                                      expr))
+                                (funcall proc context expr persist)
+                                expr))
+                          ((print self port)
+                           (format port "#{Procedure ~D ~S}"
+                                   (object-hash self) proc)))))))
+
+(define (prune-simplification proc)
+        (lambda (context expr . rest)
+          (bind (((simplify-non-virgins?) value-false))
+                (apply proc context expr rest))))
+
+(define (context-simplify-top-level context expr persist)
+        (or (and (formula? expr)
+                 (seek-truth-value context expr persist))
+            (let ((expr (context-recursively-seek-formal-symbols
+                            context expr)))
+              (context-simplify-1 context expr persist))))
+
+(define context-simplify
+        (make-simplification-procedure context-simplify-top-level
+            (always value-true)))
+
+(define (context-simplify-installer context expr simplified)
+        (cond
+          ((alpha-equivalent? expr simplified))
+          ((undischarged-minor-premises))
+          ((eq? simplified truth) (add-context-entry context expr))
+          ((eq? simplified falsehood)
+           (add-context-entry context (push-not expr)))
+          ((and (term-or-fn? expr)
+                (or (context-trivially-entails-defined? context expr)
+                    (context-trivially-entails-defined? context
+                        simplified)))
+           (add-context-entry context (equality expr simplified)))
+          ((term-or-fn? expr)
+           (add-context-quasi-equation context expr simplified))
+          ((formula? expr)
+           (add-context-entry context (biconditional expr simplified))))
+        simplified)
+
+(define (context-simplify-1-internal context expr persist)
+        (if (formal-symbol? expr) expr
+            (or (and (formula? expr)
+                     (seek-truth-value context expr persist))
+                (simplify-by-transforms context expr persist))))
+
+(define context-simplify-1
+        (make-simplification-procedure context-simplify-1-internal
+            (always value-true)))
+
+(define *simplify-by-transforms-tracer*
+        (make-table '*simplify-by-transforms-tracer*))
+
+(define (simplify-by-transforms context expr persist)
+        (if (table-entry *simplify-by-transforms-tracer* expr) expr
+            (bind (((table-entry *simplify-by-transforms-tracer* expr)
+                    value-true))
+                  (receive (simplified reqs any?)
+                           (insistently-apply-matching-transforms-in-context
+                               context expr persist)
+                           (cond
+                             ((and (not any?)
+                                   (alpha-equivalent? simplified expr))
+                              (simplify-logically context expr persist))
+                             ((alpha-equivalent? simplified expr) expr)
+                             ((necessarily-false? simplified)
+                              falsehood)
+                             ((necessarily-undefined? simplified)
+                              (undefined
+                                  (expression-sorting simplified)))
+                             ((tc-refute-requirements context reqs
+                                  persist)
+                              (undefined-or-falselike simplified))
+                             ((tc-prove-requirements context reqs
+                                  persist)
+                              simplified)
+                             ((truth? simplified)
+                              (conjunction-simplifier
+                                  (map (lambda (req)
+                                         (context-simplify context req
+                                          (-1+ persist)))
+                                       reqs)))
+                             (else expr))))))
+
+(define (seek-truth-value context expr persist)
+        (cond
+          ((context-absurd? context) truth)
+          ((truth-value? expr) expr)
+          ((context-trivially-entails? context expr) truth)
+          ((context-contains-entry? context (push-not expr)) falsehood)
+          ((context-universal-instance? context expr persist) truth)
+          (else value-false)))
+
+(define (simplify-logically-internal context expr persist)
+        (or (and (formula? expr)
+                 (seek-truth-value context expr persist))
+            (let ((transform
+                      (or (constructor-logical-transform
+                              (expression-quasi-constructor expr))
+                          (constructor-logical-transform
+                              (expression-constructor expr)))))
+              (if transform (funcall transform context expr persist)
+                  (context-apply-constructor-simplifier context expr
+                      persist)))))
+
+(define simplify-logically
+        (make-simplification-procedure simplify-logically-internal
+            (always value-true)))
+
+(define (context-apply-constructor-simplifier context expr persist)
+        (if (formal-symbol? expr) expr
+            (receive (simp constr comps)
+                     (constructor-simplifier-&-constructor-&-components
+                         expr)
+                     (if (and (binding-constructor? constr)
+                              (not (quasi-constructor? constr)))
+                         (let ((vars (binding-variables expr))
+                               (body (binding-body expr)))
+                           (funcall simp
+                                    (cons
+                                     (context-simplify-1
+                                      (requantification-filter-context
+                                       expr context)
+                                      body persist)
+                                     vars)))
+                         (funcall simp
+                                  (simplify-components-in-context
+                                      constr comps context persist
+                                      context-simplify-1))))))
+
+(define (simplify-components-in-context constructor components context
+            persist rec-call)
+        (let ((incrementer (constructor-lc-incrementer constructor))
+              (len (length components))
+              (components (copy-list components)))
+          (iterate iter ((i 0))
+                   (if (= i len) components
+                       (let* ((current-comp (nth components i))
+                              (local-context
+                                  (context-add-assumptions context
+                                      (funcall incrementer components
+                                       i)))
+                              (simp (funcall rec-call local-context
+                                     current-comp persist)))
+                         (set (nth components i) simp)
+                         (iter (1+ i)))))))
+
+(define (context-seek-formal-symbol context expr)
+        (let ((root (context-q-root context expr)))
+          (if (or (formal-symbol? root)
+                  (any? (lambda (qc)
+                          (quasi-constructor-constantlike?
+                              (quasi-constructor-if-enabled qc)))
+                        (expression-quasi-constructors root)))
+              root value-false)))
+
+(define (context-recursively-seek-formal-symbols context expr)
+        (iterate iter ((context context) (exoscopes nil) (expr expr))
+                 (if (quasi-constructor-constantlike?
+                         (or (expression-quasi-constructor expr)
+                             (expression-constructor expr)))
+                     expr
+                     (let ((new (context-seek-formal-symbol context
+                                    expr)))
+                       (cond
+                         ((and (expression? new)
+                               (alpha-equivalent? new expr))
+                          expr)
+                         ((memq? new exoscopes) expr)
+                         (new)
+                         (else (if (formal-symbol? expr) expr
+                                   (receive (simp constr comps)
+                                    (constructor-simplifier-&-constructor-&-components
+                                     expr)
+                                    (if
+                                     (and (binding-constructor? constr)
+                                      (not (quasi-constructor? constr)))
+                                     (funcall simp
+                                      (cons
+                                       (iter
+                                        (requantification-filter-context
+                                         expr context)
+                                        (append
+                                         (expression-newly-bound-variables
+                                          expr)
+                                         exoscopes)
+                                        (binding-body expr))
+                                       (binding-variables expr)))
+                                     (funcall simp
+                                      (map
+                                       (lambda (c)
+                                         (iter context exoscopes c))
+                                       comps)))))))))))
+
+(define simplify-quasi-constructors-messily?
+        (make-simple-switch 'simplify-quasi-constructors-messily?
+            boolean? value-false))
+
+(define (constructor-simplifier-&-constructor-&-components expr)
+        (receive (q-constr q-comps)
+                 (expression-quasi-constructor-&-components expr)
+                 (cond
+                   ((constructor-simplifier q-constr) =>
+                    (lambda (simp) (return simp q-constr q-comps)))
+                   ((and (not (simplify-quasi-constructors-messily?))
+                         (quasi-constructor-if-enabled q-constr))
+                    (return
+                      (lambda (q-comps)
+                        (substitutions-at-paths expr q-comps
+                            (quasi-constructor-paths-to-quasi-components
+                                q-constr)))
+                      q-constr
+                      q-comps))
+                   ((expression-constructor expr) =>
+                    (lambda (constr)
+                      (return
+                        (or (constructor-simplifier constr)
+                            (lambda (comps) (apply constr comps)))
+                        constr
+                        (expression-components expr))))
+                   (else (return
+                           (lambda (comps) (ignore comps) expr)
+                           nil
+                           nil)))))
+
+(define (lambda-application-logical-transform context expr persist)
+        (let ((operator
+                  (cond
+                    ((constructor-logical-transform
+                         (expression-quasi-constructor
+                             (operator expr)))
+                     =>
+                     (lambda (transform)
+                       (funcall transform context
+                                (operator expr) persist)))
+                    (else (operator expr))))
+              (args (arguments expr)))
+          (let ((reqs (restricted-substitution-definedness-conditions
+                          (targets-and-replacements->subst
+                              (binding-variables operator) args)
+                          (exposed-variables (binding-body operator)))))
+            (if (tc-refute-requirements context reqs persist)
+                (undefined-or-falselike expr)
+		
+                (let ((naive 
+		       (context-simplify-1 context
+                                 (beta-reduce-recklessly
+                                     (apply apply-operator operator
+                                      args))
+                                 persist)))
+                  (cond
+                    ((falsehood? naive) falsehood)
+                    ((necessarily-undefined? naive)
+                     (undefined (expression-sorting naive)))
+                    ((tc-prove-requirements context reqs persist)
+                     naive)
+                    ((truth? naive)
+                     (conjunction-simplifier
+                         (map (lambda (req)
+                                (context-simplify context req
+                                    (-1+ persist)))
+                              reqs)))
+                    (else (apply apply-operator operator
+                                 (map (lambda (arg)
+                                        (context-simplify context arg
+                                         persist))
+                                      args)))))))))
+
+
+(define (make-new-variables-in-context context vars)
+  (iterate loop
+	   ((vars vars) (new-vars nil)
+	    (big-avoid-vars
+	     (set-union vars
+			(context-variables context))))
+	   (if (null? vars) (reverse! new-vars)
+	     (let* ((var (car vars))
+		    (new-var
+		     (new-variable
+		      (type-of-sort
+		       (expression-sorting var))
+		      (expression-name var)
+		      big-avoid-vars)))
+	       (loop
+		(cdr vars)
+		(cons new-var new-vars)
+		(cons new-var big-avoid-vars))))))
+
+(define (type-preferred-qc-transform context expr persist)
+  (enforce lambda-expression? expr)
+  (let ((old-vars (binding-variables expr)))
+    (let ((new-vars (make-new-variables-in-context context old-vars)))
+      (context-apply-constructor-simplifier
+       context
+       (apply imps-lambda
+	      (apply-substitution
+	       (targets-and-replacements->subst old-vars
+						new-vars)
+	       (binding-body expr))
+	      new-vars)
+       persist))))
+
+(define (equate-to-type-qc-transform context expr persist)
+        (enforce lambda-expression? expr)
+        (context-simplify-installer context expr
+            (type-preferred-qc-transform context expr persist))
+        (context-apply-constructor-simplifier context expr persist))
+
+(define context-simplify-lambda-application
+        lambda-application-logical-transform)
+
+(define (quasi-equality-logical-transform context expr persist)
+        (destructure (((lhs rhs) (expression-quasi-components expr)))
+            (cond
+              ((context-trivially-entails-quasi-equal? context lhs rhs)
+               truth)
+              ((or (context-trivially-entails-defined? context lhs)
+                   (context-trivially-entails-defined? context rhs))
+               (equality-logical-transform context (equality lhs rhs)
+                   persist))
+              (else (quasi-equality-simplifier
+                        (list (context-simplify-1 context lhs persist)
+                              (context-simplify-1 context rhs persist)))))))
+
+(define (strengthened-quasi-equality-logical-transform context expr
+            persist)
+        (destructure (((lhs rhs) (expression-quasi-components expr)))
+            (quasi-equality-logical-transform-1 context lhs rhs
+                persist)))
+
+(define (quasi-equality-logical-transform-1 context lhs rhs persist)
+        (cond
+          ((context-trivially-entails-quasi-equal? context lhs rhs)
+           truth)
+          ((or (context-immediately-entails-defined? context lhs)
+               (context-immediately-entails-defined? context rhs))
+           (equality-logical-transform context (equality lhs rhs)
+               persist))
+          ((and (context-entails-undefined? context lhs 0)
+                (context-entails-undefined? context rhs 0))
+           truth)
+          (else (quasi-equality-simplifier
+                    (list (context-simplify-1 context lhs persist)
+                          (context-simplify-1 context rhs persist))))))
+
+(define context-simplify-quasi-equality
+        strengthened-quasi-equality-logical-transform)
+
+(define (equality-logical-transform context expr persist)
+        (cond
+          ((context-trivially-entails-equal? context
+               (expression-lhs expr) (expression-rhs expr))
+           truth)
+          ((context-entails-unequal? context (expression-lhs expr)
+               (expression-rhs expr) persist)
+           falsehood)
+          (else (let ((lhs (context-simplify-1 context
+                               (expression-lhs expr) (-1+ persist)))
+                      (rhs (context-simplify-1 context
+                               (expression-rhs expr) (-1+ persist))))
+                  (cond
+                    ((formula? lhs)
+                     (context-simplify context (biconditional lhs rhs)
+                         (-1+ persist)))
+                    ((context-immediately-entails-equal? context lhs
+                         rhs)
+                     truth)
+                    (else (equality-simplifier (list lhs rhs))))))))
+
+(define context-simplify-equality equality-logical-transform)
+
+(define (sort-convergence-logical-transform context expr persist)
+        (if (convergence-in-sort? expr)
+            (let ((term (car (expression-components expr)))
+                  (sort (expression-sorting
+                            (cadr (expression-components expr)))))
+              (cond
+                ((context-immediately-entails-defined-in-sort? context
+                     term sort)
+                 truth)
+                ((sorts-necessarily-disjoint? (expression-sorting term)
+                     sort)
+                 falsehood)
+                ((context-entails-undefined? context term persist)
+                 falsehood)
+                ((or (sort-necessarily-included?
+                         (expression-sorting term) sort)
+                     (theory-coercion-everywhere-defined?
+                         (context-theory context)
+                         (expression-sorting term) sort))
+                 (context-simplify-convergence context
+                     (is-defined term) persist))
+                (else (let ((simp (theory-context-simplify-convergence-in-sort
+                                      context expr persist)))
+                        (if (not (convergence-in-sort? simp))
+                            (context-simplify context simp persist)
+                            (is-defined-in-sort-simplifier
+                                (list (convergence-term simp)
+                                      (cadr
+                                       (expression-components expr)))))))))
+            (context-simplify-1 context expr (-1+ persist))))
+
+(define context-simplify-sort-convergence
+        sort-convergence-logical-transform)
+
+(define (convergence-logical-transform context expr persist)
+        (if (convergence? expr)
+            (let ((term (car (expression-components expr))))
+              (cond
+                ((context-trivially-entails-defined? context term)
+                 truth)
+                ((context-entails-undefined? context term persist)
+                 falsehood)
+                ((convergence-simplify-conditional-term context term
+                     persist))
+                (else (let ((simp (theory-context-simplify-convergence
+                                      context expr persist)))
+                        (if (not (convergence? simp))
+                            (context-simplify context simp persist)
+                            (is-defined-simplifier
+                                (expression-components simp)))))))
+            (context-simplify-1 context expr (-1+ persist))))
+
+(define context-simplify-convergence convergence-logical-transform)
+
+(define (convergence-simplify-conditional-term context term persist)
+        (and (conditional-term? term)
+             (let ((incrementer (constructor-lc-incrementer if-term))
+                   (components (expression-components term)))
+               (if (every? (lambda (n)
+                             (context-entails-defined?
+                                 (context-add-assumptions context
+                                     (funcall incrementer components n))
+                                 (nth components n) persist))
+                           '(1 2))
+                   truth
+                   (let ((tests (map (lambda (n)
+                                       (context-entails-undefined?
+                                        (context-add-assumptions
+                                         context
+                                         (funcall incrementer
+                                          components n))
+                                        (nth components n) persist))
+                                     '(1 2))))
+                     (cond
+                       ((every? true? tests) falsehood)
+                       ((index-of-any tests) =>
+                        (lambda (i)
+                          (context-simplify-1 context
+                              (conjunction
+                                  (if (= i 0)
+                                      (negation (nth components 0))
+                                      (nth components 0))
+                                  (is-defined (nth components (- 2 i))))
+                              persist)))
+                       (else value-false)))))))
+
+(define (iota-logical-transform context expr persist)
+        (if (iota-expression? expr)
+            (let ((i-var (car (binding-variables expr)))
+                  (conjuncts
+                      (ultimate-conjuncts (list (binding-body expr)))))
+              (cond
+                ((any? necessarily-false? conjuncts)
+                 (undefined (expression-sorting i-var)))
+                ((any (lambda (c)
+                        (and (equation? c)
+                             (or (and (eq? (expression-lhs c) i-var)
+                                      (not
+                                       (memq? i-var
+                                        (expression-free-variables
+                                         (expression-rhs c))))
+                                      (expression-rhs c))
+                                 (and (eq? (expression-rhs c) i-var)
+                                      (not
+                                       (memq? i-var
+                                        (expression-free-variables
+                                         (expression-lhs c))))
+                                      (expression-lhs c)))))
+                      conjuncts)
+                 =>
+                 (lambda (term)
+                   (context-simplify-1 context
+                       (if-term (conjunction-simplifier
+                                    (cons
+                                     (defined-in term
+                                      (expression-sorting i-var))
+                                     (let
+                                      ((subst (list (cons i-var term))))
+                                       (map
+                                        (lambda (c)
+                                          (apply-substitution-fastidiously
+                                           subst c))
+                                        conjuncts))))
+                                term
+                                (undefined (expression-sorting i-var)))
+                       persist)))
+                (else (context-apply-constructor-simplifier context
+                          expr persist))))
+            (context-simplify-1 context expr persist)))
+
+(define (forsome-logical-transform context expr persist)
+        (if (not (existential? expr))
+            (context-apply-constructor-simplifier context expr persist)
+            (cond
+              ((application? (binding-body expr))
+               (forsome-application-transform context expr persist))
+              ((or (equation? (binding-body expr))
+                   (conjunction? (binding-body expr)))
+               (forsome-conjunction-transform context expr persist))
+              (else (context-apply-constructor-simplifier context expr
+                        persist)))))
+
+(define (forsome-conjunction-transform context expr persist)
+        (let ((nbvs (expression-newly-bound-variables expr))
+              (filtered-context
+                  (requantification-filter-context expr context)))
+          (iterate iter
+                   ((remaining
+                        (ultimate-conjuncts (list (binding-body expr))))
+                    (kept-conjuncts nil) (kept-vars nbvs)
+                    (subst the-empty-substitution))
+                   (cond
+                     ((null? remaining)
+                      (forsome-simplifier
+                          (cons (conjunction-simplifier
+                                    (reverse!
+                                     (map!
+                                      (lambda (kc)
+                                        (context-simplify-1
+                                         filtered-context
+                                         (apply-substitution subst kc)
+                                         persist))
+                                      kept-conjuncts)))
+                                kept-vars)))
+                     ((let ((c (car remaining)))
+                        (and (equation? c)
+                             (memq? (expression-lhs c) kept-vars)
+                             (null-intersection?
+                                 (expression-free-variables
+                                     (expression-rhs c))
+                                 kept-vars)
+                             (expression-lhs c)))
+                      =>
+                      (lambda (var)
+                        (let ((c (car remaining)))
+                          (iter (cdr remaining)
+                                (cons (defined-in (expression-rhs c)
+                                       (expression-sorting var))
+                                      kept-conjuncts)
+                                (delete-set-element var kept-vars)
+                                (add-subst-component
+                                    (make-subst-component var
+                                     (context-simplify-1
+                                      filtered-context
+                                      (expression-rhs c) persist))
+                                    subst)))))
+                     ((let ((c (car remaining)))
+                        (and (equation? c)
+                             (memq? (expression-rhs c) kept-vars)
+                             (null-intersection?
+                                 (expression-free-variables
+                                     (expression-lhs c))
+                                 kept-vars)
+                             (expression-rhs c)))
+                      =>
+                      (lambda (var)
+                        (let ((c (car remaining)))
+                          (iter (cdr remaining)
+                                (cons (defined-in (expression-lhs c)
+                                       (expression-sorting var))
+                                      kept-conjuncts)
+                                (delete-set-element var kept-vars)
+                                (add-subst-component
+                                    (make-subst-component var
+                                     (context-simplify-1
+                                      filtered-context
+                                      (expression-lhs c) persist))
+                                    subst)))))
+                     (else (iter (cdr remaining)
+                                 (cons (car remaining) kept-conjuncts)
+                                 kept-vars subst))))))
+
+(define (forsome-application-transform context expr persist)
+        (let ((body (binding-body expr))
+              (newly-bound (binding-variables expr)))
+          (iterate iter
+                   ((args (arguments body))
+                    (domains (expression-domains (operator body)))
+                    (subst the-empty-substitution))
+                   (cond
+                     ((null? args)
+                      (quantifier-trivial-variable-simplifier forsome
+                          (cons (context-simplify-1
+                                    (requantification-filter-context
+                                     expr context)
+                                    (apply-substitution subst body)
+                                    persist)
+                                (map (lambda (v)
+                                       (apply-substitution subst v))
+                                     newly-bound))))
+                     ((let ((arg (car args)))
+                        (and (memq? arg newly-bound)
+                             (sort-necessarily-included? (car domains)
+                                 (expression-sorting arg))
+                             arg))
+                      =>
+                      (lambda (var)
+                        (iter (cdr args) (cdr domains)
+                              (add-subst-component
+                                  (make-subst-component var
+                                      (new-variable (car domains)
+                                       (name var) (variables body)))
+                                  subst))))
+                     (else (iter (cdr args) (cdr domains) subst))))))
+
+(define (if-logical-transform context expr persist)
+        (if (conditional-term? expr)
+            (destructure
+                (((test conseq alt) (expression-components expr)))
+                (let ((test-1 (context-simplify-1 context test persist)))
+                  (cond
+                    ((truth? test-1)
+                     (context-simplify-1 context conseq persist))
+                    ((falsehood? test-1)
+                     (context-simplify-1 context alt persist))
+                    (else (if-term-simplifier
+                              (simplify-components-in-context if-term
+                                  (list test-1 conseq alt) context
+                                  persist context-simplify-1))))))))
+
+(define (context-trivially-entails-quasi-equal? context term1 term2)
+        (and (sorts-may-overlap? (expression-sorting term1)
+                 (expression-sorting term2))
+             (or (context-exprs-quasi-equal? context term1 term2)
+                 (alpha-equivalent? term1 term2)
+                 (let ((constr1 (expression-constructor term1))
+                       (constr2 (expression-constructor term2)))
+                   (and constr1 (not (binding-constructor? constr1))
+                        (eq? constr1 constr2)
+                        (let ((comps1 (expression-components term1))
+                              (comps2 (expression-components term2)))
+                          (and (= (length comps1) (length comps2))
+                               (every? (lambda (arg1 arg2)
+                                         (context-trivially-entails-quasi-equal?
+                                          context arg1 arg2))
+                                       comps1 comps2))))))))
+
+(define (context-trivially-entails-equal? context term1 term2)
+        (or (context-exprs-equal? context term1 term2)
+            (and (or (context-trivially-entails-defined? context term1)
+                     (context-trivially-entails-defined? context term2))
+                 (context-trivially-entails-quasi-equal? context term1
+                     term2))))
+
+(define (context-immediately-entails-quasi-equal? context term1 term2)
+        (or (context-trivially-entails-quasi-equal? context term1
+                term2)
+            (let ((constr1 (expression-constructor term1))
+                  (constr2 (expression-constructor term2)))
+              (and constr1 (eq? constr1 constr2)
+                   (if (binding-constructor? constr1)
+                       (and (equal? (binding-variables term1)
+                                    (binding-variables term2))
+                            (context-immediately-entails-quasi-equal?
+                                (rebinding-filter-context term1
+                                    context)
+                                (binding-body term1)
+                                (binding-body term2)))
+                       (let ((comps1 (expression-components term1))
+                             (comps2 (expression-components term2)))
+                         (and (= (length comps1) (length comps2))
+                              (compare-components-in-context? context
+                                  constr1 comps1 comps2
+                                  (context-low-simplification-persistence)))))))))
+
+(define (compare-components-in-context? context constructor comps1
+            comps2 persist)
+        (let ((incrementer (constructor-lc-incrementer constructor))
+              (len (length comps1)))
+          (iterate iter ((i 0))
+                   (if (= i len) value-true
+                       (let ((comp1 (nth comps1 i))
+                             (comp2 (nth comps2 i)))
+                         (if (sorts-may-overlap?
+                                 (expression-sorting comp1)
+                                 (expression-sorting comp2))
+                             (let ((local-context
+                                    (context-add-assumptions context
+                                     (funcall incrementer comps1 i))))
+                               (if (truth?
+                                    (quasi-equality-logical-transform-1
+                                     local-context comp1 comp2 persist))
+                                   (iter (1+ i)) value-false))
+                             value-false))))))
+
+(define (context-immediately-entails-equal? context term1 term2)
+        (or (context-trivially-entails-equal? context term1 term2)
+            (and (or (context-immediately-entails-defined? context
+                         term1)
+                     (context-immediately-entails-defined? context
+                         term2))
+                 (context-immediately-entails-quasi-equal? context
+                     term1 term2))))
+
+(define (context-entails-equal? context term1 term2 persist)
+        (truth? (context-simplify-equality context
+                    (equality term1 term2) persist)))
+
+(define (context-entails-unequal? context term1 term2 persist)
+        (ignore persist)
+        (or (context-absurd?
+                (context-add-assumption context
+                    (equality-simplifier (list term1 term2))))
+            (let ((theory (context-theory context)))
+              (and (theory? theory)
+                   (or (theory-exclude-term-coercion? theory term1
+                           (expression-sorting term2))
+                       (theory-exclude-term-coercion? theory term2
+                           (expression-sorting term1))
+                       (and (constant? term1) (constant? term2)
+                            (theory-constants-distinct? theory term1
+                                term2)))))))
+
+(define (context-entails-defined? context term persist)
+        (truth? (context-simplify-convergence context (is-defined term)
+                    persist)))
+
+(define (context-trivially-entails-defined? context term)
+        (or (context-expr-defined? context term)
+            (theory-entails-defined? (context-theory context) term)))
+
+(define (context-immediately-entails-defined? context term)
+        (context-entails-defined? context term 0))
+
+(define (context-entails-undefined? context term persist)
+        (if (necessarily-defined? term) value-false
+            (or (necessarily-undefined? term)
+                (context-contains-entry? context
+                    (negation (is-defined term)))
+                (theory-context-entails-undefined? context term
+                    persist)
+                (and (eq? (expression-constructor term) if-term)
+                     (let ((incrementer
+                               (constructor-lc-incrementer if-term))
+                           (components (expression-components term)))
+                       (every? (lambda (n)
+                                 (context-entails-undefined?
+                                     (context-add-assumptions context
+                                      (funcall incrementer components
+                                       n))
+                                     (nth components n) persist))
+                               '(1 2)))))))
+
+(define (context-trivially-entails-defined-in-sort? context term
+            sorting)
+        (let ((theory (context-theory context)))
+          (flet (((coercion-ok? s)
+                    (or (sort-necessarily-included? s sorting)
+                        (theory-coercion-everywhere-defined? theory s
+                            sorting))))
+            (or (any? #'coercion-ok?
+                      (context-term-defined-sorts context term))
+                (and (coercion-ok? (expression-sorting term))
+                     (context-trivially-entails-defined? context term))))))
+
+(define (context-immediately-entails-defined-in-sort? context term
+            sorting)
+        (or (context-trivially-entails-defined-in-sort? context term
+                sorting)
+            (let ((critical-pairs
+                      (theory-critical-subterms-and-sorts
+                          (context-theory context) term sorting)))
+              (every? (lambda (pair)
+                        (destructure (((term . sorting) pair))
+                            (context-trivially-entails-defined-in-sort?
+                                context term sorting)))
+                      critical-pairs))))
+
+(define (context-entails-defined-in-sort? context term sorting persist)
+        (and (eq? (expression-type term) (type-of-sort sorting))
+             (truth? (context-simplify-sort-convergence context
+                         (defined-in term sorting) persist))))
+
+(define (context-entails-substitution-defined? context subst)
+        (and (succeed? subst)
+             (or (context-trivially-entails-substitution-defined?
+                     context subst)
+                 (every? (lambda (f)
+                           (context-immediately-entails? context f))
+                         (substitution-definedness-conditions subst)))))
+
+(define (substitution-definedness-conditions subst)
+        (make-set
+            (map-substitution subst-comp->definedness-condition subst)))
+
+(define (subst-comp->definedness-condition subst-comp)
+        (let ((replace (substitution-replacement subst-comp))
+              (s (expression-sorting (substitution-target subst-comp))))
+          (if (not (sorts-may-overlap? (expression-sorting replace) s))
+              (imps-error
+                  "subst-comp->definedness-condition: sorting mismatch ~S ~S"
+                  (substitution-target subst-comp) replace))
+          (constructor-simplify (defined-in replace s))))
+
+(define (context-trivially-entails-substitution-defined? context subst)
+        (and (succeed? subst)
+             (every? (lambda (component)
+                       (destructure (((target . repl) component))
+                           (context-trivially-entails-defined-in-sort?
+                               context repl
+                               (expression-sorting target))))
+                     subst)))
+
+(define (context-match-check-definedness? context expr)
+        (let ((classes (context-q-classes context))
+              (exoscopes (context-free-variables context)))
+          (catch 'found
+            (context-walk-matches-to-constructor-and-first-lead
+                (lambda (e)
+                  (and (q-seek-defined? classes e)
+                       (context-trivially-entails-substitution-defined?
+                           context
+                           (match-under-exoscopes expr e exoscopes))
+                       (throw 'found value-true)))
+                context expr)
+            value-false)))
+
+(define (context-strongly-entails-substitution-defined? context subst
+            persist)
+        (and (succeed? subst)
+             (or (context-trivially-entails-substitution-defined?
+                     context subst)
+                 (every? (lambda (f)
+                           (truth? (context-simplify context f persist)))
+                         (substitution-definedness-conditions subst)))))
+
+(define context-do-match?
+        (make-simple-switch 'context-do-match? boolean? value-true))
+
+(define (context-match context expr pattern persist)
+        (flet (((substitution-defined? subst)
+                  (context-strongly-entails-substitution-defined?
+                      context subst (subtract1 persist))))
+          (if (or (< persist 0) (not (context-do-match?))) (fail)
+              (bind (((context-do-match?) value-false))
+                    (let ((subst (match-under-exoscopes expr pattern
+                                     (context-free-variables context))))
+                      (if (substitution-defined? subst) subst (fail)))))))
+
+(define call-context-universal-instance?
+        (make-simple-switch 'call-context-universal-instance? boolean?
+            value-true))
+
+(define (context-universal-instance? context formula persist)
+        (if (call-context-universal-instance?)
+            (and (not-negative? persist)
+                 (bind (((call-context-universal-instance?) value-false))
+                       (trivial-backchaining-opportunity context
+                           formula)))
+            value-false))
+
+(define (tc-prove-requirements context reqs persist)
+        (every? (lambda (req)
+                  (let ((simplified-req
+                            (context-simplify context req
+                                (-1+ persist))))
+                    (cond
+                      ((truth? simplified-req))
+                      ((accumulate-undischarged-minor-premises?)
+                       (push (undischarged-minor-premises)
+                             (build-sequent context simplified-req))
+                       value-false)
+                      (else value-false))))
+                reqs))
+
+(define (tc-refute-requirements context reqs persist) (ignore persist)
+        (any? (lambda (req)
+                (if (dont-work-on-definedness)
+                    (falsehood? (recursive-constructor-simplify req))
+                    (bind (((dont-work-on-definedness) value-true))
+                          (context-immediately-entails? context
+                              (push-not req)))))
+              reqs))
+
+(define (tc-vigorously-prove-requirements context reqs)
+        (every? (lambda (req)
+                  (cond
+                    ((context-entails? context req))
+                    ((accumulate-undischarged-minor-premises?)
+                     (push (undischarged-minor-premises)
+                           (build-sequent context
+                               (context-simplify context req
+                                   (context-simplification-persistence))))
+                     value-true)
+                    (else value-false)))
+                reqs))

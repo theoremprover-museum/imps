@@ -1,0 +1,401 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment elementary-macetes)
+
+(define-operation (macete-requirements soi))
+
+(define-operation (elementary-macete-lhs soi))
+
+(define-operation (elementary-macete-rhs soi))
+
+(define-operation (macete->formula soi))
+
+(define elementary-macete->formula macete->formula)
+
+(define-operation (macete-replacement-constructor soi))
+
+(define-predicate elementary-macete?)
+
+(define-predicate safe-elementary-macete?)
+
+(define *elementary-macetes* (make-table '*elementary-macetes*))
+
+(define (retrieve-macete-from-formula formula)
+        (table-entry *elementary-macetes* formula))
+
+(define (fstrb-for-equivalence body lhs rhs reqs)
+        (if (set-diff (free-variables rhs) (free-variables lhs))
+            (if (set-diff (free-variables lhs) (free-variables rhs))
+                (return
+                  body
+                  (conjunction-simplifier reqs)
+                  nil
+                  value-false)
+                (return rhs lhs reqs value-true))
+            (return lhs rhs reqs value-true)))
+
+(define (formula-source-target-requirements-bidirectional formula)
+        (let ((body (universal-matrix-respecting-qcs
+                        (expression-alpha-root formula) nil)))
+          (receive (source target requirements bidirectional?)
+                   (cond
+                     ((quasi-equation? body)
+                      (fstrb-for-equivalence body
+                          (quasi-equation-lhs body)
+                          (quasi-equation-rhs body) nil))
+                     ((quasi-constructor?
+                          (expression-quasi-constructor-if-enabled-or-constructor
+                              body))
+                      (return body (the-true) nil value-true))
+                     ((equation? body)
+                      (fstrb-for-equivalence body (expression-lhs body)
+                          (expression-rhs body) nil))
+                     ((biconditional? body)
+                      (return
+                        (expression-lhs body)
+                        (expression-rhs body)
+                        nil
+                        value-true))
+                     ((implication? body)
+                      (iterate loop
+                               ((rhs (expression-rhs body))
+                                (reqs (ultimate-conjuncts
+                                       (list (expression-lhs body)))))
+                               (cond
+                                 ((quasi-equation? rhs)
+                                  (fstrb-for-equivalence rhs
+                                      (quasi-equation-lhs rhs)
+                                      (quasi-equation-rhs rhs) reqs))
+                                 ((quasi-constructor?
+                                      (expression-quasi-constructor-or-constructor
+                                       rhs))
+                                  (return
+                                    rhs
+                                    (conjunction-simplifier reqs)
+                                    nil
+                                    value-false))
+                                 ((equation? rhs)
+                                  (fstrb-for-equivalence rhs
+                                      (expression-lhs rhs)
+                                      (expression-rhs rhs) reqs))
+                                 ((biconditional? rhs)
+                                  (return
+                                    (expression-lhs rhs)
+                                    (expression-rhs rhs)
+                                    reqs
+                                    value-true))
+                                 ((implication? rhs)
+                                  (loop
+                                    (expression-rhs rhs)
+                                    (set-union reqs
+                                     (ultimate-conjuncts
+                                      (list (expression-lhs rhs))))))
+                                 ((and (universal? rhs)
+                                       (empty-set?
+                                        (set-intersection
+                                         (big-u
+                                          (set-map free-variables reqs))
+                                         (newly-bound-variables rhs))))
+                                  (loop
+                                    (universal-matrix-respecting-qcs
+                                     rhs nil)
+                                    reqs))
+                                 (else (return
+                                         rhs
+                                         (conjunction-simplifier reqs)
+                                         nil
+                                         value-false)))))
+                     ((negation? body)
+                      (return
+                        (negation-body body)
+                        falsehood
+                        nil
+                        value-true))
+                     (else (return body (the-true) nil value-true)))
+                   (let* ((dangling-vars
+                              (and (formula? target)
+                                   (set-diff (free-variables target)
+                                    (free-variables source))))
+                          (proper-dangling-vars
+                              (and dangling-vars
+                                   (or (not bidirectional?)
+                                    (every?
+                                     (lambda (x)
+                                       (null?
+                                        (intersection dangling-vars
+                                         (free-variables x))))
+                                     requirements)))))
+                     (if proper-dangling-vars
+                         (return
+                           source
+                           (apply forsome target dangling-vars)
+                           requirements
+                           bidirectional?)
+                         (return
+                           source
+                           target
+                           requirements
+                           bidirectional?))))))
+
+(define (build-elementary-macete formula the-name safe?)
+        (cond
+          ((table-entry *elementary-macetes* formula) =>
+           (lambda (mac) (set (macete-name mac) the-name) mac))
+          (else (receive (source target requirements bidirectional?)
+                         (formula-source-target-requirements-bidirectional
+                             formula)
+                         (let ((macete (build-elementary-macete-internal
+                                        source target requirements
+                                        formula the-name safe?
+                                        bidirectional?)))
+                           (set (table-entry *elementary-macetes*
+                                    formula)
+                                macete)
+                           macete)))))
+
+(define (apply-substitution-unsafe sub exp)
+        (cond
+          ((constant? exp) exp)
+          ((variable? exp)
+           (let ((repl (substitution-find-replacement sub exp)))
+             (or repl exp)))
+          (else (apply (expression-constructor exp)
+                       (map (lambda (x)
+                              (apply-substitution-unsafe sub x))
+                            (expression-components exp))))))
+
+(define (build-elementary-macete-internal source target requirements
+            formula the-name safe? bidirectional?)
+        (let* ((jointly-exposed-vars
+                   (if bidirectional?
+                       (jointly-exposed-variables source target)
+                       (exposed-variables target)))
+               (matcher (if safe? (build-expression-matcher source)
+                            (build-expression-matcher-unsafe source)))
+               (replacement-constructor
+                   (lambda (theory context expr)
+                     (ignore context theory)
+                     (let ((subst (funcall matcher expr)))
+                       (if (fail? subst) (return (fail) nil)
+                           (let ((substed (if safe?
+                                           (apply-substitution subst
+                                            target)
+                                           (apply-substitution-unsafe
+                                            subst target)))
+                                 (req-substed
+                                     (map
+                                      (lambda (x)
+                                        (apply-substitution subst x))
+                                      requirements)))
+                             (if (or (null? substed)
+                                     (any? null? req-substed))
+                                 (return (fail) nil)
+                                 (return
+                                   substed
+                                   (if safe?
+                                    (append
+                                     (restricted-substitution-definedness-conditions
+                                      subst jointly-exposed-vars)
+                                     req-substed)
+                                    req-substed))))))))
+               (local-macete
+                   (syntactic-procedure->macete replacement-constructor
+                       bidirectional? the-name)))
+          (join (object nil ((elementary-macete? soi) value-true)
+                        ((macete->formula soi) formula)
+                        ((elementary-macete-lhs soi) source)
+                        ((elementary-macete-rhs soi) target)
+                        ((macete-requirements soi) requirements)
+                        ((macete-replacement-constructor soi)
+                         replacement-constructor)
+                        ((paths-to-matches macete expr depth-bound
+                             strict?)
+                         (paths-to-matches matcher expr depth-bound
+                             strict?))
+                        ((expression-matches? macete expr strict?)
+                         (expression-matches? matcher expr strict?))
+                        ((matching-subexpression? macete expr strict?)
+                         (matching-subexpression? matcher expr strict?))
+                        ((safe-elementary-macete? soi) safe?)
+                        ((macete-sound-in-theory? soi theory)
+                         (and safe? (theory-theorem? theory formula)))
+                        ((macete-name soi) (macete-name local-macete))
+                        ((print soi port)
+                         (format port "#{Elementary-macete ~a ~a}"
+                                 (object-hash soi) (macete-name soi))))
+                local-macete)))
+
+(define elementary-macete->theorem elementary-macete->formula)
+
+(define (expression-quasi-components-if-enabled-or-nonbinding-components
+            expression)
+        (or (expression-quasi-components-if-enabled expression)
+            (if (binding-expression? expression)
+                (list (car (expression-components expression)))
+                (expression-components expression))))
+
+(define (syntactic-procedure->macete proc bidirectional? the-name)
+        (labels (((attempt-macete-at-path path context subexpr host)
+                  (let ((new-host
+                            (apply-procedure-at-virtual-path proc
+                                context host path bidirectional?)))
+                    (cond
+                      ((eq? new-host host)
+                       (delve-deeper path context subexpr host))
+                      (else new-host))))
+                 ((delve-deeper path context subexpr host)
+		  (do ((components 
+			(expression-quasi-components-if-enabled-or-nonbinding-components
+                                    subexpr)
+			(cdr components))
+		       (host host 
+			     (attempt-macete-at-path
+                                       (append path (list index))
+                                       context (car components) host))
+		       (index 0 (1+ index)))
+		      ((null? components) host)))
+                 ((macete-builder-proc context expr)
+                  (attempt-macete-at-path nil context expr expr)))
+          (build-macete #'macete-builder-proc bidirectional? the-name)))
+
+;;;(define (syntactic-procedure->macete proc bidirectional? the-name)
+;;;        (labels (((attempt-macete-at-path path context subexpr host)
+;;;                  (let ((new-host
+;;;                            (apply-procedure-at-virtual-path proc
+;;;                                context host path bidirectional?)))
+;;;                    (cond
+;;;                      ((eq? new-host host)
+;;;                       (delve-deeper path context subexpr host))
+;;;                      (else new-host))))
+;;;                 ((delve-deeper path context subexpr host)
+;;;                  (iterate loop
+;;;                           ((components
+;;;                                (expression-quasi-components-if-enabled-or-nonbinding-components
+;;;                                    subexpr))
+;;;                            (host host) (index 0))
+;;;                           (if (null? components) host
+;;;                               (let ((new-host
+;;;                                      (attempt-macete-at-path
+;;;                                       (append path (list index))
+;;;                                       context (car components) host)))
+;;;                                 (loop
+;;;                                   (cdr components)
+;;;                                   new-host
+;;;                                   (1+ index))))))
+;;;                 ((macete-builder-proc context expr)
+;;;                  (attempt-macete-at-path nil context expr expr)))
+;;;          (build-macete #'macete-builder-proc bidirectional? the-name)))
+
+(define (theory-install-elementary-macete theory theorem)
+        (ignore theory) (install-elementary-macete theorem))
+
+(define (add-elementary-macete the-name formula)
+        (add-macete (build-elementary-macete formula the-name value-true)))
+
+(define (add-unsafe-elementary-macete the-name formula)
+        (add-macete (build-elementary-macete formula the-name value-false)))
+
+(define (install-elementary-macete theorem)
+        (let ((the-name (theorem-name theorem))
+              (formula (theorem-formula theorem)))
+          (add-elementary-macete the-name formula)))
+
+(define (theorem->elementary-macete theorem)
+        (table-entry *elementary-macetes* (theorem-formula theorem)))
+
+(define (apply-procedure-at-path proc context expr path bidirectional?)
+        (if (not (or bidirectional?
+                     (path-to-positive-location? expr path)))
+            expr
+            (let ((subexpr (follow-path expr path))
+                  (context (local-context-at-path context expr path)))
+              (receive (pass reqs)
+                       (funcall proc (context-theory context) context
+                                subexpr)
+                       (cond
+                         ((fail? pass) expr)
+                         ((tc-vigorously-prove-requirements context
+                              reqs)
+                          (substitution-at-path expr pass path))
+                         (else expr))))))
+
+(define (apply-procedure-at-paths proc context expr paths
+            bidirectional?)
+        (let ((paths (extract-minimal-disjoint-paths paths)))
+          (iterate loop ((expr expr) (paths paths))
+                   (if (null? paths) expr
+                       (loop
+                         (apply-procedure-at-path proc context expr
+                             (car paths) bidirectional?)
+                         (cdr paths))))))
+
+(define (apply-procedure-at-virtual-path proc context expr path
+            bidirectional?)
+        (if (not (or bidirectional?
+                     (every? (lambda (p)
+                               (path-to-positive-location? expr p))
+                             (expand-virtual-path expr path))))
+            expr
+            (let ((subexpr (follow-virtual-path-safely expr path)))
+              (if subexpr
+                  (let ((context (local-context-at-virtual-path context
+                                     expr path)))
+                    (receive (pass reqs)
+                             (funcall proc (context-theory context)
+                                      context subexpr)
+                             (cond
+                               ((fail? pass) expr)
+                               ((tc-vigorously-prove-requirements
+                                    context reqs)
+                                (substitution-at-virtual-path expr pass
+                                    path))
+                               (else expr))))
+                  expr))))

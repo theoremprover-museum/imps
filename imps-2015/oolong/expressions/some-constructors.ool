@@ -1,0 +1,924 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment some-constructors)
+
+(define use-old-apply-operator-form?
+        (make-simple-switch 'use-old-apply-operator-form? boolean?
+            value-false))
+
+(define apply-operator
+        (let ((constr (make-constructor value-false apply-operator-checker
+                          'apply-operator)))
+          (if (use-old-apply-operator-form?)
+              (set-sexp-builder constr omit-name-sexp-builder))
+          constr))
+
+(define equality
+        (make-constructor value-false equality-component-checker '=))
+
+(define is-defined
+        (make-constructor value-false formula-from-one-comp 'is-defined))
+
+(define is-defined-in-sort
+        (let ((constr (make-constructor binding-binder
+                          is-defined-in-sort-component-checker
+                          'is-defined-in-sort)))
+          (set-sexp-builder constr is-defined-in-sort-sexp-builder)
+          (set-sexp-decoder constr is-defined-in-sort-sexp-decoder)
+          constr))
+
+(define (defined-in term sorting)
+        (is-defined-in-sort term
+            (new-variable sorting *in-sort-preferred-varname*
+                (free-variables term))))
+
+(define undefined-of-sort
+        (let ((constr (make-constructor binding-binder
+                          undefined-of-sort-component-checker
+                          'undefined)))
+          (set-sexp-builder constr undefined-of-sort-sexp-builder)
+          (set-sexp-decoder constr undefined-of-sort-sexp-decoder)
+          constr))
+
+(define (undefined sorting)
+        (let ((var (find-variable *in-sort-preferred-varname* sorting)))
+          (undefined-of-sort var var)))
+
+(define (trivial-decoder  sexp language alist)
+  (ignore sexp language alist) 
+  nil)
+
+(define (truth-builder expr)  
+  (ignore expr)
+  'truth)
+
+(define the-true
+  (let ((constr (make-constructor value-false no-formulas 'the-true)))
+    (set-sexp-decoder constr trivial-decoder)
+    (set-sexp-builder constr truth-builder)
+    constr))
+
+(define truth (the-true))
+
+(define (falsehood-builder expr)  
+  (ignore expr) 
+  'falsehood)
+
+(define the-false
+  (let ((constr (make-constructor value-false no-formulas 'the-false)))
+    (set-sexp-decoder constr trivial-decoder)
+    (set-sexp-builder constr falsehood-builder)
+    constr))
+
+(define falsehood (the-false))
+
+(define conjunction (make-constructor value-false only-formulas 'and))
+
+(define disjunction (make-constructor value-false only-formulas 'or))
+
+(define implication
+        (make-constructor value-false just-two-formulas 'implies))
+
+(define biconditional
+        (make-constructor value-false just-two-formulas 'iff))
+
+(define negation (make-constructor value-false just-one-formula 'not))
+
+(define if-term
+        (make-constructor value-false expr-from-formula-and-two-like-exprs
+            'if))
+
+(define if-pred if-term)
+
+(set (symbol->constructor 'if-term) if-term)
+
+(set (symbol->constructor 'if-pred) if-pred)
+
+(define if-form
+        (make-constructor value-false formula-from-three-formulas 'if-form))
+
+(define forall
+        (let ((constr (make-constructor binding-binder
+                          quantifier-component-checker 'forall)))
+          (set-sexp-builder constr quantifier-sexp-builder)
+          (set-sexp-decoder constr quantifier-sexp-decoder)
+          constr))
+
+(define for-all forall)
+
+(define forsome
+        (let ((constr (make-constructor binding-binder
+                          quantifier-component-checker 'forsome)))
+          (set-sexp-builder constr quantifier-sexp-builder)
+          (set-sexp-decoder constr quantifier-sexp-decoder)
+          constr))
+
+(define for-some forsome)
+
+(define imps-lambda
+        (let ((constr (make-constructor binding-binder
+                          lambda-component-checker 'lambda)))
+          (set-sexp-builder constr quantifier-sexp-builder)
+          (set-sexp-decoder constr quantifier-sexp-decoder)
+          constr))
+
+(define iota
+        (let ((constr (make-constructor binding-binder
+                          iota-component-checker 'iota)))
+          (set-sexp-builder constr quantifier-sexp-builder)
+          (set-sexp-decoder constr quantifier-sexp-decoder)
+          constr))
+
+(define iota-p
+        (let ((constr (make-constructor binding-binder
+                          iota-p-component-checker 'iota-p)))
+          (set-sexp-builder constr quantifier-sexp-builder)
+          (set-sexp-decoder constr quantifier-sexp-decoder)
+          constr))
+
+(define (iota-or-iota-p body var)
+        (if (expression-of-category-ind? var) (iota body var)
+            (iota-p body var)))
+
+(define with
+        (make-transparent-constructor 'with with-sexp-decoder
+            with-sexp-builder))
+
+(define (truth? expression) (eq? expression truth))
+
+(define (falsehood? expression) (eq? expression falsehood))
+
+(define (truth-value? expression)
+        (or (truth? expression) (falsehood? expression)))
+
+(define (implication? expression)
+        (eq? (expression-constructor expression) implication))
+
+(define (implication-antecedent expression)
+        (if (implication? expression)
+            (car (expression-components expression))
+            (imps-error
+                "IMPLICATION-ANTECEDENT: ~A is not an implication"
+                expression)))
+
+(define (implication-consequent expression)
+        (if (implication? expression)
+            (cadr (expression-components expression))
+            (imps-error
+                "IMPLICATION-CONSEQUENT: ~A is not an implication"
+                expression)))
+
+(define (disjunction? expression)
+        (eq? (expression-constructor expression) disjunction))
+
+(define (conjunction? expression)
+        (eq? (expression-constructor expression) conjunction))
+
+(define (biconditional? expression)
+        (eq? (expression-constructor expression) biconditional))
+
+(define (conditional? expression)
+        (eq? (expression-constructor expression) if-term))
+
+(define (conditional-term? expression)
+        (eq? (expression-constructor expression) if-term))
+
+(define (conditional-test expression)
+        (nth (expression-components expression) 0))
+
+(define (conditional-consequent expression)
+        (nth (expression-components expression) 1))
+
+(define (conditional-alternative expression)
+        (nth (expression-components expression) 2))
+
+(define (conditional-formula? expression)
+        (eq? (expression-constructor expression) if-form))
+
+(define (conditional-predicator? expression)
+        (eq? (expression-constructor expression) if-pred))
+
+(define (equation? expression)
+        (eq? (expression-constructor expression) equality))
+
+(define (convergence? expression)
+        (eq? (expression-constructor expression) is-defined))
+
+(define (convergence-in-sort? expression)
+        (eq? (expression-constructor expression) is-defined-in-sort))
+
+(define (convergence-term expression)
+        (car (expression-components expression)))
+
+(define (convergence-sort expression)
+        (if (convergence-in-sort? expression)
+            (let ((var (cadr (expression-components expression))))
+              (expression-sorting var))
+            value-false))
+
+(define (expression-lhs expression)
+        (let ((comps (expression-components expression)))
+          (if (= 2 (length comps))
+              (car (expression-components expression))
+              (imps-error "EXPRESSION-LHS: ~A has too many components."
+                  expression))))
+
+(define (expression-rhs expression)
+        (let ((comps (expression-components expression)))
+          (if (= 2 (length comps))
+              (cadr (expression-components expression))
+              (imps-error "EXPRESSION-RHS: ~A has too many components."
+                  expression))))
+
+(define (reduce-conjunctions expr-list)
+        (iterate iter ((exprs expr-list) (conjunct-list nil))
+                 (cond
+                   ((null? exprs) (set-union conjunct-list expr-list))
+                   ((conjunction? (car exprs))
+                    (iter (cdr exprs)
+                          (set-union
+                              (reduce-conjunctions
+                                  (expression-components (car exprs)))
+                              conjunct-list)))
+                   (else (iter (cdr exprs) conjunct-list)))))
+
+(define (ultimate-conjuncts expr-list)
+        (iterate iter ((exprs expr-list) (ultimates nil))
+                 (cond
+                   ((null? exprs) (reverse! ultimates))
+                   ((conjunction? (car exprs))
+                    (iter (append (expression-components (car exprs))
+                                  (cdr exprs))
+                          ultimates))
+                   (else (iter (cdr exprs)
+                               (add-set-element (car exprs) ultimates))))))
+
+(define (conjunctive-components expr) (ultimate-conjuncts (list expr)))
+
+(define (ultimate-disjuncts expr-list)
+        (iterate iter ((exprs expr-list) (ultimates nil))
+                 (if (null? exprs) ultimates
+                     (let ((first (car exprs)))
+                       (cond
+                         ((disjunction? first)
+                          (iter (append (expression-components first)
+                                        (cdr exprs))
+                                ultimates))
+                         ((implication? first)
+                          (iter (cons (push-not
+                                       (implication-antecedent first))
+                                      (cons
+                                       (implication-consequent first)
+                                       (cdr exprs)))
+                                ultimates))
+                         ((biconditional? first)
+                          (destructure
+                              (((lhs rhs)
+                                (expression-components first)))
+                              (iter (cdr exprs)
+                                    (cons (conjunction lhs rhs)
+                                     (cons
+                                      (conjunction (push-not lhs)
+                                       (push-not rhs))
+                                      ultimates)))))
+                         ((conditional-formula? first)
+                          (destructure
+                              (((test con alt)
+                                (expression-components first)))
+                              (iter (cdr exprs)
+                                    (cons (conjunction test con)
+                                     (cons
+                                      (conjunction (push-not test) alt)
+                                      ultimates)))))
+                         (else (iter (cdr exprs)
+                                     (add-set-element first ultimates))))))))
+
+(define (disjunctive-constructor? constr)
+        (or (eq? constr implication) (eq? constr biconditional)
+            (eq? constr if-form) (eq? constr disjunction)))
+
+(define (disjunctive-formula? formula)
+        (disjunctive-constructor? (expression-constructor formula)))
+
+(define (disjunctive-components formula)
+        (if (disjunctive-formula? formula)
+            (ultimate-disjuncts (list formula)) nil))
+
+(define (lambda-expression? expression)
+        (and (expression? expression)
+             (eq? (expression-constructor expression) imps-lambda)))
+
+(define (lambda-application? expression)
+        (and (application? expression)
+             (lambda-expression? (operator expression))))
+
+(define (lambda-wrap expr sortings)
+        (let ((old-variables (variables expr)))
+          (apply imps-lambda expr
+                 (do ((i 0 (1+ i)) (sortings sortings (cdr sortings))
+                      (new-vars nil
+                          (cons (new-variable (car sortings)
+                                    (symbol-append 'xx_ i)
+                                    old-variables)
+                                new-vars)))
+                     ((null? sortings) (reverse! new-vars))))))
+
+(define (apply-operator-to-substitution operator subst var-list)
+        (or (every? (lambda (target)
+                      (substitution-find-replacement subst target))
+                    var-list)
+            (imps-error
+                "apply-lambda-expr-to-substitution: missing substitution components --~&FOR ~S~&IN SUBST ~S."
+                (set-difference var-list (set-map substitution-target subst)) subst))
+        (let ((subst (copy-list
+                         (set-separate
+                             (lambda (subst-comp)
+                               (memq? (substitution-target subst-comp) var-list))
+                             subst))))
+          (labels (((less-than c1 c2)
+                    (cond
+                      ((memq (substitution-target c1) var-list) =>
+                       (lambda (rest) (memq? (substitution-target c2) rest)))
+                      (else value-false))))
+            (apply apply-operator operator
+                   (map substitution-replacement (sort subst #'less-than))))))
+
+(define (universal? expr) (eq? (expression-constructor expr) forall))
+
+(define (existential? expr)
+        (eq? (expression-constructor expr) forsome))
+
+(define (quantifier? constr)
+        (or (eq? constr forsome) (eq? constr forall)))
+
+(define (universal-closure expr . exoscopes)
+        (let* ((exoscopes (and exoscopes (car exoscopes)))
+               (vars (set-difference (free-variables expr) exoscopes)))
+          (if vars (apply forall (cons expr vars)) expr)))
+
+(define (existential-closure expr . exoscopes)
+        (let* ((exoscopes (and exoscopes (car exoscopes)))
+               (vars (set-difference (free-variables expr) exoscopes)))
+          (if vars (apply forsome (cons expr vars)) expr)))
+
+(define (universal-body-clean-substitution vars avoid-vars) 
+  (imps-enforce is-set? vars)
+  (iterate loop
+	   ((new-avoid-vars avoid-vars)
+	    (components nil) 
+	    (vars vars))
+	   (if (null? vars) components
+	     (let* ((var (car vars))
+		    (new-var
+		     (new-variable
+		      (expression-sorting var)
+		      (expression-name var)
+		      new-avoid-vars)))
+	       (loop
+		(add-set-element new-var new-avoid-vars)
+		(cons
+		 (make-subst-component var new-var)
+		 components)
+		(cdr vars))))))
+
+(define (clean-universal-body expr avoid-vars)
+  (if (universal? expr)
+      (apply-substitution
+       (universal-body-clean-substitution
+	(expression-newly-bound-variables expr)
+	avoid-vars)
+       (binding-body expr))
+    expr))
+
+(define (quantification-matrix-1 quantifiers expr avoid-vars
+				 . respect-qcs?)
+  (labels (((matrix-and-bound-vars expr vars-so-far)
+	    (if (and (or (null? respect-qcs?)
+			 (not (expression-quasi-constructor-if-enabled
+			       expr)))
+		     (memq? (expression-constructor expr) quantifiers))
+		(matrix-and-bound-vars (binding-body expr)
+				       (set-union (binding-variables expr)
+						  vars-so-far))
+	      (return expr vars-so-far))))
+    (receive (matrix recently-bound)
+	     (matrix-and-bound-vars expr the-empty-set)
+	     (apply-substitution
+	      (universal-body-clean-substitution recently-bound avoid-vars) matrix))))
+
+(define (universal-matrix expr avoid-vars)
+        (quantification-matrix-1 (list forall) expr avoid-vars))
+
+(define (universal-matrix-respecting-qcs expr avoid-vars)
+        (quantification-matrix-1 (list forall) expr avoid-vars value-true))
+
+(define (existential-matrix expr avoid-vars)
+        (quantification-matrix-1 (list forsome) expr avoid-vars))
+
+(define (quantification-matrix expr avoid-vars)
+        (quantification-matrix-1 (list forall forsome) expr avoid-vars))
+
+(define (nested-quantification-bound-variables-1 quantifiers expr)
+        (iterate loop ((expr expr) (bvs-so-far nil))
+                 (if (memq? (expression-constructor expr) quantifiers)
+                     (loop
+                       (binding-body expr)
+                       (set-union bvs-so-far (binding-variables expr)))
+                     bvs-so-far)))
+
+(define (nested-existentially-bound-variables expr)
+        (nested-quantification-bound-variables-1 (list forsome) expr))
+
+(define (nested-universally-bound-variables expr)
+        (nested-quantification-bound-variables-1 (list forall) expr))
+
+(define (nested-quantified-variables expr)
+        (nested-quantification-bound-variables-1 (list forall forsome)
+            expr))
+
+(define (iota-expression? expression)
+        (and (expression? expression)
+             (eq? (expression-constructor expression) iota)))
+
+(define (iota-p-expression? expression)
+        (and (expression? expression)
+             (eq? (expression-constructor expression) iota-p)))
+
+(define (negation? expr) (eq? (expression-constructor expr) negation))
+
+(define (negation-body expr) (imps-enforce negation? expr)
+        (car (expression-components expr)))
+
+(define (negated-equation? expr)
+        (and (negation? expr)
+             (equation? (car (expression-components expr)))))
+
+(define (negated-convergence? expr)
+        (and (negation? expr)
+             (convergence? (car (expression-components expr)))))
+
+(define (application? expr)
+        (eq? (expression-constructor expr) apply-operator))
+
+(define (operator expr) (car (expression-components expr)))
+
+(define (operator-degree operator)
+        (length (higher-sort-domains (expression-sorting operator))))
+
+(define (arguments expr) (cdr (expression-components expr)))
+
+(define (1starg x) (car (arguments x)))
+
+(define (2ndarg x) (cadr (arguments x)))
+
+(define (but1stargs x) (cdr (arguments x)))
+
+(define (insistently-apply-operator operator argument-list . exact?)
+        (iterate iter
+                 ((operator operator) (argument-list argument-list))
+                 (receive (immediate-args deferred-args)
+                          (first-n-cars-&-rest argument-list
+                              (operator-degree operator))
+                          (let ((partial-application
+                                    (apply apply-operator operator
+                                     immediate-args)))
+                            (cond
+                              ((and (null? deferred-args)
+                                    (base-sort?
+                                     (expression-sorting
+                                      partial-application)))
+                               partial-application)
+                              ((and exact?
+                                    (or (null? deferred-args)
+                                     (base-sort?
+                                      (expression-sorting
+                                       partial-application))))
+                               (imps-error
+                                   "INSISTENTLY-APPLY-OPERATOR: wrong length argument-list:~%remaining args ~S,~%current-sorting: ~S"
+                                   deferred-args
+                                   (expression-sorting
+                                    partial-application)))
+                              ((or (null? deferred-args)
+                                   (base-sort?
+                                    (expression-sorting
+                                     partial-application)))
+                               partial-application)
+                              (else (iter partial-application
+                                     deferred-args)))))))
+
+(define (subterms-consequently-defined term)
+        (iterate iter ((subterms nil) (to-explore (list term)))
+                 (cond
+                   ((null? to-explore) subterms)
+                   ((let* ((first (car to-explore))
+                           (comps (expression-components first)))
+                      (and (application? first) (function? (car comps))
+                           (set-separate
+                               (lambda (e)
+                                 (not (necessarily-defined? e)))
+                               (if (lambda-application? first)
+                                   (cons (beta-reduce first) comps)
+                                   comps))))
+                    =>
+                    (lambda (new)
+                      (iter (set-union new subterms)
+                            (set-union new (cdr to-explore)))))
+                   (else (iter subterms (cdr to-explore))))))
+
+(define (immediately-consequent-convergences term expected-sort)
+        (labels (((collect term expected-sort already-seen
+                           convergences)
+                  (cond
+                    ((necessarily-defined? term)
+                     (return already-seen convergences))
+                    ((memq? term already-seen)
+                     (return already-seen convergences))
+                    ((application? term)
+                     (let ((op (operator term)))
+                       (receive (already-seen convergences)
+                                (collect op (expression-sorting op)
+                                         already-seen convergences)
+                                (receive (already-seen convergences)
+                                         (iterate iter
+                                          ((args (arguments term))
+                                           (domains
+                                            (expression-domains op))
+                                           (already-seen already-seen)
+                                           (convergences convergences))
+                                          (if (null? args)
+                                           (return
+                                             already-seen
+                                             convergences)
+                                           (receive
+                                            (already-seen convergences)
+                                            (collect (car args)
+                                             (car domains) already-seen
+                                             convergences)
+                                            (iter (cdr args)
+                                             (cdr domains) already-seen
+                                             convergences))))
+                                         (one-layer-immediately-consequent-convergences
+                                          term already-seen
+                                          convergences)))))
+                    ((conditional-term? term)
+                     (let ((consequent (conditional-consequent term))
+                           (alternative (conditional-alternative term)))
+                       (receive (already-seen-1 convergence-1)
+                                (collect consequent expected-sort nil
+                                         (list
+                                          (defined-in consequent
+                                           expected-sort)))
+                                (receive (already-seen-2 convergence-2)
+                                         (collect alternative
+                                          expected-sort nil
+                                          (list
+                                           (defined-in alternative
+                                            expected-sort)))
+                                         (return
+                                           (set-union already-seen-2
+                                            (set-union already-seen-1
+                                             already-seen))
+                                           (set-union
+                                            (set-intersection
+                                             convergence-1
+                                             convergence-2)
+                                            convergences))))))
+                    (else (return already-seen convergences)))))
+          (receive (() convergences)
+                   (collect term expected-sort nil nil) convergences)))
+
+(define (one-layer-immediately-consequent-convergences term
+            already-seen convergences)
+        (let ((op (operator term)) (args (arguments term)))
+          (iterate iter
+                   ((args args) (domains (expression-domains op))
+                    (already-seen already-seen)
+                    (convergences
+                        (if (or (necessarily-defined? op)
+                                (memq? op already-seen))
+                            convergences
+                            (cons (is-defined op) convergences))))
+                   (if (null? args) (return already-seen convergences)
+                       (let ((first (car args)))
+                         (cond
+                           ((memq? first already-seen)
+                            (iter (cdr args) (cdr domains) already-seen
+                                  convergences))
+                           ((necessarily-defined-in-sort? first
+                                (car domains))
+                            (iter (cdr args) (cdr domains) already-seen
+                                  convergences))
+                           (else (iter (cdr args) (cdr domains)
+                                       (cons first already-seen)
+                                       (cons
+                                        (defined-in first
+                                         (car domains))
+                                        convergences)))))))))
+
+(define (immediately-consequent-convergences-old term)
+        (if (not (application? term)) nil
+            (let ((op (operator term)) (args (arguments term)))
+              (let ((convergences
+                        (cons (is-defined op)
+                              (map (lambda (e s) (defined-in e s)) args
+                                   (expression-domains op)))))
+                (if (lambda-expression? op)
+                    (cons (is-defined (beta-reduce term)) convergences)
+                    convergences)))))
+
+(define (reduce-conjunctions-and-universals expr-list avoid-vars)
+        (labels (((iter conjunctions universals others)
+                  (if (and (null? conjunctions) (null? universals))
+                      others
+                      (receive (conjunctions universals new-others)
+                               (sort-formulas
+                                   (set-union
+                                    (ultimate-conjuncts conjunctions)
+                                    (map
+                                     (lambda (e)
+                                       (universal-matrix e avoid-vars))
+                                     universals))
+                                   nil nil nil)
+                               (iter conjunctions universals
+                                     (set-union new-others others)))))
+                 ((sort-formulas exprs conjunctions universals others)
+                  (if (null? exprs)
+                      (return conjunctions universals others)
+                      (let* ((first (car exprs))
+                             (others (if
+                                      (null?
+                                       (expression-quasi-constructors
+                                        first))
+                                      others
+                                      (add-set-element first others))))
+                        (cond
+                          ((conjunction? first)
+                           (sort-formulas (cdr exprs)
+                               (cons first conjunctions) universals
+                               others))
+                          ((universal? first)
+                           (sort-formulas (cdr exprs) conjunctions
+                               (cons first universals) others))
+                          (else (sort-formulas (cdr exprs) conjunctions
+                                    universals (cons first others))))))))
+          (receive (conjunctions universals others)
+                   (sort-formulas expr-list nil nil nil)
+                   (iter conjunctions universals others))))
+
+(define (join-predicates constructor p1 p2)
+        (let ((bv1 (binding-variables p1)) (bv2 (binding-variables p2))
+              (sensitive
+                  (set-union (free-variables p1) (free-variables p2))))
+          (if (not (eq? (expression-type p1) (expression-type p2)))
+              (imps-error
+                  "JOIN-PREDICATES: predicates don't match: ~S ~S" p1
+                  p2))
+          (let ((vars (if (every? (lambda (v1 v2)
+                                    (equal-sortings?
+                                     (expression-sorting v1)
+                                     (expression-sorting v2)))
+                                  bv1 bv2)
+                          (var-list->new-variables bv1 sensitive)
+                          (sorts->new-variables
+                              (map expression-type bv1) 'x sensitive))))
+            (apply imps-lambda
+                   (recursive-constructor-simplify
+                       (funcall constructor
+                                (apply apply-operator p1 vars)
+                                (apply apply-operator p2 vars)))
+                   vars))))
+
+(define (conjoin-predicates p1 p2) (join-predicates conjunction p1 p2))
+
+(define (disjoin-predicates p1 p2) (join-predicates disjunction p1 p2))
+
+(define (predicator-equivalence p1 p2)
+        (if (not (and (sorts-may-overlap? p1 p2) (predicator? p1)))
+            (imps-error "PREDICATOR-EQUIVALENCE: bad predicators ~S ~S"
+                p1 p2))
+        (let* ((vars (sorts->new-variables
+                         (hereditary-type-domains
+                             (expression-sorting p1))
+                         'xx (set-union (variables p1) (variables p2)))))
+          (apply forall
+                 (recursive-constructor-simplify
+                     (biconditional
+                         (insistently-apply-operator p1 vars 'exact)
+                         (insistently-apply-operator p2 vars 'exact)))
+                 vars)))
+
+(define (push-not formula)
+        (or (expression-pushed-not formula)
+            (let ((p-n (compute-push-not formula)))
+              (set (expression-pushed-not formula) p-n)
+              p-n)))
+
+(define (compute-push-not formula)
+        (let ((constr (expression-constructor formula)))
+          (cond
+            ((eq? the-true constr) falsehood)
+            ((eq? the-false constr) truth)
+            ((eq? negation constr)
+             (flush-not (car (expression-components formula))))
+            ((atomic-formula? formula) (negation formula))
+            (else (select constr
+                          ((disjunction)
+                           (apply conjunction
+                                  (map push-not
+                                       (expression-components formula))))
+                          ((conjunction)
+                           (conjunction-compute-push-not formula))
+                          ((implication)
+                           (conjunction-simplifier
+                               (append (ultimate-conjuncts
+                                        (list
+                                         (flush-not
+                                          (implication-antecedent
+                                           formula))))
+                                       (list
+                                        (push-not
+                                         (implication-consequent
+                                          formula))))))
+                          ((if-form)
+                           (if-form (nth
+                                     (expression-components formula) 0)
+                                    (push-not
+                                     (nth
+                                      (expression-components formula)
+                                      1))
+                                    (push-not
+                                     (nth
+                                      (expression-components formula)
+                                      2))))
+                          ((biconditional)
+                           (biconditional
+                               (push-not
+                                   (car
+                                    (expression-components formula)))
+                               (cadr (expression-components formula))))
+                          ((forall)
+                           (apply forsome
+                                  (cons (push-not
+                                         (binding-body formula))
+                                        (binding-variables formula))))
+                          ((forsome)
+                           (apply forall
+                                  (cons (push-not
+                                         (binding-body formula))
+                                        (binding-variables formula))))
+                          (else (negation formula)))))))
+
+(define (conjunction-compute-push-not formula)
+        (imps-enforce conjunction? formula)
+        (receive (last all-but)
+                 (last-&-all-but-last (expression-components formula))
+                 (if (negation? last)
+                     (implication
+                         (conjunction-simplifier
+                             (map flush-not all-but))
+                         (push-not last))
+                     (disjunction-simplifier
+                         (map push-not (expression-components formula))))))
+
+(define (flush-not expr)
+        (cond
+          ((or (not (formula? expr)) (atomic-formula? expr)) expr)
+          ((expression-flushed-not expr))
+          (else (let ((f-n (compute-flush-not expr)))
+                  (set (expression-flushed-not expr) f-n)
+                  f-n))))
+
+(define (compute-flush-not expr)
+        (let ((constr (expression-constructor expr)))
+          (select constr ((()) expr)
+                  ((negation)
+                   (push-not (car (expression-components expr))))
+                  ((the-true) truth) ((the-false) falsehood)
+                  (else (apply constr
+                               (map flush-not
+                                    (expression-components expr)))))))
+
+(define (propositional-constructor? constr)
+        (memq? constr
+               (list conjunction disjunction implication biconditional
+                     negation if-form)))
+
+(define (necessarily-defined? expr)
+        (or (variable? expr) (constant? expr) (lambda-expression? expr)
+            (formula-or-predicator? expr)
+            (and (eq? (expression-constructor expr) if-term)
+                 (necessarily-defined?
+                     (nth (expression-components expr) 1))
+                 (necessarily-defined?
+                     (nth (expression-components expr) 2)))))
+
+(define (necessarily-defined-in-sort? expr sort)
+        (and (necessarily-defined? expr)
+             (or (sorting-leq (expression-sorting expr) sort)
+                 (and (constant? expr)
+                      (let ((n (name expr))
+                            (num-type (numerical? sort)))
+                        (and (numerical-object? n) num-type
+                             (cond
+                               ((numerical-type? num-type)
+                                (funcall (numerical-type-recognizer
+                                          num-type)
+                                         n))
+                               ((procedure? num-type)
+                                (funcall num-type n))
+                               (else value-false))))))))
+
+(define (necessarily-undefined? expr)
+        (let ((current (expression-necessarily-undefined? expr)))
+          (labels (((compute-necessarily-defined expr)
+                    (let ((constr (expression-constructor expr)))
+                      (cond
+                        ((necessarily-defined? expr)
+                         (set (expression-necessarily-undefined? expr)
+                              value-false)
+                         value-false)
+                        ((eq? constr undefined-of-sort)
+                         (set (expression-necessarily-undefined? expr)
+                              value-true)
+                         value-true)
+                        ((eq? constr apply-operator)
+                         (set (expression-necessarily-undefined? expr)
+                              (any? necessarily-undefined?
+                                    (expression-components expr)))
+                         (expression-necessarily-undefined? expr))
+                        ((eq? constr if-term)
+                         (set (expression-necessarily-undefined? expr)
+                              (every? necessarily-undefined?
+                                      (cdr
+                                       (expression-components expr))))
+                         (expression-necessarily-undefined? expr))
+                        (else (set (expression-necessarily-undefined?
+                                    expr)
+                                   value-false)
+                              value-false)))))
+            (if (uncomputed? current)
+                (compute-necessarily-defined expr) current))))
+
+(define (necessarily-false? expr)
+        (or (falsehood? expr)
+            (and (formula? expr) (application? expr)
+                 (any? necessarily-undefined?
+                       (expression-components expr)))))
+
+(define (strict-subexpression? expr1 expr2)
+        (or (eq? expr1 expr2)
+            (and (application? expr2)
+                 (any? (lambda (e) (strict-subexpression? expr1 e))
+                       (expression-components expr2)))))
+
+(define (negated-atomic-formula? expr)
+        (and (negation? expr)
+             (atomic-formula? (car (expression-components expr)))))

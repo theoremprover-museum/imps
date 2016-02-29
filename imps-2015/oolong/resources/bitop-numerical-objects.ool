@@ -1,0 +1,125 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment bitop-numerical-objects)
+
+(at-top-level
+    (let ((bitop-number-types (make-hash-table equiv? 'bitop-types)))
+      (define (find-bitop-type q) (enforce integer? q)
+              (cond
+                ((table-entry bitop-number-types q))
+                (else (let ((new-type (make-numerical-type)))
+                        (set (numerical-type-coercion-function
+                                 new-type)
+                             (lambda (p)
+                               (if (even? p)
+                                   (bitop-number-constructor 0 q
+                                    new-type)
+                                   (bitop-number-constructor
+                                    (- (expt 2 q) 1) q new-type))))
+                        (set (numerical-type-recognizer new-type)
+                             (lambda (x)
+                               (and (bitop-number? x) (= (base x) q))))
+                        (set (numerical-type-identifier new-type)
+                             (string->symbol
+                                 (format nil "NUMBER-BIT-~a" q)))
+                        (set (table-entry bitop-number-types q)
+                             new-type)
+                        new-type))))))
+
+(define-predicate bitop-number?)
+
+(define (bitop-number-constructor p q type) (enforce integer? p)
+        (enforce integer? q) (enforce positive? q)
+        (enforce (lambda (p) (< p (expt 2 q))) p)
+        (object nil ((numerical-object? soi) t)
+                ((numerical-= soi a)
+                 (and (= q (base a)) (= (representative a) p)))
+                ((numerical-type soi) type)
+                ((numerical-+ soi . args)
+                 (walk (lambda (x)
+                         (enforce bitop-number? x)
+                         (or (= q (base x))
+                             (error "numerical-+ different bitop bases")))
+                       args)
+                 (iterate loop ((ans p) (args args))
+                          (if (null? args) (bitop ans q)
+                              (loop
+                                (logxor ans
+                                        (representative (car args)))
+                                (cdr args)))))
+                ((numerical-* soi . args)
+                 (walk (lambda (x)
+                         (enforce bitop-number? x)
+                         (or (= q (base x))
+                             (error "numerical-* different bitop bases")))
+                       args)
+                 (iterate loop ((ans p) (args args))
+                          (if (null? args) (bitop ans q)
+                              (loop
+                                (logand ans
+                                        (representative (car args)))
+                                (cdr args)))))
+                ((numerical-minus soi) soi)
+                ((numerical-expt soi num)
+                 (if (<= 0 num) soi
+                     (error "numerical-* bit multiplication is not invertible.")))
+                ((numerical-=0? soi) (= p 0))
+                ((numerical-=1? soi) (= p (- (expt 2 q) 1)))
+                ((numerical-> soi b)
+                 (if (= q (base b)) (> p (representative b))
+                     (> q (base b))))
+                ((base soi) q) ((representative soi) p)
+                ((bitop-number? soi) t)
+                ((print soi port) (format port "~a#~a" p q))))
+
+(define (bitop p q) (bitop-number-constructor p q (find-bitop-type q)))
+
+(define *octet-type* (find-bitop-type 8))

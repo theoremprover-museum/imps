@@ -1,0 +1,601 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment read-print)
+
+(define (expression->withless-sexp expr)
+        (if (formal-symbol? expr) (name expr)
+            (let ((constructor
+                      (or (and (use-quasi-constructor-form?)
+                               (quasi-constructor-if-enabled
+                                   (expression-quasi-constructor expr)))
+                          (expression-constructor expr))))
+              (funcall (or (sexp-builder constructor)
+                           old-default-builder)
+                       expr))))
+
+(define (expression->sexp-new expr)
+        (let ((with-vars
+                  (set-difference
+                      (set-difference (free-variables expr)
+                          (expression-var-name-conflict? expr))
+                      (current-language-default-variables))))
+          (if with-vars
+              (list 'with (var-list->sexp with-vars)
+                    (expression->withful-sexp expr))
+              (expression->withful-sexp expr))))
+
+(define (expression->withful-sexp expr)
+        (if (formal-symbol? expr) (name expr)
+            (let ((constructor
+                      (or (and (use-quasi-constructor-form?)
+                               (quasi-constructor-if-enabled
+                                   (expression-quasi-constructor expr)))
+                          (expression-constructor expr))))
+              (funcall (or (sexp-builder constructor)
+                           new-default-builder)
+                       expr))))
+
+(define (new-default-builder expr)
+        (receive (constr comps)
+                 (if (and (use-quasi-constructor-form?)
+                          (quasi-constructor-if-enabled
+                              (expression-quasi-constructor expr)))
+                     (expression-quasi-constructor-&-components expr)
+                     (return
+                       (expression-constructor expr)
+                       (expression-components expr)))
+                 (let ((conflicts (expression-var-name-conflict? expr)))
+                   (if conflicts
+                       (cons (name constr)
+                             (map (lambda (c)
+                                    (let
+                                     ((with-vars
+                                       (set-intersection
+                                        (free-variables c)
+                                        (set-difference conflicts
+                                         (expression-var-name-conflict?
+                                          c)))))
+                                      (if with-vars
+                                       (list 'with
+                                        (var-list->sexp with-vars)
+                                        (expression->withful-sexp c))
+                                       (expression->withful-sexp c))))
+                                  comps))
+                       (cons (name constr)
+                             (map (lambda (c)
+                                    (expression->withful-sexp c))
+                                  comps))))))
+
+(define default-builder new-default-builder)
+
+(define (old-default-builder expr)
+        (receive (q-constr q-comps)
+                 (if (and (use-quasi-constructor-form?)
+                          (quasi-constructor-if-enabled
+                              (expression-quasi-constructor expr)))
+                     (expression-quasi-constructor-&-components expr)
+                     (return value-false nil))
+                 (receive (constr comps)
+                          (if q-constr (return q-constr q-comps)
+                              (return
+                                (expression-constructor expr)
+                                (expression-components expr)))
+                          (cons (name constr)
+                                (map (lambda (c)
+                                       (expression->withless-sexp c))
+                                     comps)))))
+
+(define (sexp->expression-1 sexp language name-formal-symbol-alist)
+        (labels (((error-test expr)
+                  (if (contains-expression? language expr) expr
+                      (imps-error
+                          "SEXP->EXPRESSION-1: expression ~S fails to belong to language ~S"
+                          expr language))))
+          (error-test
+              (let ((constructor (find-sexp-constructor sexp)))
+                (cond
+                  ((transparent-constructor? constructor)
+                   (let ((decoder (or (sexp-decoder constructor)
+                                      rec-descent-sexp-decoder)))
+                     (car (funcall decoder sexp language
+                                   name-formal-symbol-alist))))
+                  ((or (quasi-constructor? constructor)
+                       (constructor? constructor))
+                   (let ((decoder (or (sexp-decoder constructor)
+                                      rec-descent-sexp-decoder)))
+                     (apply constructor
+                            (funcall decoder sexp language
+                                     name-formal-symbol-alist))))
+                  ((seek-symbol-form sexp) =>
+                   (lambda (sexp)
+                     (cond
+                       ((assq sexp name-formal-symbol-alist) => cdr)
+                       ((find-constant language sexp))
+                       (else (imps-error
+                                 "SEXP->EXPRESSION-1:  Cannot locate ~A in ~A"
+                                 sexp language)))))
+                  (else (apply apply-operator
+                               (map (lambda (c)
+                                      (sexp->expression-1 c language
+                                       name-formal-symbol-alist))
+                                    sexp))))))))
+
+;(define (sexp->expression-2 sexp language name-formal-symbol-alist)
+;        (let ((constructor (find-sexp-constructor sexp)))
+;          (cond
+;            ((transparent-constructor? constructor)
+;             (let ((decoder (or (sexp-decoder constructor)
+;                                rec-descent-sexp-decoder)))
+;               (car (funcall decoder sexp language
+;                             name-formal-symbol-alist))))
+;            ((constructor? constructor)
+;             (let ((decoder (or (sexp-decoder constructor)
+;                                rec-descent-sexp-decoder)))
+;               (apply constructor
+;                      (funcall decoder sexp language
+;                               name-formal-symbol-alist))))
+;            ((and (quasi-constructor? constructor)
+;                  (let ((the-name
+;                            (seek-symbol-form (name constructor))))
+;                    (or (not the-name)
+;                        (and (not (assq the-name
+;                                        name-formal-symbol-alist))
+;                             (not (find-constant language the-name))))))
+;             (let ((decoder (or (sexp-decoder constructor)
+;                                rec-descent-sexp-decoder)))
+;               (apply constructor
+;                      (funcall decoder sexp language
+;                               name-formal-symbol-alist))))
+;            ((seek-symbol-form sexp) =>
+;             (lambda (sexp)
+;               (cond
+;                 ((assq sexp name-formal-symbol-alist) => cdr)
+;                 ((find-constant language sexp))
+;                 (else (imps-error
+;                           "SEXP->EXPRESSION-2:  Cannot locate ~A in ~A"
+;                           sexp language)))))
+;            (else (apply apply-operator
+;                         (map (lambda (c)
+;                                (sexp->expression-2 c language
+;                                    name-formal-symbol-alist))
+;                              sexp))))))
+
+(define (sexp-constructor+body sexp)
+        (if (possible-symbol-form? sexp) (return nil sexp)
+            (iterate iter ((remnant sexp) (constructors nil))
+                     (cond
+                       ((null? remnant)
+                        (if (null? (cdr constructors))
+                            (return
+                              (car constructors)
+                              (if constructors
+                                  (delq (name (car constructors)) sexp)
+                                  sexp))
+                            (imps-error
+                                "SEXP-CONSTRUCTOR:  Too many constructors ~S in sexp ~A"
+                                constructors
+                                (string-downcase!
+                                    (format nil "~S" sexp)))))
+                       ((and (possible-symbol-form? (car remnant))
+                             (or (symbol->quasi-constructor
+                                     (car remnant))
+                                 (symbol->constructor (car remnant))))
+                        =>
+                        (lambda (c)
+                          (iter (cdr remnant) (cons c constructors))))
+                       (else (iter (cdr remnant) constructors))))))
+
+(define (find-sexp-constructor sexp)
+        (cond
+          ((list? sexp)
+           (iterate iter ((remnant sexp) (constructors nil))
+                    (cond
+                      ((null? remnant) value-false)
+                      ((and (possible-symbol-form? (car remnant))
+                            (or (symbol->quasi-constructor
+                                    (car remnant))
+                                (symbol->constructor (car remnant))))
+                       => (lambda (c) c))
+                      (else (iter (cdr remnant) constructors)))))
+          ((eq? sexp 'truth) the-true)
+          ((eq? sexp 'falsehood) the-false)
+          (else nil)))
+
+(define (rec-descent-sexp-decoder sexp language
+            name-formal-symbol-alist)
+        (map (lambda (c)
+               (sexp->expression-1 c language name-formal-symbol-alist))
+             (cdr sexp)))
+
+(define (symbol-means-constructor-or-quasi-constructor? symbol)
+        (or (symbol->constructor symbol)
+            (symbol->quasi-constructor symbol)))
+
+(define (symbol-means-binding-constructor? symbol)
+        (cond
+          ((symbol->constructor symbol) =>
+           (lambda (c)
+             (or (binding-constructor? c) (eq? c with)
+                 (eq? c falselike))))
+          (else value-false)))
+
+(define expression->sexp expression->sexp-new)
+
+(define (expression->sexp-old expression)
+        (expression->withless-sexp
+            (if (or (closed? expression)
+                    (subset? (free-variables expression)
+                             (current-language-default-variables))
+                    (eq? with (expression-constructor expression)))
+                expression (with expression))))
+
+(define (sexp->expression language-or-theory sexp)
+        (if (and (not (language? language-or-theory))
+                 (not (theory? language-or-theory))
+                 (or (language? sexp) (theory? sexp)))
+            (sexp->expression sexp language-or-theory)
+            (remove-leading-withs
+                (let ((language
+                          (if (language? language-or-theory)
+                              language-or-theory
+                              (theory-language language-or-theory))))
+                  (sexp->expression-1 sexp language
+                      (default-sortings->name-var-alist language))))))
+
+(define (default-sortings->name-var-alist language)
+        (map (lambda (pair)
+               (cons (car pair) (find-variable (car pair) (cdr pair))))
+             (language-default-sortings language)))
+
+(define (add-language-default-sorting language var-name sorting-list)
+        (let ((sorting (list->sort language sorting-list)))
+          (push (language-default-sortings language)
+                (cons var-name sorting))
+          (set (current-language-default-variables)
+               (get-language-default-variables (current-language)))))
+
+(define (get-language-default-variables language)
+        (map (lambda (pair) (find-variable (car pair) (cdr pair)))
+             (language-default-sortings language)))
+
+(define current-language-default-variables
+        (make-simple-switch 'current-language-default-variables list?
+            value-false))
+
+(define sexp->withless-expression sexp->expression)
+
+(define current-theory
+        (let ((the-theory value-false))
+          (object (lambda () the-theory)
+                  ((setter self)
+                   (lambda (new)
+                     (imps-enforce
+                         (object (lambda (t) (or (not t) (theory? t)))
+                                 ((print self port)
+                                  (print '(lambda (t)
+                                            (or (not t) (theory? t)))
+                                         port)))
+                         new)
+                     (set (current-language-default-variables)
+                          (get-language-default-variables
+                              (theory-language new)))
+                     (set the-theory new))))))
+
+(at-top-level
+    (let ((previous-theory-stack nil))
+      (define (push-current-theory)
+              (if (or (not (current-theory))
+                      (theory? (current-theory)))
+                  (push previous-theory-stack (current-theory))
+                  (imps-error
+                      "push-current-theory: bad current-theory ~S"
+                      (current-theory))))
+      (define (pop-current-theory)
+              (if (or (not (car previous-theory-stack))
+                      (theory? (car previous-theory-stack)))
+                  (block0 (current-theory)
+                          (set (current-theory)
+                               (car previous-theory-stack))
+                          (set previous-theory-stack
+                               (cdr previous-theory-stack)))
+                  (imps-error "pop-current-theory: bad top ~S"
+                      (car previous-theory-stack))))))
+
+(define default-language
+        (make-simple-switch 'default-language (always value-true) value-false))
+
+(define current-language
+        (let ((use-theory? value-true))
+          (object (lambda ()
+                    (cond
+                      ((and use-theory? (current-theory)) =>
+                       theory-language)
+                      (else (default-language))))
+                  ((setter self)
+                   (lambda (new)
+                     (cond
+                       ((language? new)
+                        (imps-warning
+                            "set current-language: setting current language to ~S: why?~&"
+                            new)
+                        (set use-theory? value-false)
+                        (set (current-language-default-variables)
+                             (get-language-default-variables new))
+                        (set (default-language) new))
+                       (else (set use-theory? value-true))))))))
+
+(define (qr-sexp sexp . language)
+        (let ((language
+                  (if language (car language) (current-language))))
+          (sexp->expression language sexp)))
+
+(define qs->e qr-sexp)
+
+(define (imps-sexp-read-proc language port) (ignore language)
+        (read port))
+
+(define imps-reader
+        (make-simple-switch 'imps-reader procedure?
+            (lambda (language port) (ignore language) (read port))))
+
+(define (imps-read-procedure language input)
+        (let ((port (if (port? input) input (string->input-port input))))
+          (sexp->expression language
+              (funcall (imps-reader) language port))))
+
+(define imps-sexp-print-proc
+        (lambda (sexp port) (pretty-print sexp port)))
+
+(define imps-printer
+        (make-simple-switch 'imps-printer procedure? pretty-print))
+
+(define (imps-expression->string-procedure expr)
+        (with-output-to-string tmp
+          (funcall (imps-printer) (expression->sexp expr) tmp)))
+
+(define (imps-print-expression expression port)
+        (write port (imps-expression->string-procedure expression)))
+
+(define imps-reader-proc-stack nil) 
+
+(define imps-printer-proc-stack nil)
+
+(define (push-current-syntax) 
+  (push imps-printer-proc-stack (imps-printer))
+  (push imps-reader-proc-stack (imps-reader)) (return))
+
+(define (pop-current-syntax)
+  (set (imps-printer) (pop imps-printer-proc-stack))
+  (set (imps-reader) (pop imps-reader-proc-stack)) (return))
+
+(define (push-current-theory-and-syntax) (push-current-theory)
+        (push-current-syntax))
+
+(define (pop-current-theory-and-syntax) (pop-current-theory)
+        (pop-current-syntax))
+
+(define (qr input . language)
+        (let ((language
+                  (if language (car language) (current-language))))
+          (imps-read-procedure language input)))
+
+(define (qp expr) (imps-expression->string-procedure expr))
+
+(define (assumptions->string assumptions)
+        (format nil
+                (separated-string-append "~%~%"
+                    (map imps-expression->string-procedure assumptions))))
+
+(define (assumptions->sexp assumptions)
+        (if assumptions
+            (map (lambda (a) (expression->sexp a)) assumptions)
+            'empty-context))
+
+(define context-reader-read-table
+        (let ((rt (make-read-table standard-read-table
+                      'context-reader-read-table)))
+          (set (read-table-entry rt #\[) (read-table-entry rt #\Space))
+          (set (read-table-entry rt #\]) (read-table-entry rt #\Space))
+          (set (read-table-entry rt #\,) (read-table-entry rt #\Space))
+          rt))
+
+(define imps-sexp-context-reader
+        (lambda (language str)
+          (let ((port (string->input-port str)) (reader (imps-reader)))
+            (let ((things (iterate iter ((l nil))
+                                   (let
+                                    ((new
+                                      (funcall reader language port)))
+                                     (if (eof? new) (reverse! l)
+                                      (iter (cons new l)))))))
+              (if (eq? (car things) 'empty-context) nil
+                  (map (lambda (sexp)
+                         (sexp->expression language sexp))
+                       things))))))
+
+(define start-reading-expression-list?
+        (make-simple-switch 'reading-expression-list boolean? value-false))
+
+(define imps-string-form-context-reader
+        (lambda (language str)
+          (if (or (string-empty? str)
+                  (string-equal? "empty-context"
+                      (string-downcase!
+                          (substring str 0
+                              (string-length "empty-context")))))
+              nil
+              (bind (((start-reading-expression-list?) value-true))
+                    (map (lambda (sexp)
+                           (sexp->expression language sexp))
+                         (top-level-parse *parse* str))))))
+
+(define imps-context-reader
+        (make-simple-switch 'imps-context-reader procedure?
+            imps-sexp-context-reader))
+
+(define (string->assumptions language string)
+        (funcall (imps-context-reader) language string))
+
+(define (sequent->sexp sequent)
+        (let ((assumptions (sequent-assumptions sequent)))
+          (if (null? assumptions)
+              (list 'empty-context '=>
+                    (expression->sexp (sequent-assertion sequent)))
+              (append (assumptions->sexp assumptions)
+                      (list '=>
+                            (expression->sexp
+                                (sequent-assertion sequent)))))))
+
+(define (sexp->sequent language-or-theory sexp)
+        (receive (assumptions assertion)
+                 (iterate iter ((sexp sexp) (assumptions-so-far nil))
+                          (cond
+                            ((null? sexp)
+                             (imps-error "SEXP->SEQUENT: => not found"))
+                            ((eq? (car sexp) 'empty-context)
+                             (if (and (null? assumptions-so-far)
+                                      (eq? (cadr sexp) '=>))
+                                 (return
+                                   nil
+                                   (sexp->expression language-or-theory
+                                    (caddr sexp)))
+                                 (imps-error
+                                     "SEXP->SEQUENT misplaced \"Empty-Context\"")))
+                            ((eq? (car sexp) '=>)
+                             (return
+                               assumptions-so-far
+                               (sexp->expression language-or-theory
+                                   (cadr sexp))))
+                            (else (iter (cdr sexp)
+                                        (cons
+                                         (sexp->expression
+                                          language-or-theory
+                                          (car sexp))
+                                         assumptions-so-far)))))
+                 (build-sequent
+                     (if (theory? language-or-theory)
+                         (build-context language-or-theory assumptions)
+                         (build-context (current-theory) assumptions))
+                     assertion)))
+
+(define (list-constants lang-or-theory)
+        (let ((lang (if (theory? lang-or-theory)
+                        (theory-language lang-or-theory)
+                        lang-or-theory)))
+          (walk (lambda (c)
+                  (format t "~A: ~A~%"
+                          (let ((sym (name c)))
+                            (if (symbol? sym)
+                                (string-downcase (symbol->string sym))
+                                sym))
+                          (expression-sorting c)))
+                (language-constants lang))))
+
+(define (short-list-constants lang-or-theory)
+        (let ((lang (if (theory? lang-or-theory)
+                        (theory-language lang-or-theory)
+                        lang-or-theory)))
+          (walk (lambda (c)
+                  (format t "~A: ~A~%"
+                          (let ((sym (name c)))
+                            (if (symbol? sym)
+                                (string-downcase (symbol->string sym))
+                                sym))
+                          (expression-sorting c)))
+                (set-difference (language-constants lang)
+                    (collect-set language-constants
+                        (map theory-language (fixed-theories-set)))))))
+
+(define imps-syntax-alist
+        (settable-symbol-alist
+            (lambda (val)
+              (and (pair? val) (procedure? (car val))
+                   (procedure? (cdr val))))))
+
+(define (add-syntax name read-proc print-proc)
+        (or (and (symbol? name) (procedure? read-proc)
+                 (procedure? print-proc))
+            (imps-error
+                "Usage: (add-syntax name read-proc print-proc)
+   where name is a symbol; 
+	 read-proc creates sexpressions from strings/ports
+     and print-proc writes to a port given an sexp.
+   Given parameters: ~S, ~S, ~S.~&" name read-proc print-proc))
+        (set (imps-syntax-alist name) (cons read-proc print-proc)))
+
+(define (syntax-read-procedure the-name)
+        (cond ((imps-syntax-alist the-name) => car) (else value-false)))
+
+(define (syntax-print-procedure the-name)
+        (cond ((imps-syntax-alist the-name) => cdr) (else value-false)))
+
+(define (pop-imps-syntax) (pop-current-syntax))
+
+(define (push-imps-syntax syntax-name) (push-current-syntax)
+        (set (imps-printer) (syntax-print-procedure syntax-name))
+        (set (imps-reader) (syntax-read-procedure syntax-name)))
+
+(define-syntax (with-imps-syntax syntax-name . body-forms)
+    (cond
+      ((and body-forms (imps-syntax-alist syntax-name))
+       (list* 'bind
+              (list (list '(imps-reader)
+                          (list 'syntax-read-procedure
+                                (list 'quote syntax-name)))
+                    (list '(imps-printer)
+                          (list 'syntax-print-procedure
+                                (list 'quote syntax-name))))
+              body-forms))
+      ((not (imps-syntax-alist syntax-name))
+       (imps-error "Unknown syntax  ~S" syntax-name))
+      ((not body-forms)
+       (imps-error "Empty body for (with-imps-syntax ~S . body-forms)"
+           syntax-name))))

@@ -1,0 +1,651 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment (presentation dg-emacs))
+
+(define dg-file-prefix "dg-")
+
+;;The interface only handles the current-dg. So the dg-interface-table is
+;;a much simplified entity.
+
+(define *dg-interface-table* value-false)
+
+(define *dg-buffer-root-name* "*Deduction-graph*")
+
+(define *sqn-buffer-root-name* "*Sequent-nodes*")
+
+(define save-windows?
+        (make-simple-switch 'save-windows? boolean? value-false))
+
+(define (start-emacs-deduction goal . theory)
+  (let ((theory (or (car theory) (current-theory))))
+    (set-up-dg-interface (start-deduction
+			  (cond
+			   ((null? goal) nil)
+			   ((formula? goal)
+			    (or (contains-expression? (theory-language theory)
+						      goal)
+				(imps-error
+				 "START-EMACS-DEDUCTION: ~A is not a formula in the theory ~A."
+				 goal theory))
+			    goal)
+			   ((sequent? goal)
+			    (or (subtheory? (sequent-theory goal) theory)
+				(imps-error
+				 "START-EMACS-DEDUCTION: ~A is not a sequent in the theory ~A."
+				 goal theory))
+			    goal)
+			   ((string? goal) (qr goal (theory-language theory)))
+			   ((list? goal)
+			    (qr-sexp goal (theory-language theory)))
+			   (t goal))
+			  theory))))
+
+(define (dgrv-index->dg ()) (current-dg))
+
+(define (set-up-dg-interface dg)
+  (let* ((name *dg-buffer-root-name*)
+	 (sqn-name *sqn-buffer-root-name*))
+;;    (set (dgrv-index->dg dgrv-index) dg)
+    (emacs-eval "(initialize-dgr ~S ~S ~S)" 
+		sqn-name name (theory-name-string (deduction-graph-theory dg)))
+    (emacs-buffer-eval name "(dg-mode)")
+    (emacs-buffer-eval sqn-name "(sqn-mode)")
+    (set *dg-interface-table* (list nil nil))
+    (emacs-verbose-update-dg dg)
+    (emacs-add-all-new-sqns dg)
+;;Changed by jt:Fri Feb  6 11:46:40 EST 1998. Makes sequent node window the only window.
+;;    (if (not (save-windows?))
+;;	(emacs-eval "(progn (delete-other-windows) (switch-to-buffer ~S))" sqn-name))
+;;Changed back by W. M. Farmer Thu Mar 25 10:35:43 EST 2004
+    (if (not (save-windows?))
+	(emacs-eval "(progn (switch-to-buffer ~S))" sqn-name))
+    repl-wont-print))
+
+(define dg-sqns-sent
+        (operation
+            (lambda (())
+              (nth *dg-interface-table* 0))
+            ((setter self)
+             (lambda (() new-value)
+               (set (nth *dg-interface-table* 0) new-value)))))
+
+(define dg-sqns-grounded
+        (operation
+            (lambda (())
+              (nth *dg-interface-table* 1))
+            ((setter self)
+             (lambda (() new-value)
+               (set (nth *dg-interface-table* 1) new-value)))))
+
+(define (dg->dgrv-index ()) 1)
+
+(define (dg->buffer-name ()) *dg-buffer-root-name*)
+
+(define allow-dg-updates?
+        (make-simple-switch 'dg-updates boolean? value-true))
+
+(define (emacs-update-dg dg)
+        (cond
+          ((not (allow-dg-updates?))
+           (emacs-message
+               "Calling Tea... returned. However, dg-display has not been updated"))
+          (else (with-open-ports ((dg-f (open dg-file-name '(out))))
+                  (print-dg dg dg-f)
+		  (force-output dg-f))
+                (emacs-eval
+                    "(dg-read-from-file ~S ~S)" (dg->buffer-name dg)
+                    (filename->string dg-file-name))
+                (emacs-buffer-eval (dg->buffer-name dg)
+                    "(goto-char (point-max))")
+                (emacs-message "Calling Tea... returned"))))
+
+(define (emacs-verbose-update-dg dg)
+        (bind ((*list-details-for-grounded-nodes* value-true))
+              (emacs-update-dg dg)))
+
+(define (dg-add-new-sqns-sent dg new-sqns)
+        (set (dg-sqns-sent dg) (set-union new-sqns (dg-sqns-sent dg))))
+
+(define (dg-add-new-sqns-grounded dg new-sqns)
+        (set (dg-sqns-grounded dg)
+             (set-union new-sqns (dg-sqns-grounded dg))))
+
+(define (emacs-add-sqns dg new-sqns newly-grounded-sqns)
+  (with-open-ports ((sqn-f (open sqn-file-name '(out))))
+    (do ((sqns (set-union new-sqns
+			  (set-difference newly-grounded-sqns new-sqns))
+	       (cdr sqns)))
+	((null? sqns) repl-wont-print)
+      (let ((current (car sqns)))
+	(format sqn-f "~S~%~A~%~A~%~A"
+		(sequent-node-number current)
+		(if (sequent-node-grounded? current) "t" "nil")
+		(sequent-node->string current) #\Page))))
+  (emacs-eval "(sqn-add-from-file ~S)" (filename->string sqn-file-name))
+  (dg-add-new-sqns-sent dg new-sqns)
+  (dg-add-new-sqns-grounded dg newly-grounded-sqns)
+  repl-wont-print)
+
+;;;(define (emacs-supplement-sqns dg already-there already-grounded)
+;;;        (emacs-add-sqns dg
+;;;            (set-difference (deduction-graph-sequent-nodes dg)
+;;;                already-there)
+;;;            (set-difference (deduction-graph-grounded-sqns dg)
+;;;                already-grounded)))
+
+(define (emacs-add-all-new-sqns dg)
+        (emacs-add-sqns dg
+            (set-difference (deduction-graph-sequent-nodes dg)
+                (dg-sqns-sent dg))
+            (set-difference (deduction-graph-grounded-sqns dg)
+                (dg-sqns-grounded dg))))
+
+(define (read-sequent context-string assertion-string dg)
+        (let* ((language (theory-language (deduction-graph-theory dg)))
+               (assumptions
+                   (string->assumptions language context-string))
+               (context (build-context (deduction-graph-theory dg)
+                            assumptions))
+               (assertion (qr assertion-string language))
+               (vars (set-union
+                         (big-u (map free-variables
+                                     (context-assumptions context)))
+                         (free-variables assertion))))
+          (iterate loop ((vars vars) (seen nil))
+                   (if vars
+                       (let ((find (mem
+                                    (lambda (x y)
+                                      (eq? (name x) (name y)))
+                                    (car vars) seen)))
+                         (if find
+                             (imps-warning
+                                 "~%~%;;BEWARE: Posted sequent contains at least two distinct but identically named free variables:~%   ~A ~%  ~A."
+                                 (car find) (car vars))
+                             (loop (cdr vars) (cons (car vars) seen))))))
+          (build-sequent context assertion)))
+
+(define (read-sequent-and-post context-string assertion-string dg)
+        (post (read-sequent context-string assertion-string dg) dg))
+
+(define (read-sequent-and-start-emacs-deduction context-string assertion-string)
+        (bind (((save-windows?) value-true))
+              (start-emacs-deduction
+                  (build-sequent
+                      (build-context (current-theory)
+                          (string->assumptions (current-language)
+                              context-string))
+                      (qr assertion-string)))))
+
+(define (read-sequent-and-start-deduction context-string
+            assertion-string theory-name)
+        (start-deduction
+            (build-sequent
+                (build-context (current-theory)
+                    (string->assumptions (current-language)
+                        context-string))
+                (qr assertion-string))
+            (name->theory theory-name)))
+
+(define (emacs-send-sqn-to-edit sqn fully?)
+        (bind (((fully-parenthesize) fully?))
+              (with-open-ports ((sqn-f (open sqn-edit-file-name '(out))))
+                (format sqn-f "~A~%" (sequent-node->string sqn))))
+        (emacs-eval "(sqn-edit-from-file ~D ~S)"
+            (sequent-node-number sqn) (filename->string sqn-edit-file-name))
+        repl-wont-print)
+
+(define (emacs-display-sqn sqn)
+        (and (sequent-node? sqn)
+	     (emacs-eval "(sqn-select ~D)" 
+                 (sequent-node-number sqn))))
+
+(define (sequent-unhash sqn-number)
+  (sequent-unhash-in-graph sqn-number (current-dg)))
+  
+
+(define (sequent-unhash-in-graph sqn-number dg)
+        (let ((sqns (deduction-graph-sequent-nodes dg)))
+          (or (any (lambda (sqn)
+                     (and (= (sequent-node-number sqn) sqn-number) sqn))
+                   sqns)
+              (imps-error
+                  "SEQUENT-UNHASH-IN-GRAPH: didn't find sqn number ~D in dg ~S"
+                  sqn-number dg))))
+
+;;;(define (sequent-unhash-in-graph-by-number sqn-number dg-index)
+;;;        (sequent-unhash-in-graph sqn-number (dgrv-index->dg dg-index)))
+
+;;;(define emacs-dg (make-simple-switch 'emacs-dg (always value-true)))
+
+(define use-sequent-node-numbers?
+        (make-simple-switch 'use-sequent-node-numbers? boolean? value-true))
+
+(define (sequent-read sequent input)
+        (if (and (string? input) (string-empty? input))
+            (imps-error "sequent-read:  Null string supplied."))
+        (let* ((language
+                   (theory-language
+                       (context-theory (sequent-context sequent))))
+               (var-sort-list
+                   (iterate loop
+                            ((accum nil)
+                             (vars (append
+                                    (free-variables
+                                     (sequent-assertion sequent))
+                                    (append
+                                     (context-assumption-variables
+                                      (sequent-context sequent))
+                                     (bound-variables
+                                      (sequent-assertion sequent))))))
+                            (cond
+                              ((null? vars) (reverse! accum))
+                              ((find-constant language
+                                   (name (car vars)))
+                               (loop accum (cdr vars)))
+                              (else (loop
+                                      (cons
+                                       (cons (name (car vars))
+                                        (expression-sorting (car vars)))
+                                       accum)
+                                      (cdr vars)))))))
+          (bind (((language-default-sortings language)
+                  (append! var-sort-list
+                           (language-default-sortings language))))
+                (qr input language))))
+
+(define (sequent-node-read sequent input)
+        (sequent-read (sequent-node-sequent sequent) input))
+
+(define (sequent-read-sequent-and-post sequent context-string
+            assertion-string dg)
+        (let ((language
+                  (theory-language
+                      (context-theory (sequent-context sequent))))
+              (var-sort-list
+                  (map (lambda (v)
+                         (cons (name v) (expression-sorting v)))
+                       (set-union (free-variables sequent)
+                           (bound-variables sequent)))))
+          (bind (((language-default-sortings language)
+                  (append! var-sort-list
+                           (language-default-sortings language))))
+                (read-sequent-and-post context-string assertion-string
+                    dg))))
+
+;;;(define (imps-post-read-and-post context-string assertion-string dg sqn-no)
+;;;  (let ((sequent (sequent-node-sequent
+;;;		  (let ((sqns
+;;;			 (deduction-graph-sequent-nodes
+;;;			  dg)))
+;;;		    (or (any
+;;;			 (lambda (sqn)
+;;;			   (and
+;;;			    (= (sequent-node-number sqn)
+;;;			       sqn-no)
+;;;			    sqn))
+;;;			 sqns)
+;;;			(imps-error
+;;;			 "imps-post-read-and-post: didn't find sqn number ~D in dg ~S"
+;;;			 sqn-no (current-dg)))))))
+;;;    (sequent-read-sequent-and-post sequent context-string assertion-string dg)))
+
+(define (enable-qcs qc-names)
+        (walk (lambda (x)
+                (let ((qc (name->quasi-constructor x)))
+                  (if qc (enable-quasi-constructor qc))))
+              qc-names)
+        (return))
+
+(define (disable-qcs qc-names)
+        (walk (lambda (x)
+                (let ((qc (name->quasi-constructor x)))
+                  (if qc (disable-quasi-constructor qc))))
+              qc-names)
+        (return))
+
+(define (execute-call-from-emacs-and-update sexp)
+  (emacs-add-all-new-sqns (current-dg))
+  (emacs-update-dg (current-dg))
+  (if (sequent-node? sexp)
+      (emacs-display-sqn sexp) sexp))
+
+;;;(define (sequent-unhash-currently sqn-no)
+;;;        (sequent-unhash-in-graph sqn-no (current-dg)))
+
+;;(define sqn-u-h sequent-unhash-currently)
+
+(define (dg-emacs-install-theorem sqn-no thm-name usage-list)
+  (let ((sqn (sequent-unhash sqn-no))
+	(thm-name-str
+	 (string-downcase (symbol->string thm-name))))
+    (if (sequent-node-grounded? sqn)
+	(block (apply theory-add-theorem
+		      (deduction-graph-theory (current-dg))
+		      (sequent->sentence
+		       (sequent-node-sequent sqn))
+		      thm-name usage-list))
+      (imps-error
+       "dg-emacs-install-theorem: Ungrounded node ~S"
+       sqn))))
+
+;;;(define cmpn-expr-separator (format nil "~%~%"))
+;;;
+;;;(define cmpn-expr-list-separator
+;;;        (format nil
+;;;                "== == == == == == == == == == == == == == == ==~%~%"))
+;;;
+;;;(define (emacs-display-cmpn cmpn)
+;;;        (let ((expr-list-list (partition-computation-node cmpn))
+;;;              (dgrv-index
+;;;                  (dg->dgrv-index (computation-node-graph cmpn)))
+;;;              (index (computation-node-number cmpn)))
+;;;          (labels (((print-exprs exprs port)
+;;;                    (walk (lambda (expr)
+;;;                            (display (qp expr) port)
+;;;                            (display cmpn-expr-separator port))
+;;;                          exprs)))
+;;;            (let ((cmpn-f (open cmpn-file-name '(out))))
+;;;              (format cmpn-f "~A~%~A~%" index
+;;;                      (map sequent-node-number
+;;;                           (computation-node-sqns cmpn)))
+;;;              (and expr-list-list
+;;;                   (iterate iter ((expr-list-list expr-list-list))
+;;;                            (print-exprs (car expr-list-list) cmpn-f)
+;;;                            (and (cdr expr-list-list)
+;;;                                 (block (display
+;;;                                         cmpn-expr-list-separator
+;;;                                         cmpn-f)
+;;;                                   (iter (cdr expr-list-list)))))))
+;;;            (emacs-eval "(cmpn-add-from-file ~D ~S)" dgrv-index
+;;;                cmpn-file-name)
+;;;            (emacs-eval "(pop-to-buffer ~S)"
+;;;                (format nil "*Computations-~D-~D*" dgrv-index index)))))
+;;;
+;;;(define (computation-node-read dg-number cmpn-index string)
+;;;        (let ((cmpn (deduction-graph-find-cmpn
+;;;                        (dgrv-index->dg dg-number) cmpn-index)))
+;;;          (emacs-display-cmpn
+;;;              (computation-node-add-expressions cmpn
+;;;                  (list (sequent-read
+;;;                            (sequent-node-sequent
+;;;                                (last (computation-node-sqns cmpn)))
+;;;                            string))))))
+;;;
+;;;(define (computation-node-simplify dg-number cmpn-index string)
+;;;        (let ((cmpn (deduction-graph-find-cmpn
+;;;                        (dgrv-index->dg dg-number) cmpn-index)))
+;;;          (emacs-display-cmpn
+;;;              (computation-node-add-expressions cmpn
+;;;                  (receive (simplified nil)
+;;;                           (simplify-with-minor-premises
+;;;                               (computation-node-context cmpn)
+;;;                               (sequent-read
+;;;                                   (sequent-node-sequent
+;;;                                    (last (computation-node-sqns cmpn)))
+;;;                                   string))
+;;;                           (list simplified))))))
+;;;
+;;;(define (computation-node-apply-macete dg-number cmpn-index string
+;;;            macetes)
+;;;        (let ((cmpn (deduction-graph-find-cmpn
+;;;                        (dgrv-index->dg dg-number) cmpn-index))
+;;;              (macete (car macetes)) (paths '(())))
+;;;          (let ((context (computation-node-context cmpn))
+;;;                (target (sequent-read
+;;;                            (sequent-node-sequent
+;;;                                (last (computation-node-sqns cmpn)))
+;;;                            string)))
+;;;            (emacs-display-cmpn
+;;;                (computation-node-add-expressions cmpn
+;;;                    (list (apply-macete macete context target)))))))
+
+(define (sqn-univeral-assumptions-with-variable-sorts sqn)
+        (iterate loop
+                 ((collect nil) (assums (sequent-node-assumptions sqn))
+                  (n 0))
+                 (if (null? assums) (reverse! collect)
+                     (if (universal? (car assums))
+                         (loop
+                           (cons (cons n
+                                       (apply append
+                                        (map
+                                         (lambda (var)
+                                           (list (name var)
+                                            (sort-list->string
+                                             (sort->list
+                                              (expression-sorting var)))))
+                                         (newly-bound-variables
+                                          (car assums)))))
+                                 collect)
+                           (cdr assums)
+                           (1+ n))
+                         (loop collect (cdr assums) (1+ n))))))
+
+(define (sqn-existential-with-variable-sorts sqn)
+        (let ((assert (sequent-node-assertion sqn)))
+          (if (existential? assert)
+              (apply append
+                     (map (lambda (var)
+                            (list (name var)
+                                  (sort-list->string
+                                      (sort->list
+                                       (expression-sorting var)))))
+                          (newly-bound-variables assert)))
+              nil)))
+
+(define (sqn-antecedent-inference-assumptions sqn)
+        (iterate loop
+                 ((collect nil) (assums (sequent-node-assumptions sqn))
+                  (n 0))
+                 (if (null? assums) (reverse! collect)
+                     (let ((expr (car assums)))
+                       (if (or (implication? expr) (existential? expr)
+                               (conjunction? expr) (disjunction? expr)
+                               (biconditional? expr)
+                               (conditional-formula? expr))
+                           (loop (cons n collect) (cdr assums) (1+ n))
+                           (loop collect (cdr assums) (1+ n)))))))
+
+(define (sqn-backchain-inference-assumptions sqn)
+        (iterate loop
+                 ((collect nil) (assums (sequent-node-assumptions sqn))
+                  (n 0))
+                 (if (null? assums) (reverse! collect)
+                     (if (backchainable? sqn (car assums))
+                         (loop (cons n collect) (cdr assums) (1+ n))
+                         (loop collect (cdr assums) (1+ n))))))
+
+(define (sqn-backchain-backwards-inference-assumptions sqn)
+        (iterate loop
+                 ((collect nil) (assums (sequent-node-assumptions sqn))
+                  (n 0))
+                 (if (null? assums) (reverse! collect)
+                     (if (backwards-backchainable? sqn (car assums))
+                         (loop (cons n collect) (cdr assums) (1+ n))
+                         (loop collect (cdr assums) (1+ n))))))
+
+(define (defined-constants-in-assertion sqn)
+  (let ((pre
+	 (let ((theory (deduction-graph-theory (sequent-node-graph sqn)))
+	       (assertion (sequent-node-assertion sqn)))
+	   (iterate loop ((expr assertion))
+	     (if (and (constant? expr)
+		      (theory-defined-constant? theory
+						expr))
+		 (list expr)
+		 (big-u (map #'loop
+			     (expression-quasi-components-or-components
+			      expr))))))))
+    (let ((assertion (sequent-node-assertion sqn)))
+      (map (lambda (x) 
+	     (cons (string-downcase (symbol->string (name x)))
+		   (virtual-paths-to-occurrences assertion x -1)))
+	   pre))))
+
+;(define (defined-constants-in-assertion sqn)
+;        (let ((theory (deduction-graph-theory (sequent-node-graph sqn)))
+;              (assertion (sequent-node-assertion sqn)))
+;          (let ((pre (iterate loop ((expr assertion))
+;                              (if (and (constant? expr)
+;                                       (theory-defined-constant? theory
+;                                        expr))
+;                                  (list expr)
+;                                  (big-u (map #'loop
+;                                          (expression-quasi-components-or-components
+;                                           expr)))))))
+;            (map (lambda (x) 
+;                   (cons (string-downcase (symbol->string (name x)))
+;                         (virtual-paths-to-occurrences assertion x -1)))
+;                 pre))))
+
+(define (enabled-quasi-constructors-in-sequent sqn)
+        (labels (((quasi-constructors-in-expr expr)
+                  (let ((qc (expression-quasi-constructor-if-enabled
+                                expr))
+                        (sub (big-u (map #'quasi-constructors-in-expr
+                                     (expression-quasi-components-if-enabled-or-components
+                                      expr)))))
+                    (if qc (add-set-element qc sub) sub))))
+          (map (lambda (x)
+                 (list (string-downcase (symbol->string (name x)))))
+               (big-u (map #'quasi-constructors-in-expr
+                           (cons (sequent-node-assertion sqn)
+                                 (sequent-node-assumptions sqn)))))))
+
+(define (disabled-quasi-constructors sqn) (ignore sqn)
+        (let ((quasi-constructors
+                  (delq lambda-application
+                        *disabled-quasi-constructors*)))
+          (map (lambda (x)
+                 (list (string-downcase (symbol->string (name x)))))
+               quasi-constructors)))
+
+(define (quasi-constructors-in-sequent sqn)
+        (labels (((quasi-constructors-in-expr expr)
+                  (let ((qcs (expression-quasi-constructors expr))
+                        (sub (big-u (map #'quasi-constructors-in-expr
+                                     (expression-components expr)))))
+                    (set-union qcs sub))))
+          (map (lambda (x)
+                 (list (string-downcase (symbol->string (name x)))))
+               (big-u (map #'quasi-constructors-in-expr
+                           (cons (sequent-node-assertion sqn)
+                                 (sequent-node-assumptions sqn)))))))
+
+(define (determine-applicable-inductors sqn)
+        (let ((inductors nil)
+              (sequent-variables
+                  (set-union
+                      (universally-quantified-at-positive-locations
+                          (sequent-node-assertion sqn))
+                      (sequent-free-variables
+                          (sequent-node-sequent sqn)))))
+          (walk-table
+              (lambda (k v)
+                (let ((induction-vars nil)
+                      (inductor-sorts
+                          (map expression-sorting
+                               (inductor-induction-variables v))))
+                  (walk (lambda (var)
+                          (if (mem? sorting-leq
+                                    (expression-sorting var)
+                                    inductor-sorts)
+                              (push induction-vars var)))
+                        sequent-variables)
+                  (if induction-vars
+                      (push inductors
+                            (cons (string-downcase (symbol->string k))
+                                  (map (lambda (var)
+                                         (list
+                                          (string-downcase
+                                           (symbol->string (name var)))
+                                          (sort-list->string
+                                           (sort->list
+                                            (expression-sorting var)))))
+                                       induction-vars))))))
+              *imps-inductors*)
+          inductors))
+
+(define (universally-quantified-at-positive-locations assertion)
+        (let ((univeral-paths
+                  (paths-to-satisfying-virtual-occurrences assertion
+                      universal? -1))
+              (vars nil))
+          (walk (lambda (virtual-path)
+                  (if (virtual-path-to-positive-location? assertion
+                          virtual-path)
+                      (push vars
+                            (binding-variables
+                                (follow-virtual-path assertion
+                                    virtual-path)))))
+                univeral-paths)
+          (big-u vars)))
+
+(define (deduction-graph-apply-command-return-sqns command-name sqn aux
+            max)
+        (if (current-dg)
+            (block (deduction-graph-apply-command-interface
+                       (current-dg) command-name (list sqn) aux nil)
+              (deduction-graph-return-sqns max))
+            nil))
+
+(define (deduction-graph-return-sqns max)
+        (if (current-dg)
+            (let ((n (deduction-graph-last-index (current-dg))))
+              (iterate loop ((i (+ 1 max)) (accum nil))
+                       (if (< n i) accum
+                           (let ((sqn (sequent-unhash i)))
+                             (loop
+                               (+ 1 i)
+                               (cons (format nil "{~D {~A}}" i
+                                      (sequent-node->string sqn))
+                                     accum))))))
+            nil))

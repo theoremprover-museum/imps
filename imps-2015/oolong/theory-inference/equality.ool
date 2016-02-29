@@ -1,0 +1,201 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment equality)
+
+(define (processor-simplify-equality-with-requirements processor
+            context expr persist)
+        (if (let ((expr1 (expression-lhs expr))
+                  (expr2 (expression-rhs expr)))
+              (and (subsort-of-basesort? processor
+                       (context-theory context)
+                       (expression-sorting expr1))
+                   (subsort-of-basesort? processor
+                       (context-theory context)
+                       (expression-sorting expr2))))
+            (let ((params (make-processor-parameters)))
+              (set (processor-parameters-persistence params) persist)
+              (set (processor-parameters-context params) context)
+              (let ((simplified
+                        (processor-simplify-equality processor expr
+                            params)))
+                (return
+                  simplified
+                  (processor-parameters-requirements params)
+                  value-true)))
+            (return expr nil value-false)))
+
+(define (processor-simplify-equality processor expr params)
+        (imps-enforce equation? expr)
+        (let ((expr1 (expression-lhs expr))
+              (expr2 (expression-rhs expr)))
+          (cond
+            ((context-immediately-entails-equal?
+                 (processor-parameters-context params) expr1 expr2)
+             truth)
+            ((processor-reduced? processor expr params) expr)
+            (else (let ((simplified
+                            (simp= processor expr1 expr2 params)))
+                    (if (equation? simplified)
+                        (annotate-expression-as-reduced processor
+                            simplified params)
+                        simplified))))))
+
+(define (subsort-of-basesort? processor theory sort)
+        (let ((base-sort (base-sort processor))
+              (coercions
+                  (d-r-handler-everywhere-defined-coercions
+                      (theory-domain-range-handler theory))))
+          (or (sort-necessarily-included? sort base-sort)
+              (memq? base-sort (assq sort coercions)))))
+
+(define (simp= processor expr1 expr2 params)
+        (if (or (sub-r processor) (-r processor)
+                (and (*r processor)
+                     (number->scalar-constant
+                         (coefficient-processor processor) -1)))
+            (if (order-processor? processor)
+                (let ((exprs (subtract-rh-summands-from-lh-summands
+                                 processor expr1 expr2)))
+                  (receive (lhs sign)
+                           (remove-common-factors processor exprs
+                               params)
+                           (let ((lhs (algebraic-processor-simplify
+                                       (algebraic-sub-processor
+                                        processor)
+                                       lhs params)))
+                             (if (scalar-constant? processor lhs)
+                                 (if (scalar-constant-=0? processor
+                                      lhs)
+                                     truth
+                                     (if (zero? sign) truth falsehood))
+                                 (block (cond
+                                          ((context-entails-linear-equality?
+                                            processor
+                                            (equality lhs
+                                             (number->scalar-constant
+                                              processor 0))
+                                            params)
+                                           truth)
+                                          ((and (<r processor)
+                                            (or
+                                             (context-entails-linear-inequality?
+                                              processor
+                                              (apply-operator
+                                               (<r processor) lhs
+                                               (number->scalar-constant
+                                                processor 0))
+                                              params)
+                                             (context-entails-linear-inequality?
+                                              processor
+                                              (apply-operator
+                                               (<r processor)
+                                               (number->scalar-constant
+                                                processor 0)
+                                               lhs)
+                                              params)))
+                                           (if (zero? sign) truth
+                                            falsehood))
+                                          ((zero? sign)
+                                           (is-defined lhs))
+                                          (else
+                                           (equate-to-zero processor
+                                            lhs params))))))))
+                (let ((lhs (algebraic-processor-simplify
+                               (algebraic-sub-processor processor)
+                               (if (sub-r processor)
+                                   (apply-operator (sub-r processor)
+                                    expr1 expr2)
+                                   (if (-r processor)
+                                    (apply-operator (+r processor)
+                                     expr1
+                                     (apply-operator (-r processor)
+                                      expr2))
+                                    (apply-operator (+r processor)
+                                     expr1
+                                     (apply-operator (*r processor)
+                                      (number->scalar-constant
+                                       (coefficient-processor
+                                        processor)
+                                       -1)
+                                      expr2))))
+                               params)))
+                  (if (scalar-constant? processor lhs)
+                      (if (scalar-constant-=0? processor lhs) truth
+                          (if (processor-faithful-numeral-representation?
+                                  processor)
+                              falsehood
+                              (equate-to-zero processor lhs params)))
+                      (equate-to-zero processor lhs params))))
+            (equality expr1 expr2)))
+
+(define-operation (equate-to-zero processor expr params)
+    (if (zz-extension? processor)
+        (receive (args1 args2)
+                 (partition-summation processor expr params)
+                 (equality args1 args2))
+        (equality expr (number->scalar-constant processor 0))))
+
+(define (theory-constants-distinct? theory const1 const2)
+        (and (not (eq? const1 const2)) (constant? const1)
+             (constant? const2)
+             (let ((e1 (table-entry
+                           (theory-distinct-constant-table theory)
+                           const1))
+                   (e2 (table-entry
+                           (theory-distinct-constant-table theory)
+                           const2)))
+               (or (and e1 e2 (eq? e1 e2))
+                   (let ((components
+                             (theory-component-theories theory)))
+                     (any? (lambda (th)
+                             (theory-constants-distinct? th const1
+                                 const2))
+                           components))))))

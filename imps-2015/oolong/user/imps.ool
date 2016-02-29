@@ -1,0 +1,318 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 14:59:36 EST 1997
+
+(in-package "TEA")
+
+(comment imps)
+
+(define *imps-files*
+        '((resources lisp-supplements) (resources numerical-objects)
+          (resources bitop-numerical-objects) (resources emacs-buffers)
+          (resources sets) (user def-forms) (user other-forms)
+          (user check-imps) (user test-imps) (expressions sortings)
+          (expressions expressions) (expressions constructors)
+          (expressions quasi-constructors)
+          (expressions innards-for-constructors)
+          (expressions innards-for-languages) (expressions languages)
+          (substitution substitutions)
+          (substitution substitution-application)
+          (substitution alpha-equivalence)
+          (substitution naive-matching)
+          (substitution sort-substitutions)
+          (substitution variable-sorts-matching)
+          (expressions some-constructors)
+          (expressions some-quasi-constructors) (expressions gently)
+          (expressions quasi-sorts)
+          (expressions schemata-for-quasi-constructors)
+          (expressions virtual-paths) (presentation read-print)
+          (theory-mechanism domain-range)
+          (theory-mechanism definitions)
+          (theory-mechanism recursive-definitions)
+          (theory-mechanism sort-definitions)
+          (theory-mechanism mc-extensions)
+          (theory-mechanism sort-constructors)
+          (theory-mechanism history) (theory-mechanism theorem)
+          (theory-mechanism restricted-substitution-definedness)
+          (theory-mechanism transforms)
+          (theory-mechanism theory-transform-interface)
+          (theory-mechanism rewrite-rules)
+          (theory-mechanism transportable-rewrite-rules)
+          (theory-mechanism elementary-macetes)
+          (theory-mechanism transportable-macetes)
+          (theory-mechanism theory-subsorting)
+          (theory-mechanism theory) (theory-mechanism theory-ensembles)
+          (theory-mechanism record-theories)
+          (theory-mechanism sections) (inferences q-classes)
+          (inferences context-sequent) (inferences context-entailment)
+          (inferences syllogistic-inference) (inferences backchain)
+          (inferences rules) (inferences deduction-graphs)
+          (inferences constructor-inferences)
+          (inferences special-rules)
+          (inferences domain-range-inference)
+          (inferences domain-range-rules) (inferences commands)
+          (inferences dg-primitive-inferences)
+          (inferences dg-inferences-interface)
+          (inferences relative-position) (inferences scripts)
+          (inferences informal-justification) (presentation dg-emacs)
+          (presentation theory-emacs) (presentation read-interface)
+          (presentation parse) (presentation presentation-interface)
+          (presentation print) (presentation tex-print-methods)
+          (presentation xtv-interface)
+          (presentation tex-prescriptive-presentation)
+          (presentation sexp-print) (presentation sexp-syntax)
+          (presentation overloading) (presentation macete-help)
+          (theory-inference algebraic) (theory-inference expand)
+          (theory-inference reductions) (theory-inference order)
+          (theory-inference feasible)
+          (theory-inference context-inequalities)
+          (theory-inference equality) (theory-inference macetes)
+          (theory-inference macete-constructors)
+          (theory-mechanism the-kernel-theory)
+          (theory-inference general-macetes)
+          (theory-inference instantiation-strategies)
+          (theory-inference existential-matching)
+          (theory-inference general-strategies)
+          (theory-inference unfolding-strategies)
+          (theory-inference induction-strategies)
+          (theory-inference strategy-combining-forms)
+          ;(theory-mechanism bnf) 
+	  (translations translations)
+          (translations obligations)
+          (translations translation-builders)
+          (translations transportations)
+          (translations translation-match)
+          (translations language-transportation)
+          (translations theory-transportation)
+          (presentation imps-commands)
+          (presentation imps-special-commands)
+          (presentation indicator-parse-print)
+          (presentation sequence-parse-print)
+          (presentation command-display) 
+          (theories some-sections)))
+
+
+; (define (imps-error  format-string . args)
+;   (apply error format-string (map print-to-string args)))
+
+;;Note: Changed Wed May 14 16:46:10 EDT 1997 by jt
+;; changed back Sat Apr  1 14:27:49 CST 2000 by jt
+
+(define (imps-user-error format-string . args)
+        (let ((string (apply format value-false format-string args)))
+          (if (emacs-process-filter?) (emacs-error string))
+
+;;changed by jt Oct-10-2009 (added the format string to prevent format directives in string from being intert[reted)
+
+          (error "~S" string)))
+
+(define imps-error imps-user-error)
+
+
+(define (imps-error-or-return-false error-kind format-string . args)
+        (cond
+          ((eq? error-kind 'return-error)
+           (apply imps-error format-string args))
+          ((eq? error-kind 'return-false) value-false)
+          (else (imps-error
+                    "IMPS-ERROR-OR-RETURN-FALSE: bad error kind: ~S."
+                    error-kind))))
+
+(define (maybe-imps-error format-string . args)
+        (if (imps-raise-error?)
+            (apply imps-error-or-return-false 'return-error
+                   format-string args)
+            (apply imps-error-or-return-false 'return-false
+                   format-string args)))
+
+(define imps-raise-error?
+        (make-simple-switch 'imps-raise-error? boolean? value-true))
+
+(define raise-name-error?
+        (make-simple-switch 'raise-name-error? boolean? value-false))
+
+(define (imps-warning format-string . args)
+        (let ((string (apply format value-false format-string (map print-to-string args))))
+          (if (emacs-process-filter?)
+              (emacs-error
+                  (string-append "This is a warning: " string)))
+          (newline (standard-output))
+          (display "IMPS warning: " (standard-output))
+          (display string (standard-output))
+          (newline (standard-output))
+          (force-output (standard-output))))
+
+(define imps-congratulations-hook
+        (make-simple-switch 'imps-congratulations-hook procedure?
+            (always value-false)))
+
+(define (imps-congratulation format-string . args)
+  (let ((string (apply format value-false format-string args)))
+    (if (emacs-process-filter?)
+	(emacs-error
+	 (string-append "Congratulations: " string)))
+
+    (newline (standard-output))
+    (display "IMPS congratulations: " (standard-output))
+    (display string (standard-output))
+    (newline (standard-output))
+    (force-output (standard-output))))
+
+(define (print-to-string thing)
+  (with-output-to-string p (print thing p)))
+
+;;Note: Changed Wed May 14 16:46:10 EDT 1997 by jt
+
+;;;(define (maybe-imps-warning format-string . args)
+;;;        (let ((string (apply format value-false format-string args)))
+;;;          (if (and (imps-raise-error?) (emacs-process-filter?))
+;;;              (emacs-error
+;;;                  (string-append "This is a warning: " string)))
+;;;          (newline (standard-output))
+;;;          (display "IMPS warning: " (standard-output))
+;;;          (display string (standard-output))
+;;;          (newline (standard-output))
+;;;          (force-output (standard-output))))
+
+(define (imps-enforce predicate argument)
+        (let ((ok? (funcall predicate argument)))
+          (if ok? argument
+              (imps-error "ENFORCE failed for (~S ~S)." predicate
+                  argument))))
+
+(define imps-ref object-unhash)
+
+(define (walk-some-imps-files proc which proc-string) (walk proc which)
+        (format t "Done ~A imps~%" proc-string))
+
+;; Modification by W. M. Farmer Mon Mar 22 2004
+;;
+;;(define (compile-imps)
+;;  (bind ((compiler::*COMPILE-ORDINARIES* t))
+;;    (walk-some-imps-files compile-file (cons '(user imps) *imps-files*) "compiling")))
+
+(define (compile-imps)
+  (walk-some-imps-files compile-file 
+			(cons '(user imps) *imps-files*)
+			"compiling"))
+
+(define (maybe-compile-imps)
+        (walk-some-imps-files maybe-compile-if-outdated *imps-files*
+            "selectively compiling"))
+
+(define (update-imps)
+        (walk-some-imps-files (lambda (file) (require nil file))
+            *imps-files* "updating"))
+
+(define (load-imps)
+        (walk-some-imps-files (lambda (x) (load x)) *imps-files* "loading")
+	(finish-load))
+
+;;;(define (load-imps-auxiliary)
+;;;        (walk-some-imps-files (lambda (x) (load x))
+;;;            *imps-auxiliary-files* "loading"))
+
+(define (finish-load)
+;;;  (let ((coercion-port
+;;;	 (maybe-open
+;;;	  (format nil "/tmp/~A-imps-coercions" (user))
+;;;	  '(out))))
+;;;    (if (port? coercion-port)
+;;;	(set (coercion-warning-stream) coercion-port)))
+  (set (use-string-form?) value-true)
+  (set (use-overloaded-names?) value-true)
+  (set (maximum-nesting-for-logical-expressions) 2)
+;;  (load '(user init))
+  (let ((ho (name->theory 'h-o-real-arithmetic)))
+    (and ho (set (current-theory) ho)))
+  ;; (format value-true "~%Current theory: ~S~%~%" (current-theory))
+  repl-wont-print)
+
+(define (maybe-start-xdvi-and-xdg)
+        (and (emacs-process-filter?) (unix-getenv "DISPLAY")
+             (emacs-eval "(imps-xview-maybe-start-xdvi)")))
+
+(define context-simplification-persistence
+        (make-simple-switch 'context-simplification-persistence
+            integer? 5))
+
+(define context-low-simplification-persistence
+        (make-simple-switch 'context-low-simplification-persistence
+            integer? 3))
+
+(define proof-log-port
+        (make-simple-switch 'proof-log-port
+            (lambda (x) (or (false? x) (output-port? x))) value-false))
+
+(define quick-load? (make-simple-switch 'quick-load? boolean? value-false))
+
+(define (quick-load file) (bind (((quick-load?) value-true)) (load file)))
+
+(define (status-of-theory-network)
+        (let ((alist (status-of-theory-network-alist)))
+          (format (standard-output)
+                  ";; STATUS OF THEORY NETWORK: ~&~A ~S ~&~A ~S ~&~A ~S ~&~A ~S ~&~A ~S"
+                  ";;    Theories:                  "
+                  (cdr (assq 'theories alist))
+                  ";;    Theory-interpretations:    "
+                  (cdr (assq 'theory-interpretations alist))
+                  ";;    Theorems:                 "
+                  (cdr (assq 'theorems alist))
+                  ";;    Macetes:                  "
+                  (cdr (assq 'macetes alist))
+                  ";;    Expressions:            "
+                  (cdr (assq 'expressions alist)))))
+
+(define (status-of-theory-network-alist)
+        (list (cons 'theories (count-theories))
+              (cons 'theory-interpretations
+                    (count-theory-interpretations))
+              (cons 'theorems (count-theorems))
+              (cons 'macetes (count-macetes))
+              (cons 'expressions (count-imps-expressions))))
+
+(return)

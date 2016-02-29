@@ -1,0 +1,286 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment check-imps)
+
+(define *total-errors* 0)
+
+(define *total-failed-proofs* 0)
+
+(define *current-theorem* nil)
+
+(define *theorem-number* 1)
+
+;;;(define *standard-output* (standard-output))
+
+;;;(define *error-hook* (lambda (dg port) value-true))
+
+;;;(define (load-and-validate-imps-files files logfile)
+;;;  (let ((port (open logfile '(append))))
+;;;    (bind (((proof-log-port) port)
+;;;	   ((standard-output) port)
+;;;	   ((signal-error-procedure)
+;;;	    (lambda (f-string &rest f-args)
+;;;	      (set *total-errors* (1+ *total-errors*))
+;;;	      (format port "~%~%ERROR: ")
+;;;	      (if *current-theorem*
+;;;		  (format port "in proof of ~A.~%"
+;;;			  *current-theorem*))
+;;;	      (apply format port f-string f-args)
+;;;	      (if (current-dg)
+;;;		  (block (format port
+;;;				 "~%Proof in progress when error occurred:")
+;;;		    (print-dg-proof-information (current-dg)
+;;;						(sequent-node-assertion
+;;;						 (deduction-graph-goal (current-dg)))
+;;;						*current-theorem* (proof-log-port))
+;;;		    (print-dg-context-information (current-dg)
+;;;						  (proof-log-port))
+;;;		    (*error-hook* (current-dg) (proof-log-port)))
+;;;		(format port
+;;;			"~%No proof in progress when error occurred.~%"))
+;;;	      (throw 'imps-error value-false))))
+;;;	  (catch 'imps-error
+;;;	    (format (proof-log-port) "~%Dump number = ~A"
+;;;		    *imps-dump-number*)
+;;;	    (format (proof-log-port)
+;;;		    "~%~%INITIAL THEORY NETWORK INFORMATION:~%")
+;;;	    (walk (lambda (x)
+;;;		    (format (proof-log-port) "~%~A = ~A~%" (car x)
+;;;			    (cdr x)))
+;;;		  (status-of-theory-network-alist))
+;;;	    (walk load-and-validate-imps-file files)
+;;;	    (format (proof-log-port)
+;;;		    "~%~%~A error~P during test.~%~%"
+;;;		    *total-errors* *total-errors*)
+;;;	    (format (proof-log-port)
+;;;		    "~%~%~A failed proof~P during test.~%~%"
+;;;		    *total-failed-proofs* *total-failed-proofs*)
+;;;	    (format (proof-log-port)
+;;;		    "~%~%FINAL THEORY NETWORK INFORMATION:~%")
+;;;	    (walk (lambda (x)
+;;;		    (format (proof-log-port) "~%~A = ~A~%" (car x)
+;;;			    (cdr x)))
+;;;		  (status-of-theory-network-alist))
+;;;	    (format (proof-log-port) "~%~%")))))
+;;;
+;;;(define (load-and-validate-imps-file file)
+;;;  (catch 'imps-error
+;;;	 (bind (((signal-error-procedure)
+;;;		 (lambda (f-string &rest f-args)
+;;;		   (throw 'imps-error value-false))))
+;;;	       (load file))))
+
+(define (start-dg-and-execute-command-sequence formula theory
+            command-script)
+        (clear-em)
+        (let ((dg (make-deduction-graph)))
+          (set (current-dg) dg)
+          (set (deduction-graph-theory dg) theory)
+          (set (deduction-graph-goal dg) (post formula dg))
+          (return dg (execute-command-sequence dg command-script))))
+
+(define (log-imps-proof theory formula proof-spec the-name)
+  (format (standard-output) "~%Proving theorem ~A (~A) ... ~%~%"
+	  *theorem-number* (or the-name 'anonymous))
+  (set *dgs* nil)
+;;  (gc)
+  (set (current-dg) value-false)
+  (bind (((current-theory) theory))
+	(catch 'imps-error
+	  (bind
+	   (((signal-error-procedure)
+	     (lambda err-args
+	       (apply format (standard-output) err-args)
+	       (throw 'imps-error value-false)))
+	    (*current-theorem* the-name))
+	   (cond
+	    ((and
+	      (proper-list? proof-spec)
+	      (not (null? proof-spec)))
+	     (receive (dg ())
+		      (start-dg-and-execute-command-sequence
+		       formula theory proof-spec)
+		      (print-dg-proof-information
+		       dg formula the-name
+		       (proof-log-port))
+		      (print-dg-context-information
+		       dg (proof-log-port))))
+	    (else
+	     (print-existing-theorem-information
+	      theory proof-spec formula
+	      the-name (proof-log-port))))))
+	(format (standard-output) "~%Theorem ~A finished.~%"
+		*theorem-number*)
+	(increment *theorem-number*) (set (current-dg) value-false)
+	(let ((read-in (qr (qp formula))))
+	  (cond
+	   ((eq? read-in formula))
+	   ((alpha-equivalent? read-in formula)
+	    (format (proof-log-port)
+		    "~%Preceding theorem reads in as an alpha-equivalent (but not identical) version."))
+	   (else (format (proof-log-port)
+			 "~%Warning: Preceding theorem reads in as an entirely different formula.")))))
+  (force-output (proof-log-port)))
+
+(define (print-dg-context-information dg port)
+        (let ((contexts 0) (assums 0) (q-pops-max 0) (q-pops 0)
+              (context-predecessor-max 0) (context-subset-count-max 0))
+          (walk-table
+              (lambda (k v)
+                (ignore k)
+                (set contexts (1+ contexts))
+                (set assums
+                     (+ assums (length (context-assumptions v))))
+                (let ((q-pop-of-v (context-count-q-population v)))
+                  (set q-pops (+ q-pops q-pop-of-v))
+                  (set q-pops-max (max q-pops-max q-pop-of-v))
+                  (receive (pred-count subset-count)
+                           (context-predecessors&subsets v)
+                           (set context-predecessor-max
+                                (max context-predecessor-max
+                                     pred-count))
+                           (set context-subset-count-max
+                                (max context-subset-count-max
+                                     subset-count)))))
+              (*theory-context-table* (deduction-graph-theory dg)))
+          (format port
+                  "~%CONTEXTS=~A~%ASSUMPTIONS/CONTEXT=~A~%Q-POPULATION/CONTEXT=~A~%Q-POPULATION-MAXIMUM=~A~%predecessor-max=~A~%subset-count-max=~A~%Max-Index=~A"
+                  contexts (->float (/ assums contexts))
+                  (->float (/ q-pops contexts)) q-pops-max
+                  context-predecessor-max context-subset-count-max
+                  (max-index (deduction-graph-theory dg)))))
+
+(define (print-existing-theorem-information theory justification
+            formula the-name port)
+        (or (and (eq? justification 'existing-theorem)
+                 (theory-theorem? theory formula))
+            (increment *total-failed-proofs*))
+        (format port
+                "~%~%~A. THEOREM-NAME: ~A~%~%~A~%~%THEORY: ~A~%PROOF STEPS: ~A~%GROUNDED?: ~A"
+                *theorem-number* (or the-name 'anonymous) (qp formula)
+                (name theory) justification
+                (if (and (eq? justification 'existing-theorem)
+                         (theory-theorem? theory formula))
+                    'yes 'no)))
+
+(define (print-dg-proof-information dg formula the-name port)
+        (or (deduction-graph-grounded? dg)
+            (increment *total-failed-proofs*))
+        (format port
+                "~%~%~A. THEOREM-NAME: ~A~%~%~A~%~%THEORY: ~A~%SEQUENT NODES: ~A~%PROOF STEPS: ~A~%GROUNDED?: ~A"
+                *theorem-number* (or the-name 'anonymous) (qp formula)
+                (name (deduction-graph-theory dg))
+                (length (deduction-graph-sequent-nodes dg))
+                (length (deduction-graph-history dg))
+                (if (deduction-graph-grounded? dg) 'yes 'no)))
+
+(comment (lset *server-input-file* "/tmp/fn_pipe")
+         (lset *server-done-file* "/tmp/done_pipe")
+         (let ((fn_port value-false) (done_port value-false))
+           (define (setup-server-communication)
+                   (set fn_port (open *server-input-file* '(out)))
+                   (set done_port (open *server-done-file* '(in)))
+                   (set (port-read-table done_port)
+                        *vanilla-read-table*)
+                   (return fn_port done_port))
+           (define (imps-exec command-string)
+                   (format fn_port "~A 
+echo done~&" command-string) (force-output fn_port)
+                   (iterate loop ()
+                            (let ((r (read done_port)))
+                              (if (eq? r 'done) value-true (loop)))))
+           (define (close-server-communication) (close fn_port)
+                   (close done_port)))
+         (define (uncompress-and-load filename env)
+                 (unwind-protect
+                   (if (file-exists? filename) (load filename env)
+                       (block (imps-exec
+                                  (string-append "uncompress "
+                                      filename))
+                         (load filename env)))
+                   (imps-exec (string-append "compress " filename)))))
+
+;;;(define (filestring->name-proof-script-alist filename)
+;;;        (let ((pf (open filename '(in))))
+;;;          (iterate iter ((name-proof-script-alist nil))
+;;;                   (let ((new (read pf)))
+;;;                     (if (eof? new) name-proof-script-alist
+;;;                         (iter (cons new name-proof-script-alist)))))))
+
+;;;(define current-name-proof-script-alist
+;;;        (make-simple-switch 'current-name-proof-script-alist list? nil))
+;;;
+;;;(define (theorem-name->proof-script the-name)
+;;;        (cond
+;;;          ((assq the-name (current-name-proof-script-alist)) => cdr)
+;;;          (else value-false)))
+
+;;;(define (context-sequent-max-&-average)
+;;;        (let ((max-sequents 0) (number-of-contexts 0)
+;;;              (number-of-sequents 0))
+;;;          (walk-table
+;;;              (lambda (context subtable)
+;;;                (ignore context)
+;;;                (increment number-of-contexts)
+;;;                (let ((num 0))
+;;;                  (walk-table
+;;;                      (lambda (assertion sequent)
+;;;                        (ignore assertion sequent)
+;;;                        (increment num))
+;;;                      subtable)
+;;;                  (set max-sequents (max max-sequents num))
+;;;                  (set number-of-sequents (+ number-of-sequents num))))
+;;;              *sequent-table*)
+;;;          (return
+;;;            max-sequents
+;;;            (->float (/ number-of-sequents number-of-contexts)))))
+;;;
+;;;;;(define (system-please-compress file) value-true)

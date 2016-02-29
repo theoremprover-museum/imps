@@ -1,0 +1,474 @@
+;; Copyright (c) 1990,1991,1992,1993 The MITRE Corporation
+;; 
+;; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;;   
+;; The MITRE Corporation (MITRE) provides this software to you without
+;; charge to use, copy, modify or enhance for any legitimate purpose
+;; provided you reproduce MITRE's copyright notice in any copy or
+;; derivative work of this software.
+;; 
+;; This software is the copyright work of MITRE.  No ownership or other
+;; proprietary interest in this software is granted you other than what
+;; is granted in this license.
+;; 
+;; Any modification or enhancement of this software must identify the
+;; part of this software that was modified, by whom and when, and must
+;; inherit this license including its warranty disclaimers.
+;; 
+;; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES ON WARRANTY, EXPRESS
+;; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+;; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+;; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+;; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+;; SUCH DAMAGES.
+;; 
+;; You, at your expense, hereby indemnify and hold harmless MITRE, its
+;; Board of Trustees, officers, agents and employees, from any and all
+;; liability or damages to third parties, including attorneys' fees,
+;; court costs, and other related costs and expenses, arising out of your
+;; use of this software irrespective of the cause of said liability.
+;; 
+;; The export from the United States or the subsequent reexport of this
+;; software is subject to compliance with United States export control
+;; and munitions control restrictions.  You agree that in the event you
+;; seek to export this software or any derivative work thereof, you
+;; assume full responsibility for obtaining all necessary export licenses
+;; and approvals and for assuring compliance with applicable reexport
+;; restrictions.
+;; 
+;; 
+;; COPYRIGHT NOTICE INSERTED: Wed Mar  3 20:42:41 EST 1993
+
+
+;;;(define (run-test test-name)
+;;;  (eval (cdr (assq test-name (test-suites)))))
+
+(define test-suites
+  (make-simple-switch 'test-suites list?  value-false))
+
+(define-syntax (add-test-suite test-suite-name . forms)
+  `(set (test-suites) (cons (cons ',test-suite-name '(block ,@forms)) (test-suites))))
+
+(define (do-test-suite test-suite-name)
+  (let ((test-expr (assq test-suite-name (test-suites))))
+    (if test-expr (eval (cdr test-expr))
+	(imps-error "There is no such test ~A" test-suite-name))))
+
+(define-syntax (before-test . forms)
+  `(bind (((proof-log-port) '()) 
+          ;; Changed by WMF Sat Aug 27 16:47:17 EDT 2005
+	  ;; ((quick-load?) t))
+          ((quick-load?) nil))
+	 ,@forms))
+
+(add-test-suite
+ whopper
+ (before-test (load-section foundation))
+ (load-section  banach-fixed-point-theorem)
+ (load-section abstract-calculus)
+ (include-files 
+  (files (imps theories/partial-orders/schroeder-bernstein-supplements)))
+ (load-section advanced-cardinality))
+
+(add-test-suite
+ fixed-point
+ (before-test (load-section foundation))
+ (load-section  banach-fixed-point-theorem))
+
+(add-test-suite
+ generic-theories
+ (before-test (load-section advanced-cardinality))
+ (load-section pairs)
+ (load-section sequences)
+ (load-section binary-relations)
+ (load-section iterate))
+
+(add-test-suite
+ advanced-cardinality
+ (before-test 
+  (include-files 
+   (files (imps theories/partial-orders/schroeder-bernstein-supplements))))
+ (load-section advanced-cardinality)
+ (load-section pairs)
+ (load-section sequences)
+ (load-section binary-relations)
+ (load-section iterate))
+
+(add-test-suite
+ vmach 
+ (before-test (load-section foundation))
+ (include-files (files (imps theories/vmach/refinement-theorems))))
+
+(add-test-suite
+ foundation
+ (load-section pre-reals)
+ (load-section foundation))
+
+(add-test-suite
+ group-theory
+ (before-test (load-section advanced-cardinality))
+ (load-section counting-theorems-for-groups)
+ (load-section counting-theorems-for-subsets))
+
+(add-test-suite
+ algebra
+ (load-section basic-group-theory)
+ (load-section basic-monoids)
+ (load-section auxiliary-monoids)
+ (load-section groups-as-monoids)
+ (load-section basic-fields)
+ (load-section binomial-theorem))
+
+(add-test-suite
+ csp
+ (before-test (load-section  banach-fixed-point-theorem))
+ (load-section csp))
+
+(add-test-suite
+ machine-arithmetic
+ (load-section machine-arithmetic))
+
+(add-test-suite
+ schroeder-bernstein
+ (include-files 
+  (files (imps theories/partial-orders/schroeder-bernstein-supplements))))
+
+(add-test-suite
+ number-theory 
+ (include-files (files (imps theories/reals/modular-arithmetic-examples))))
+
+(add-test-suite
+ geometry
+  (before-test (load-section advanced-cardinality))
+  (include-files 
+   (files (imps theories/geometry/sylvester))))
+
+(add-test-suite
+ calculus 
+ (before-test (load-section  banach-fixed-point-theorem))
+ (load-section abstract-calculus))
+
+(add-test-suite
+ imps-math-library-part-1
+ (load-section pre-reals)
+ (load-section foundation)
+ (load-section foundation-supplements)
+ )
+
+(add-test-suite
+ imps-math-library-part-2
+ (before-test
+  (load-section pre-reals)
+  (load-section foundation)
+  (load-section foundation-supplements)
+  )
+ (load-section number-theory)
+ (load-section machine-arithmetic)
+ (load-section calculus-over-the-reals)
+ )
+
+(add-test-suite
+ imps-math-library-part-3
+ (before-test
+  (load-section pre-reals)
+  (load-section foundation)
+  (load-section foundation-supplements)
+  (load-section number-theory)
+  (load-section machine-arithmetic)
+  (load-section calculus-over-the-reals)
+  )
+ (load-section pairs)
+ (load-section sequences)
+ (load-section binary-relations)
+ (load-section iterate)
+ )
+
+(add-test-suite
+ imps-math-library-part-4
+ (before-test
+  (load-section pre-reals)
+  (load-section foundation)
+  (load-section foundation-supplements)
+  (load-section number-theory)
+  (load-section machine-arithmetic)
+  (load-section calculus-over-the-reals)
+  (load-section pairs)
+  (load-section sequences)
+  (load-section binary-relations)
+  (load-section iterate)
+  )
+ (load-section advanced-cardinality)
+ (load-section schroeder-bernstein-theorem-1)
+ )
+
+(add-test-suite
+ imps-math-library-part-5
+ (before-test
+  (load-section pre-reals)
+  (load-section foundation)
+  (load-section foundation-supplements)
+  (load-section number-theory)
+  (load-section machine-arithmetic)
+  (load-section calculus-over-the-reals)
+  (load-section pairs)
+  (load-section sequences)
+  (load-section binary-relations)
+  (load-section iterate)
+  (load-section advanced-cardinality)
+  (load-section schroeder-bernstein-theorem-1)
+  )
+ (load-section counting-theorems-for-groups)
+ (load-section group-interpretations)
+ )
+
+(add-test-suite
+ imps-math-library-part-6
+ (before-test
+  (load-section pre-reals)
+  (load-section foundation)
+  (load-section foundation-supplements)
+  (load-section number-theory)
+  (load-section machine-arithmetic)
+  (load-section calculus-over-the-reals)
+  (load-section pairs)
+  (load-section sequences)
+  (load-section binary-relations)
+  (load-section iterate)
+  (load-section advanced-cardinality)
+  (load-section schroeder-bernstein-theorem-1)
+  (load-section counting-theorems-for-groups)
+  (load-section group-interpretations)
+  )
+ (load-section real-arithmetic-exponentiation)
+ (load-section auxiliary-monoids)
+ (load-section groups-as-monoids)
+ )
+
+(add-test-suite
+ imps-math-library-part-7
+ (before-test
+  (load-section pre-reals)
+  (load-section foundation)
+  (load-section foundation-supplements)
+  (load-section number-theory)
+  (load-section machine-arithmetic)
+  (load-section calculus-over-the-reals)
+  (load-section pairs)
+  (load-section sequences)
+  (load-section binary-relations)
+  (load-section iterate)
+  (load-section advanced-cardinality)
+  (load-section schroeder-bernstein-theorem-1)
+  (load-section counting-theorems-for-groups)
+  (load-section group-interpretations)
+  (load-section real-arithmetic-exponentiation)
+  (load-section auxiliary-monoids)
+  (load-section groups-as-monoids)
+  )
+ (load-section metric-space-subspaces)
+ (load-section metric-space-continuity)
+ )
+
+(add-test-suite
+ imps-math-library-part-8
+ (before-test
+  (load-section pre-reals)
+  (load-section foundation)
+  (load-section foundation-supplements)
+  (load-section number-theory)
+  (load-section machine-arithmetic)
+  (load-section calculus-over-the-reals)
+  (load-section pairs)
+  (load-section sequences)
+  (load-section binary-relations)
+  (load-section iterate)
+  (load-section advanced-cardinality)
+  (load-section schroeder-bernstein-theorem-1)
+  (load-section counting-theorems-for-groups)
+  (load-section group-interpretations)
+  (load-section real-arithmetic-exponentiation)
+  (load-section auxiliary-monoids)
+  (load-section groups-as-monoids)
+  (load-section metric-space-subspaces)
+  (load-section metric-space-continuity)
+  )
+ (load-section abstract-calculus)
+ )
+
+(add-test-suite
+ imps-math-library-part-9
+ (before-test
+  (load-section pre-reals)
+  (load-section foundation)
+  (load-section foundation-supplements)
+  (load-section number-theory)
+  (load-section machine-arithmetic)
+  (load-section calculus-over-the-reals)
+  (load-section pairs)
+  (load-section sequences)
+  (load-section binary-relations)
+  (load-section iterate)
+  (load-section advanced-cardinality)
+  (load-section schroeder-bernstein-theorem-1)
+  (load-section counting-theorems-for-groups)
+  (load-section group-interpretations)
+  (load-section real-arithmetic-exponentiation)
+  (load-section auxiliary-monoids)
+  (load-section groups-as-monoids)
+  (load-section metric-space-subspaces)
+  (load-section metric-space-continuity)
+  (load-section abstract-calculus)
+  )
+ (load-section binomial-theorem)
+ (load-section schroeder-bernstein-theorem-2)
+ )
+
+(add-test-suite
+ imps-math-library-part-10
+ (before-test
+  (load-section pre-reals)
+  (load-section foundation)
+  (load-section foundation-supplements)
+  (load-section number-theory)
+  (load-section machine-arithmetic)
+  (load-section calculus-over-the-reals)
+  (load-section pairs)
+  (load-section sequences)
+  (load-section binary-relations)
+  (load-section iterate)
+  (load-section advanced-cardinality)
+  (load-section schroeder-bernstein-theorem-1)
+  (load-section counting-theorems-for-groups)
+  (load-section group-interpretations)
+  (load-section real-arithmetic-exponentiation)
+  (load-section auxiliary-monoids)
+  (load-section groups-as-monoids)
+  (load-section metric-space-subspaces)
+  (load-section metric-space-continuity)
+  (load-section abstract-calculus)
+  (load-section binomial-theorem)
+  (load-section schroeder-bernstein-theorem-2)
+  )
+ (include-files 
+  (files (imps theories/algebra/quotient-structures)
+	 (imps theories/metric-spaces/ptwise-continuous-mapping-spaces)
+	 (imps theories/normed-spaces/normed-groups)
+	 (imps theories/normed-spaces/real-derivatives)
+	 (imps theories/partial-orders/intermediate-value-thm)
+	 (imps theories/partial-orders/more-convergence-and-order)
+	 (imps theories/partial-orders/linear-order)
+         (imps theories/reals/more-applications)
+	 (imps theories/reals/additional-arithmetic-macetes)
+	 ))
+ )
+
+(add-test-suite
+ imps-math-library-full
+ (load-section pre-reals)
+ (load-section foundation)
+ (load-section foundation-supplements)
+ (load-section number-theory)
+ (load-section machine-arithmetic)
+ (load-section calculus-over-the-reals)
+ (load-section pairs)
+ (load-section sequences)
+ (load-section binary-relations)
+ (load-section iterate)
+ (load-section advanced-cardinality)
+ (load-section schroeder-bernstein-theorem-1)
+ (load-section counting-theorems-for-groups)
+ (load-section group-interpretations)
+ (load-section real-arithmetic-exponentiation)
+ (load-section auxiliary-monoids)
+ (load-section groups-as-monoids)
+ (load-section metric-space-subspaces)
+ (load-section metric-space-continuity)
+ (load-section abstract-calculus)
+ (load-section binomial-theorem)
+ (load-section schroeder-bernstein-theorem-2)
+ (include-files 
+  (files (imps theories/algebra/quotient-structures)
+	 (imps theories/metric-spaces/ptwise-continuous-mapping-spaces)
+	 (imps theories/normed-spaces/normed-groups)
+	 (imps theories/normed-spaces/real-derivatives)
+	 (imps theories/partial-orders/intermediate-value-thm)
+	 (imps theories/partial-orders/more-convergence-and-order)
+	 (imps theories/partial-orders/linear-order)
+         (imps theories/reals/more-applications)
+	 (imps theories/reals/additional-arithmetic-macetes)
+	 ))
+ )
+
+(comment
+
+;;(doesn't quite work, because reading)
+;networks 
+;(load-section networks)
+
+(load-section pre-reals)
+;;;(bind (((proof-log-port) '())
+;;;       ((quick-load?) t))
+(load-section foundation)
+(load-section banach-fixed-point-theorem)
+;)
+
+;(load-section foundation-supplements)
+;(load-section number-theory)
+;(load-section calculus-over-the-reals)
+
+
+;;; Analysis
+
+;;;(load-section metric-space-subspaces)
+;;;(load-section metric-space-continuity)
+;;;(load-section mapping-spaces)
+;(load-section banach-fixed-point-theorem)
+;(load-section abstract-calculus)
+
+
+;;; Partial orders
+
+(load-section knaster-fixed-point-theorem)
+(load-section real-arithmetic-exponentiation)
+
+
+;;; Algebra
+
+(load-section basic-group-theory)
+(load-section basic-monoids)
+(load-section auxiliary-monoids)
+(load-section groups-as-monoids)
+(load-section basic-fields)
+(load-section binomial-theorem)
+(load-section group-interpretations)
+
+
+;;; Cardinality
+
+(load-section basic-cardinality)
+(load-section advanced-cardinality)
+(include-files 
+ (files (imps theories/partial-orders/schroeder-bernstein-supplements)))
+;;(load-section schroeder-bernstein-theorem)
+(load-section counting-theorems-for-groups)
+(load-section counting-theorems-for-subsets)
+
+
+;;; Generic Theories
+
+(load-section pairs)
+(load-section sequences)
+(load-section binary-relations)
+(load-section iterate)
+
+
+;;; Machine arithmetic
+
+(load-section machine-arithmetic)
+
+
+;;; Networks
+
+;
+
+)

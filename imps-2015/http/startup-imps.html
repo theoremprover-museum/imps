@@ -1,0 +1,101 @@
+<TITLE>IMPS</TITLE>
+<center> <h1> <IMG SRC="pictures/formula.gif"> </h1> </center>
+<h1> An Interactive Mathematical Proof System </h1>
+<body bgcolor="#CDDDDD" text="#031100">
+<hr>
+
+<h2> Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer F&aacute;brega</h2>
+
+<hr>
+
+<h2> Contents: </h2>
+
+<ul>
+  <li> <a href = "#intro"> Introduction </a>
+  <li> <a href = "copyright.html"> Copyright Notice </a>
+  <li> <a href = "../theories/"> Theory library </a>
+  <li> <a href = "#starting"> Getting Started </a>
+</ul>
+
+<h2> <a name="intro"> Introduction </a> </h2>
+
+<I> IMPS </I> is an Interactive Mathematical Proof System intended to
+provide organizational and computational support for the traditional
+techniques of mathematical reasoning.  In particular, the logic of <I>
+IMPS </I> allows functions to be partial and terms to be undefined.
+The system consists of a database of mathematics (represented as a
+network of axiomatic theories linked by theory interpretations) and a
+collection of tools for exploring, applying, extending, and
+communicating the mathematics in the database.  To get a feel for the
+kinds of mathematics that it is possible to do in <i> IMPS </i>, see
+the description of the <a
+href="ftp://math.harvard.edu/imps/imps_html/theory-library.html">main
+theory library. </a> One of the chief tools of <i> IMPS </i> is a
+facility for developing formal proofs.  In contrast to the formal
+proofs described in logic textbooks, <I> IMPS </I> proofs are a blend
+of computation and high-level inference.  Consequently, they resemble
+intelligible informal proofs, but unlike informal proofs, all details
+of an <I> IMPS </I> proof are machine checked.  <p>
+
+The current version, <I> IMPS 2.0, </I> was created by Javier Thayer
+F&aacute;brega by producing a macro-emulation of the T programming
+language in Common Lisp which runs a suitably translated version of
+the original <I> IMPS </I> source code written in T. The <I> IMPS </I>
+user interface is written in the GNU Emacs programming language,
+developed by R. Stallman.  <p>
+_______________________________________________________<p>
+
+<h2> <a name="starting"> Getting Started </a> </h2>
+
+<i> IMPS </i> is a complicated system, with a hefty learning curve. We
+will give you a few hints on how to get started with one of the
+facilities that <i> IMPS </i> provides, namely a tool for developing
+machine-checked proofs.
+
+Begin by checking that <I> IMPS </I> loaded up
+without a hitch.  To do this, go to the TEA interaction window by
+clicking on the cup icon in the
+toolbar. To return to this window click on the home icon.
+In the TEA interaction window you
+should see something like the following banner:
+<pre>TIJUCA Common Lisp v. 786 
+Copyright Beija Flor Software Inc.
+
+> IMPS Version 2.0
+Current Theory THE-KERNEL-THEORY
+LISP:T
+> 
+</pre>
+The display depends on the Common Lisp implementation you are using. 
+
+There is not much you can do in the KERNEL THEORY (propositional logic
+and a little more). Thus you will need to begin by changing the <I> Current Theory </I> 
+to something more interesting.  To do this,
+select <i> h-o-real-arithmetic </i> as the current theory (click on the
+radio dial icon).
+
+Now you can play around
+with some of the proofs in the file <i> <a href =
+"../theories/reals/reals-supplements.t"> reals-supplements </a> </i>.
+This file contains entries such as 
+<pre>(def-theorem bernoullis-inequality
+  "forall(h:rr,n:zz,-1&lt;h and 1&lt;=n implies 1+n*h&lt;=(1+h)^n)"
+  (theory h-o-real-arithmetic)
+  (proof 
+
+
+   (
+    (induction integer-inductor ("n"))
+    (cut-with-single-formula "0&lt;=t*h^2 and (1+h)*(1+h*t)&lt;=(1+h)*(1+h)^t")
+    simplify
+    simplify
+
+    )))
+</pre>
+To start a proof, click on the "pencil and paper"
+icon. <I> IMPS </I> will prompt you for a formula which you can enter
+by selecting it with the right mouse button on the goal formula, in this case
+<pre>"forall(h:rr,n:zz,-1<h and 1<=n implies 1+n*h<=(1+h)^n)"</pre>
+or by entering it manually.
+
+</body>

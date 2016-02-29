@@ -1,0 +1,227 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment transportable-rewrite-rules)
+
+(define *transportable-rewrite-rules-table*
+        (make-table '*transportable-rewrite-rules-table*))
+
+(define-operation (transportable-rewrite-rule-lhs rule))
+
+(define-operation (transportable-rewrite-rule-rhs rule))
+
+(define-operation (transportable-rewrite-rule-fixed-theories rule))
+
+(define-predicate transportable-rewrite-rule?)
+
+(define-operation (transportable-rewrite-rule-formula rule))
+
+(define (make-transportable-rewrite-rule formula theory
+            fixed-subtheories lhs rhs)
+        (let ((simp-comps? value-false)
+              (jointly-exposed-vars
+                  (jointly-exposed-variables lhs rhs)))
+          (object (lambda (context expr persist)
+                    (let ((expr (if simp-comps?
+                                    (simplify-logically context expr
+                                     persist)
+                                    expr)))
+                      (receive (translation subst)
+                               (translation-and-substitution-match
+                                   theory (context-theory context) nil
+                                   (select-common-sub-theories theory
+                                    (context-theory context)
+                                    fixed-subtheories)
+                                   lhs expr value-true)
+                               (if (or (fail? translation)
+                                    (fail? subst))
+                                   (return expr nil simp-comps?)
+                                   (let
+                                    ((new-expr
+                                      (apply-substitution-fastidiously
+                                       subst
+                                       (translate-expression
+                                        translation rhs)))
+                                     (jointly-exposed-vars1
+                                      (map
+                                       (lambda (var)
+                                         (translate-expression
+                                          translation var))
+                                       jointly-exposed-vars)))
+                                     (return
+                                       new-expr
+                                       (restricted-substitution-definedness-conditions
+                                        subst jointly-exposed-vars1)
+                                       simp-comps?))))))
+                  ((transportable-rewrite-rule-lhs soi) lhs)
+                  ((transportable-rewrite-rule-rhs soi) rhs)
+                  (((setter simplify-logically-first?) soi new-val)
+                   (set simp-comps? new-val))
+                  ((simplify-logically-first? soi) simp-comps?)
+                  ((transportable-rewrite-rule-fixed-theories soi)
+                   fixed-subtheories)
+                  ((transportable-rewrite-rule-formula soi) formula)
+                  ((transportable-rewrite-rule? soi) value-true))))
+
+(define (theory-install-transportable-rewrite-rule theory theorem)
+        (let ((fixed-subtheories
+                  (let ((accum nil))
+                    (walk (lambda (th)
+                            (if (subtheory? th theory) (push accum th)))
+                          (fixed-theories-set))
+                    accum)))
+          (let ((look-up (table-entry
+                             *transportable-rewrite-rules-table*
+                             theorem)))
+            (if look-up look-up
+                (let ((new-rewrite-rules
+                          (build-transportable-rewrite-rules-from-formula
+                              theory fixed-subtheories
+                              (theorem-formula theorem))))
+                  (set (table-entry *transportable-rewrite-rules-table*
+                           theorem)
+                       new-rewrite-rules)
+                  new-rewrite-rules)))))
+
+(define (build-transportable-rewrite-rules-from-formula theory
+            fixed-subtheories formula)
+        (let ((body (universal-matrix formula nil)))
+          (cond
+            ((conjunction? body)
+             (big-u (map (lambda (x)
+                           (build-transportable-rewrite-rules-from-formula
+                               theory fixed-subtheories x))
+                         (ultimate-conjuncts (list body)))))
+            ((or (equation? body) (quasi-equation? body)
+                 (biconditional? body))
+             (let ((source (if (quasi-equation? body)
+                               (quasi-equation-lhs body)
+                               (expression-lhs body)))
+                   (target (if (quasi-equation? body)
+                               (quasi-equation-rhs body)
+                               (expression-rhs body))))
+               (cond
+                 ((equation? source)
+                  (list (make-transportable-rewrite-rule formula theory
+                            fixed-subtheories source target)))
+                 ((negated-equation? source)
+                  (build-transportable-rewrite-rules-from-formula
+                      theory fixed-subtheories
+                      (biconditional (negation-body source)
+                          (negation target))))
+                 (else (list (make-transportable-rewrite-rule formula
+                                 theory fixed-subtheories source
+                                 target))))))
+            ((negation? body)
+             (build-transportable-rewrite-rules-from-formula theory
+                 fixed-subtheories
+                 (biconditional (negation-body body) falsehood)))
+            (else (build-transportable-rewrite-rules-from-formula
+                      theory fixed-subtheories
+                      (biconditional body truth))))))
+
+(define (theory-import-transportable-rewrite-rules theory
+            source-theories)
+        (let ((theories
+                  (add-set-element theory
+                      (find-structural-super-theories theory))))
+          (set-walk
+              (lambda (theory-x)
+                (theory-import-transportable-rewrite-rules-aux theory-x
+                    source-theories))
+              theories)
+          value-true))
+
+(define (formula-installed-as-rewrite-rule-in-theory? lhs formula
+            theory)
+        (any? (lambda (transform)
+                (and (rewrite-rule? transform)
+                     (alpha-equivalent?
+                         (rewrite-rule-formula transform) formula)))
+              (retrieve-transforms-by-constructor-and-lead theory
+                  (expression-quasi-constructor-or-constructor lhs)
+                  (expression-lead-constant lhs))))
+
+(define (theory-import-transportable-rewrite-rules-aux theory
+            source-theories)
+        (walk-table
+            (lambda (thm transforms)
+              (if (memq? (theorem-home-theory thm) source-theories)
+                  (walk (lambda (transform)
+                          (if (every? (lambda (x)
+                                        (subtheory? x theory))
+                                      (transportable-rewrite-rule-fixed-theories
+                                       transform))
+                              (let ((lhs
+                                     (transportable-rewrite-rule-lhs
+                                      transform)))
+                                (if (not
+                                     (formula-installed-as-rewrite-rule-in-theory?
+                                      lhs thm theory))
+                                    (theory-install-transform theory
+                                     (expression-quasi-constructor-or-constructor
+                                      lhs)
+                                     (expression-lead-constant lhs)
+                                     transform)))))
+                        transforms)))
+            *transportable-rewrite-rules-table*))
+
+(define term-simplifier-import-transportable-rewrite-rules
+        theory-import-transportable-rewrite-rules)
+
+(define (transportable-rewrite-usage-simplog1st theorem)
+        (let ((transforms
+                  (table-entry *transportable-rewrite-rules-table*
+                      theorem)))
+          (walk (lambda (transform)
+                  (if (transportable-rewrite-rule? transform)
+                      (set (simplify-logically-first? transform)
+                           value-true)))
+                transforms)))

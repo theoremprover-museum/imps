@@ -1,0 +1,141 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment indicator-parse-print)
+
+(define (parse-indicator-constructor-both-syntaxes parser op)
+        (list (sexpression-label parser op)
+              (list* 'lambda
+                     (cdr (make-var-spec-lists-consistent
+                              (parse-qc-binding-operator-both-syntaxes-aux
+                                  parser op))))))
+
+(define (present-indicator-constructor-operator formatter op args bp)
+        (ignore bp)
+        (if (and (list? args) (list? (car args))
+                 (eq? (caar args) 'lambda))
+            (list (car (presentation-format formatter op)) '{
+                  (present-specification-list (cadar args)) '|,| "  "
+                  (present-tree formatter (caddar args) 0) '})
+            (list (cadr (presentation-format formatter op))
+                  (parenthesize-conditionally t
+                      (map-alternate-insert '|,|
+                          (lambda (z) (present-tree formatter z 0))
+                          args)))))
+
+(define (present-tex-indicator-constructor-operator formatter op args
+            bp)
+        (ignore bp)
+        (if (and (list? args) (list? (car args))
+                 (eq? (caar args) 'lambda))
+            (list " \\{ " (present-tex-parameter-list (cadar args))
+                  " \\, " " | " " \\, "
+                  (present-tree formatter (caddar args) 0) "  \\} ")
+            (list (cadr (presentation-format formatter op))
+                  (parenthesize-conditionally t
+                      (map-alternate-insert '|,|
+                          (lambda (z) (present-tree formatter z 0))
+                          args)))))
+
+(define (parse-qc-binding-operator-both-syntaxes-aux parser op)
+        (prefix-operator-next-token-check parser op)
+        (let ((match (if (eq? (next-token parser) '|(|) '|)| '})))
+          (input-next-token parser)
+          (let ((next (next-token parser)))
+            (if (eq? next '[)
+                (let ((args (parse-matching-operator parser match)))
+                  (list* (sexpression-label parser op) args))
+                (if (eq? next '|,|)
+                    (block (input-next-token parser)
+                      (let ((args (parse-matching-operator parser
+                                      match)))
+                        (list* (sexpression-label parser op) nil args)))
+                    (cond
+                      ((eq? match (next-token parser))
+                       (input-next-token parser) nil)
+                      (else (iterate loop
+                                     ((parse-tree-list
+                                       (list
+                                        (parse-matching-binding parser
+                                         '|,|)))
+                                      (colon? value-false))
+                                     (if
+                                      (eq? match (next-token parser))
+                                      (block (input-next-token parser)
+                                        (list* op
+                                         (make-binding parser
+                                          (reverse parse-tree-list))))
+                                      (let
+                                       ((next
+                                         (input-next-token parser)))
+                                        (cond
+                                          ((eq? '|,| next)
+                                           (loop
+                                             (cons
+                                              (parse-matching-binding
+                                               parser '|,|)
+                                              parse-tree-list)
+                                             value-false))
+                                          ((and (eq? '|:| next)
+                                            (not colon?))
+                                           (loop
+                                             (list*
+                                              (list '|:|
+                                               (parse-matching-binding
+                                                parser '|,|))
+                                              parse-tree-list)
+                                             value-true))
+                                          (else
+                                           (report-error parser
+                                            "Bad binding syntax.")))))))))))))
+
+(define (parse-qc-binding-operator-both-syntaxes parser op)
+        (make-var-spec-lists-consistent
+            (parse-binding-operator-both-syntaxes-aux parser op)))

@@ -1,0 +1,498 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment lisp-supplements)
+
+(eval-always
+ (define-integrable (fail? test-value) (eq? 'fail test-value))
+
+(define-integrable (succeed? test-value) (not (eq? 'fail test-value)))
+
+(define-integrable (fail) 'fail)
+
+(define-integrable (succeed) value-true)
+
+(define-integrable (uncomputed? value) (eq? '%%uncomputed%% value))
+
+(define-integrable (uncomputed) '%%uncomputed%%)
+
+(define (find-position-in-list the-list elt)
+        (iterate iter ((the-list the-list) (n 0))
+                 (cond
+                   ((null? the-list) value-false)
+                   ((eq? elt (car the-list)) n)
+                   (else (iter (cdr the-list) (1+ n))))))
+
+(define (find-positions-in-list the-list elts)
+        (map (lambda (elt) (find-position-in-list the-list elt)) elts))
+
+(define (any-such-that pred? list1)
+        (iterate iter ((list1 list1))
+                 (cond
+                   ((null? list1) value-false)
+                   ((funcall pred? (car list1)) (car list1))
+                   (else (iter (cdr list1))))))
+
+(define (index-of-any the-list)
+        (do ((i 0 (1+ i)) (the-list the-list (cdr the-list)))
+            ((or (null? the-list) (car the-list)) (and the-list i))))
+
+(define (delete-1 obj the-list)
+        (iterate loop ((rem the-list) (head nil))
+                 (cond
+                   ((null? rem) the-list)
+                   ((eq? (car rem) obj)
+                    (append (reverse! head) (cdr rem)))
+                   (else (loop (cdr rem) (cons (car rem) head))))))
+
+(define (replace-nth-in-list! lst n new-value)
+        (append! (first-n-cars lst n)
+                 (cons new-value (nthcdr lst (1+ n)))))
+
+(define (replace-nth-in-list lst n new-value)
+        (append (first-n-cars lst n)
+                (cons new-value (nthcdr lst (1+ n)))))
+
+(define (last-&-all-but-last l)
+        (cond
+          ((null? l) (return nil nil))
+          ((null? (cdr l)) (return (car l) nil))
+          (else (let ((l (copy-list l)))
+                  (receive (last-val penultimate-cell)
+                           (iterate iter ((current l) (next (cdr l)))
+                                    (if (null? (cdr next))
+                                     (return (car next) current)
+                                     (iter next (cdr next))))
+                           (set (cdr penultimate-cell) nil)
+                           (return last-val l))))))
+
+(define (all-but-last l)
+        (receive (() all-but) (last-&-all-but-last l) all-but))
+
+(define (last-&-all-but-last! l)
+        (cond
+          ((null? l) (return nil nil))
+          ((null? (cdr l)) (return (car l) nil))
+          (else (iterate iter ((current l))
+                         (if (null? (cddr current))
+                             (let ((last (cadr current)))
+                               (set (cdr current) nil)
+                               (return last l))
+                             (iter (cdr current)))))))
+
+(define (append-item-to-end-of-list elt l)
+        (reverse (cons elt (reverse l))))
+
+(define (append-item-to-last-cdr! l new-last)
+        (if (null? l) (list new-last)
+            (let ((lc (lastcdr l)))
+              (if (null? (cdr lc)) (set (cdr lc) (list new-last))
+                  (error "append-item-to-last-cdr!:  Improper list ~S"
+                         l))
+              l)))
+
+(define (first-n-cars-&-rest lst n)
+        (or (non-negative-integer? n)
+            (error "FIRST-N-CARS-&-REST: N must be a non negative integer, not ~D."
+                   n))
+        (iterate iter ((lst lst) (n n) (already nil))
+                 (cond
+                   ((zero? n) (return (reverse! already) lst))
+                   ((null? lst)
+                    (error "FIRST-N-CARS-&-REST: list ~D too short." n))
+                   (else (iter (cdr lst) (-1+ n)
+                               (cons (car lst) already))))))
+
+(define (first-n-cars lst n)
+        (receive (front ()) (first-n-cars-&-rest lst n) front))
+
+(define (leaves lst)
+        (iterate iter ((lst lst) (leaf-set nil))
+                 (cond
+                   ((null? lst) leaf-set)
+                   ((atom? lst) (add-set-element lst leaf-set))
+                   (else (set-union (iter (car lst) nil)
+                             (iter (cdr lst) leaf-set))))))
+
+(define (recursively-copy-list l)
+        (if (pair? l)
+            (cons (recursively-copy-list (car l))
+                  (recursively-copy-list (cdr l)))
+            l))
+
+(define (paths-diverge? path1 path2)
+        (cond
+          ((or (null? path1) (null? path2)) value-false)
+          ((= (car path1) (car path2))
+           (paths-diverge? (cdr path1) (cdr path2)))
+          (else value-true)))
+
+(define (path-disjoint-from-paths? path paths)
+        (or (null? paths)
+            (and (paths-diverge? path (car paths))
+                 (path-disjoint-from-paths? path (cdr paths)))))
+
+(define (paths-disjoint? paths)
+        (everycdr?
+            (lambda (l) (path-disjoint-from-paths? (car l) (cdr l)))
+            paths))
+
+(define (nest-below-extract-chunk! lst len)
+  (let* ((chunk-end
+	  (do ((i 1 (fx+ 1 i))
+	       (chunk-end lst (cdr chunk-end)))
+	      ((or (fx>= i len) (null? chunk-end)) chunk-end)))
+	 (rest (cdr chunk-end)))
+    (or (null? chunk-end) (set (cdr chunk-end) nil))
+    (return lst rest)))
+
+(define (nest-below-maximum-number-of-arguments lst . dont-copy)
+  (let ((max *maximum-number-of-arguments*)
+	(lst (if dont-copy lst (copy-list lst))))
+    (iterate iter ((chunks nil) (rest lst))
+      (if (null? rest)
+	  (if (fx> (length chunks) max)
+	      (nest-below-maximum-number-of-arguments
+	       chunks value-true)
+	      chunks)
+	  (receive (chunk rest)
+	    (nest-below-extract-chunk! rest max)
+	    (iter (cons chunk chunks) rest))))))
+
+(define (apply-through-nested-list proc nested-list)
+        (if (every? list? nested-list)
+            (apply proc
+                   (map (lambda (l)
+                          (apply-through-nested-list proc l))
+                        nested-list))
+            (apply proc nested-list)))
+
+(define (nest-below-maximum-and-apply proc lst)
+        (apply-through-nested-list proc
+            (nest-below-maximum-number-of-arguments lst)))
+
+(define (tree-map proc tree)
+        (if (atom? tree) (funcall proc tree)
+            (map (lambda (subtree) (tree-map proc subtree)) tree)))
+
+(define (flat-map proc l) (apply append (map proc l)))
+
+(define (list-ordering l1 l2)
+        (iterate iter ((rest1 l1) (rest2 l2))
+                 (cond
+                   ((null? rest1) value-true)
+                   ((null? rest2) value-false)
+                   ((< (car rest1) (car rest2)) value-true)
+                   ((< (car rest2) (car rest1)) value-false)
+                   (else (iter (cdr rest1) (cdr rest2))))))
+
+(define (list-ordering-1 l1 l2)
+        (iterate iter ((rest1 l1) (rest2 l2))
+                 (cond
+                   ((null? rest2) value-true)
+                   ((null? rest1) value-false)
+                   ((< (car rest1) (car rest2)) value-true)
+                   ((< (car rest2) (car rest1)) value-false)
+                   (else (iter (cdr rest1) (cdr rest2))))))
+
+(define (least-under-function function lst)
+        (iterate iter
+                 ((champ (car lst))
+                  (least (funcall function (car lst)))
+                  (rest (cdr lst)))
+                 (cond
+                   ((null? rest) champ)
+                   ((let ((new (funcall function (car rest))))
+                      (and (fx< new least) new))
+                    => (lambda (new) (iter (car rest) new (cdr rest))))
+                   (else (iter champ least (cdr rest))))))
+
+(define (least-under-descriptor-hash lst)
+        (least-under-function descriptor-hash lst))
+
+(define-integrable (symbol-append sym1 sym2)
+    (concatenate-symbol sym1 sym2))
+
+(define (non-negative-integer? n) (and (integer? n) (not-negative? n)))
+
+(define (negative-integer? n) (and (integer? n) (negative? n)))
+
+(define (ass-l pred obj lst)
+        (cond
+          ((null? lst) nil)
+          ((funcall pred obj (cdar lst)) (car lst))
+          (else (ass-l pred obj (cdr lst)))))
+
+(define ass-lq (lambda (obj lst) (ass-l eq? obj lst)))
+
+(define (ass-val pred obj lst)
+        (cond ((ass pred obj lst) => cdr) (else nil)))
+
+(define (assq-val obj lst) (cond ((assq obj lst) => cdr) (else nil)))
+
+(define (ass-apply obj predicate-alist)
+        (iterate iter ((alist predicate-alist))
+                 (cond
+                   ((null? alist) nil)
+                   ((funcall (caar alist) obj) (car alist))
+                   (else (iter (cdr alist))))))
+
+(define (floating-hash x) (flonum->fixnum (* 1000000 x)))
+
+(define (hash-combine-fixnums fixnums)
+        (iterate iter ((result 0) (fixnums fixnums) (i 0))
+                 (if (null? fixnums) result
+                     (iter (fx+ result (fixnum-ashl (car fixnums) i))
+                           (cdr fixnums) (fx+ i 1)))))
+
+(define (hash-combine-two-fixnums fx1 fx2)
+        (fx+ fx1 (fixnum-ashl fx2 1)))
+
+(define (reduce-map reducer e mapper l)
+        (iterate iter ((val e) (l l))
+                 (if (null? l) val
+                     (iter (funcall reducer val
+                                    (funcall mapper (car l)))
+                           (cdr l)))))
+
+(define (settable-alist key-type value-type . warn-on-redefining?)
+        (let ((alist nil))
+          (operation
+              (lambda (key)
+                (cond ((assq key alist) => cdr) (else nil)))
+              ((setter self)
+               (lambda (key new-value)
+                 (enforce key-type key)
+                 (enforce value-type new-value)
+                 (cond
+                   ((assq key alist) =>
+                    (lambda (entry)
+                      (if (and key warn-on-redefining?)
+                          (format value-true
+                                  "~%; WARNING: redefining entry for ~S.~%"
+                                  key))
+                      (set (cdr entry) new-value)))
+                   (else (set alist (cons (cons key new-value) alist)))))))))
+
+(define (settable-symbol-alist value-type . warn?)
+        (apply settable-alist symbol? value-type warn?))
+
+(define-operation (two-d-table-hash obj) (descriptor-hash obj))
+
+(define (print-table table port)
+        (walk-table
+            (lambda (key entry)
+              (format port "Key: ~s    Value: ~s~%" key entry))
+            table))
+
+(define (retrieve-object-from-user prompt input-port output-port
+            . type-and-preprocessor-and-format-args)
+        (destructure
+            (((type preprocessor format-args)
+              type-and-preprocessor-and-format-args))
+            (iterate iter ()
+                     (apply format output-port
+                            (string-append "~%" prompt) format-args)
+                     (let ((obj (if (procedure? preprocessor)
+                                    (funcall preprocessor
+                                     (read input-port))
+                                    (read input-port))))
+                       (if (or (not (procedure? type))
+                               (funcall type obj))
+                           obj
+                           (block (format output-port
+                                          "~&~A does not satisfy type predicate ~A."
+                                          obj type)
+                             (iter)))))))
+
+(define (sort-paths paths)
+  (sort-list paths list-ordering))
+
+(define (sort-paths! paths)
+  (sort-list! paths list-ordering))
+
+(define (sort-paths-1! paths)
+  (sort-list! paths list-ordering-1))
+
+(define (extract-disjoint-paths paths)
+        (iterate loop ((paths (sort-paths! paths)) (accum nil))
+                 (cond
+                   ((null? paths) (reverse! accum))
+                   ((null? (cdr paths))
+                    (reverse! (cons (car paths) accum)))
+                   ((path-extends? (car paths) (cadr paths))
+                    (loop (cdr paths) accum))
+                   (else (loop (cdr paths) (cons (car paths) accum))))))
+
+(define (extract-minimal-disjoint-paths paths)
+        (iterate loop ((paths (sort-paths! paths)) (accum nil))
+                 (cond
+                   ((null? paths) (reverse! accum))
+                   ((null? (cdr paths))
+                    (reverse! (cons (car paths) accum)))
+                   ((path-extends? (car paths) (cadr paths))
+                    (loop (cons (car paths) (cddr paths)) accum))
+                   (else (loop (cdr paths) (cons (car paths) accum))))))
+
+(define (path-extends? path1 path2)
+        (cond
+          ((null? path1) value-true)
+          ((null? path2) value-false)
+          ((= (car path1) (car path2))
+           (path-extends? (cdr path1) (cdr path2)))
+          (else value-false)))
+
+(define (true-association-list? arg)
+        (and (list? arg)
+             (or (null? arg)
+                 (let ((entry (car arg)))
+                   (and (pair? arg) (not (assq (car entry) (cdr arg)))
+                        (true-association-list? (cdr arg)))))))
+
+(define (replace-nth lst n replacement)
+        (let ((first-n (reverse (nthcdr (reverse lst)
+                                        (subtract (length lst) n)))))
+          (append first-n (cons replacement (nthcdr lst (add1 n))))))
+
+(define (big-product lists)
+        (if (null? lists) '(())
+            (let ((p1 (car lists)) (p2 (big-product (cdr lists))))
+              (apply append
+                     (map (lambda (a)
+                            (map (lambda (l) (cons a l)) p2))
+                          p1)))))
+
+(define (replace-list-entries the-list replacement)
+        (map (lambda (x) (ignore x) replacement) the-list))
+
+(define (choose-list-entries the-list occurrences)
+        (let ((len (length the-list)))
+          (map (lambda (n)
+                 (or (< n len)
+                     (imps-error
+                         "CHOOSE-LIST-ENTRIES: index too large."))
+                 (nth the-list n))
+               occurrences)))
+
+(define (list-difference list1 list2 predicate)
+        (iterate loop ((accum nil) (rem list1))
+                 (cond
+                   ((null? rem) accum)
+                   ((mem? predicate (car rem) list2)
+                    (loop accum (cdr rem)))
+                   (else (loop (cons (car rem) accum) (cdr rem))))))
+
+(define-predicate anonymous-name?)
+
+(define make-anonymous-name
+        (let ((n 0))
+          (lambda d
+            (let ((index n))
+              (let ((sym (make-object)))
+                (labels (((fun-0 soi) value-true)
+                         ((fun-1 soi port)
+                          (map (lambda (x) (format port "~A" x)) d)
+                          (format port "~A" index)))
+                  (refurnish-object sym nil (anonymous-name? fun-0)
+                      (print fun-1))
+                  (set n (1+ n))
+                  sym))))))
+
+(define (alternate-insert separator the-list)
+        (if (null? the-list) the-list
+            (iterate loop
+                     ((rest (cdr the-list))
+                      (collect (list (car the-list))))
+                     (if (null? rest) (reverse! collect)
+                         (loop
+                           (cdr rest)
+                           (list* (car rest) separator collect))))))
+
+(define (map-alternate-insert separator proc the-list)
+        (if (null? the-list) the-list
+            (iterate loop
+                     ((rest (cdr the-list))
+                      (collect (list (funcall proc (car the-list)))))
+                     (if (null? rest) (reverse! collect)
+                         (loop
+                           (cdr rest)
+                           (cons (funcall proc (car rest))
+                                 (cons separator collect)))))))
+
+(define (retrieve-unused-name proc . name-components)
+        (let ((try (apply concatenate-symbol name-components)))
+          (if (funcall proc try)
+              (iterate loop ((n 0))
+                       (let ((tryn (concatenate-symbol try '_ n)))
+                         (if (funcall proc tryn) (loop (1+ n)) tryn)))
+              try)))
+
+(define (filter-list filter? la-liste)
+        (iterate loop ((la-liste la-liste) (accum nil))
+                 (cond
+                   ((null? la-liste) (reverse! accum))
+                   ((funcall filter? (car la-liste))
+                    (loop (cdr la-liste) (cons (car la-liste) accum)))
+                   (else (loop (cdr la-liste) accum)))))
+
+;;;(define (padoutput p prestr poststr arg)
+;;;        (labels (((qformat x)
+;;;                  (if (list? x)
+;;;                      (block (format p "(")
+;;;                        (if x (qformat (car x)))
+;;;                        (walk (lambda (s) (format p " ") (qformat s))
+;;;                              (cdr x))
+;;;                        (format p ")"))
+;;;                      (format p "~A" x))))
+;;;          (format p "~A" prestr)
+;;;          (qformat arg)
+;;;          (format p "~A" poststr)
+;;;          repl-wont-print))
+)

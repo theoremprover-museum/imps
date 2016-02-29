@@ -1,0 +1,541 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment dg-inferences-interface)
+
+(define (deduction-graph-assume-theorem sqn name-or-formula)
+        (dg-primitive-inference-theorem-assumption sqn
+            (coerce-to-theorem name-or-formula)))
+
+(define (deduction-graph-unfold-defined-constant sqn occurrences
+            constant-name)
+        (let* ((assertion (sequent-node-assertion sqn))
+               (theory (deduction-graph-theory
+                           (sequent-node-graph sqn)))
+               (constant
+                   (find-constant-with-warning (theory-language theory)
+                       constant-name))
+               (virtual-paths
+                   (sorted-virtual-paths-to-occurrences assertion
+                       constant -1))
+               (virtual-paths-to-replace
+                   (choose-list-entries virtual-paths occurrences)))
+          (deduction-graph-unfold-defined-constant-at-virtual-paths sqn
+              virtual-paths-to-replace constant)))
+
+(define (deduction-graph-unfold-defined-constant-at-virtual-paths sqn
+            paths constant)
+        (let* ((assertion (sequent-node-assertion sqn))
+               (expanded-paths
+                   (apply append
+                          (map (lambda (path)
+                                 (expand-virtual-path assertion path))
+                               paths))))
+          (dg-primitive-inference-defined-constant-unfolding sqn
+              expanded-paths constant)))
+
+(define (deduction-graph-unfold-defined-constant-at-path sqn path
+            constant)
+        (dg-primitive-inference-defined-constant-unfolding sqn
+            (list path) constant))
+
+(define (deduction-graph-unfold-defined-constant-messily sqn nums
+            constant-name)
+        (let* ((theory (deduction-graph-theory
+                           (sequent-node-graph sqn)))
+               (constant
+                   (find-constant-with-warning (theory-language theory)
+                       constant-name))
+               (sorted-paths
+                   (sorted-paths-to-occurrences
+                       (sequent-node-assertion sqn) constant -1))
+               (paths (choose-list-entries sorted-paths nums)))
+          (dg-primitive-inference-defined-constant-unfolding sqn paths
+              constant)))
+
+(define (deduction-graph-unfold-defined-constant-globally sqn
+            constant-name)
+        (let* ((theory (deduction-graph-theory
+                           (sequent-node-graph sqn)))
+               (constant
+                   (find-constant-with-warning (theory-language theory)
+                       constant-name))
+               (paths (paths-to-occurrences
+                          (sequent-node-assertion sqn) constant -1)))
+          (dg-primitive-inference-defined-constant-unfolding sqn paths
+              constant)))
+
+(define (deduction-graph-apply-macete sqn name-or-macete)
+        (dg-primitive-inference-macete-application-at-paths sqn '(())
+            (coerce-to-macete name-or-macete)))
+
+(define (deduction-graph-apply-macete-with-minor-premises sqn
+            name-or-macete)
+        (dg-primitive-inference-macete-application-with-minor-premises-at-paths
+            sqn '(()) (coerce-to-macete name-or-macete)))
+
+(define (deduction-graph-apply-macete-locally sqn name-or-macete nums
+            expr-str-or-expr)
+        (let* ((assertion (sequent-node-assertion sqn))
+               (sorted-paths
+                   (sort-paths!
+                       (virtual-paths-to-occurrences assertion
+                           (sqn-coerce-to-expression sqn
+                               expr-str-or-expr)
+                           -1)))
+               (virtual-paths-to-apply-macete
+                   (choose-list-entries sorted-paths nums))
+               (expanded-paths
+                   (apply append
+                          (map (lambda (path)
+                                 (expand-virtual-path assertion path))
+                               virtual-paths-to-apply-macete))))
+          (dg-primitive-inference-macete-application-at-paths sqn
+              expanded-paths (coerce-to-macete name-or-macete))))
+
+(define (deduction-graph-apply-macete-locally-with-minor-premises sqn
+            name-or-macete nums expr-str-or-expr)
+        (let* ((assertion (sequent-node-assertion sqn))
+               (sorted-paths
+                   (sort-paths!
+                       (virtual-paths-to-occurrences assertion
+                           (sqn-coerce-to-expression sqn
+                               expr-str-or-expr)
+                           -1)))
+               (virtual-paths-to-apply-macete
+                   (choose-list-entries sorted-paths nums))
+               (expanded-paths
+                   (apply append
+                          (map (lambda (path)
+                                 (expand-virtual-path assertion path))
+                               virtual-paths-to-apply-macete))))
+          (dg-primitive-inference-macete-application-with-minor-premises-at-paths
+              sqn expanded-paths (coerce-to-macete name-or-macete))))
+
+(define (deduction-graph-apply-macete-locally-and-messily sqn
+            name-or-macete nums expr-str-or-expr)
+        (let* ((assertion (sequent-node-assertion sqn))
+               (sorted-paths
+                   (sort-paths!
+                       (paths-to-occurrences assertion
+                           (sqn-coerce-to-expression sqn
+                               expr-str-or-expr)
+                           -1)))
+               (paths-to-apply-macete
+                   (choose-list-entries sorted-paths nums)))
+          (dg-primitive-inference-macete-application-at-paths sqn
+              paths-to-apply-macete (coerce-to-macete name-or-macete))))
+
+(define (deduction-graph-force-substitution sqn target replacement
+            occurrences)
+        (let ((target (sqn-coerce-to-expression sqn target))
+              (replacement (sqn-coerce-to-expression sqn replacement)))
+          (let* ((assertion (sequent-node-assertion sqn))
+                 (virtual-paths
+                     (sorted-virtual-paths-to-occurrences assertion
+                         target -1))
+                 (virtual-paths-to-replace
+                     (choose-list-entries virtual-paths occurrences)))
+            (deduction-graph-force-substitution-at-virtual-paths sqn
+                replacement virtual-paths-to-replace))))
+
+(define (deduction-graph-force-substitution-at-virtual-paths sqn
+            replacement virtual-paths)
+        (let* ((assertion (sequent-node-assertion sqn))
+               (expanded-paths
+                   (apply append
+                          (map (lambda (virtual-path)
+                                 (expand-virtual-path assertion
+                                     virtual-path))
+                               virtual-paths))))
+          (dg-primitive-inference-force-substitution sqn expanded-paths
+              (replace-list-entries expanded-paths replacement))))
+
+(define (deduction-graph-force-substitution-at-path sqn path
+            replacement)
+        (dg-primitive-inference-force-substitution sqn (list path)
+            (list replacement)))
+
+(define (deduction-graph-force-substitution-messily sqn target-input
+            replacement-input nums)
+        (let* ((sequent (sequent-node-sequent sqn)))
+          (deduction-graph-force-substitution-messily-aux sqn
+              (sequent-read sequent target-input)
+              (sequent-read sequent replacement-input) nums)))
+
+(define (deduction-graph-force-substitution-messily-aux sqn target
+            replacement nums)
+        (let* ((sorted-paths
+                   (sorted-paths-to-occurrences
+                       (sequent-node-assertion sqn) target -1))
+               (paths (choose-list-entries sorted-paths nums))
+               (replacements (replace-list-entries nums replacement)))
+          (dg-primitive-inference-force-substitution sqn paths
+              replacements)))
+
+(define (deduction-graph-raise-conditional sqn)
+        (deduction-graph-raise-conditional-inference sqn '(0)))
+
+(define (deduction-graph-raise-conditional-inference sqn nums)
+        (let* ((assertion (sequent-node-assertion sqn))
+               (sorted-paths
+                   (sort-paths!
+                       (paths-to-satisfying-virtual-occurrences
+                           assertion conditional-term? -1))))
+          (if (null? sorted-paths) (fail)
+              (let* ((paths (choose-list-entries sorted-paths nums))
+                     (expanded-paths
+                         (apply append
+                                (map (lambda (path)
+                                       (expand-virtual-path assertion
+                                        path))
+                                     paths))))
+                (dg-primitive-inference-raise-conditional-inference sqn
+                    expanded-paths)))))
+
+(define (deduction-graph-raise-conditional-messily sqn)
+        (deduction-graph-raise-conditional-messily-inference sqn '(0)))
+
+(define (deduction-graph-raise-conditional-messily-inference sqn nums)
+        (let* ((assertion (sequent-node-assertion sqn))
+               (sorted-paths
+                   (sort-paths!
+                       (paths-to-satisfaction assertion
+                           conditional-term? -1))))
+          (if (null? sorted-paths) (fail)
+              (let ((paths (choose-list-entries sorted-paths nums)))
+                (dg-primitive-inference-raise-conditional-inference sqn
+                    paths)))))
+
+(define (deduction-graph-eliminate-iota sqn . occurrences)
+        (let* ((assertion (sequent-node-assertion sqn))
+               (sorted-paths
+                   (sort-paths!
+                       (paths-to-satisfying-virtual-occurrences
+                           assertion iota-expression? -1)))
+               (paths (if (null? occurrences) sorted-paths
+                          (choose-list-entries sorted-paths
+                              occurrences))))
+          (if paths
+              (dg-primitive-inference-iota-elimination sqn (car paths))
+              (fail))))
+
+(define (deduction-graph-beta-reduce sqn)
+        (deduction-graph-apply-macete sqn (name->macete 'beta-reduce)))
+
+(define (deduction-graph-beta-reduce-insistently sqn)
+        (bind (((simplify-quasi-constructors-messily?) value-true))
+              (deduction-graph-apply-macete sqn
+                  (name->macete 'beta-reduce))))
+
+(define (deduction-graph-beta-reduce-repeatedly sqn)
+        (deduction-graph-apply-macete sqn
+            (name->macete 'beta-reduce-repeatedly)))
+
+(define (deduction-graph-beta-reduce-with-minor-premises sqn)
+        (deduction-graph-apply-macete-with-minor-premises sqn
+            (name->macete 'beta-reduce)))
+
+(define (deduction-graph-backchain sqn formula-formula-string-or-index)
+        (dg-primitive-inference-backchain-inference sqn
+            (sqn-coerce-to-assumption sqn
+                formula-formula-string-or-index)))
+
+(define (deduction-graph-backchain-backwards sqn
+            formula-formula-string-or-index)
+        (dg-primitive-inference-backchain-backwards-inference sqn
+            (sqn-coerce-to-assumption sqn
+                formula-formula-string-or-index)))
+
+(define (deduction-graph-backchain-through-formula sqn
+            formula-formula-string-or-index)
+        (dg-primitive-inference-backchain-through-formula-inference sqn
+            (sqn-coerce-to-assumption sqn
+                formula-formula-string-or-index)))
+
+(define (deduction-graph-antecedent-inference sqn
+            formula-formula-string-or-index)
+        (dg-primitive-inference-antecedent-inference sqn
+            (sqn-coerce-to-assumption sqn
+                formula-formula-string-or-index)))
+
+(define (deduction-graph-incorporate-antecedent sqn
+            formula-formula-string-or-index)
+        (dg-primitive-inference-implication-elimination sqn
+            (sqn-coerce-to-assumption sqn
+                formula-formula-string-or-index)))
+
+(define (deduction-graph-contrapose sqn
+            formula-formula-string-or-index)
+        (dg-primitive-inference-contraposition sqn
+            (sqn-coerce-to-assumption sqn
+                formula-formula-string-or-index)))
+
+(define (deduction-graph-weaken sqn
+            formulas-formula-strings-or-indices)
+        (dg-primitive-inference-weakening sqn
+            (map (lambda (x) (sqn-coerce-to-assumption sqn x))
+                 formulas-formula-strings-or-indices)))
+
+(define (deduction-graph-cut-with-single-formula sqn
+            formula-or-formula-string)
+        (let ((formula (sqn-coerce-to-expression sqn
+                           formula-or-formula-string)))
+          (let ((new-sqn (post (build-sequent
+                                   (context-add-assumptions
+                                    (sequent-node-context sqn)
+                                    (list formula))
+                                   (sequent-node-assertion sqn))
+                               (sequent-node-graph sqn))))
+            (dg-primitive-inference-cut sqn new-sqn))))
+
+(define (deduction-graph-generalize-sequent sqn vars)
+        (let ((graph (sequent-node-graph sqn)))
+          (dg-primitive-inference-universal-instantiation sqn
+              (post (universal-instantiation-build-major-premise
+                        (sequent-node-sequent sqn) vars)
+                    graph))))
+
+(define (deduction-graph-generalize-using-sequent sqn
+            major-sqn-or-number)
+        (let ((major (dg-coerce-to-sequent-node
+                         (sequent-node-graph sqn) major-sqn-or-number)))
+          (dg-primitive-inference-universal-instantiation sqn major)))
+
+(define (deduction-graph-cut-using-sequent sqn major-sqn-or-number)
+        (let ((major (dg-coerce-to-sequent-node
+                         (sequent-node-graph sqn) major-sqn-or-number)))
+          (dg-primitive-inference-cut sqn major)))
+
+(define (imps-edit-and-post-sqn sqn context-string assertion-string)
+        (let* ((graph (sequent-node-graph sqn))
+               (theory (deduction-graph-theory graph))
+               (language (theory-language theory))
+               (sequent (build-sequent
+                            (build-context theory
+                                (string->assumptions language
+                                    context-string))
+                            (qr assertion-string language))))
+          (dg-register-node 'newly-posted (post sequent graph)))
+        nil)
+
+(define (deduction-graph-disable-quasi-constructor sqn qc-name)
+        (ignore sqn)
+        (let ((qc (name->quasi-constructor qc-name)))
+          (or (quasi-constructor? qc)
+              (imps-error
+                  "DEDUCTION-GRAPH-DISABLE-QUASI-CONSTRUCTOR: ~A is not the name of a quasi-constructor"
+                  qc-name))
+          (disable-quasi-constructor qc)))
+
+(define (deduction-graph-enable-quasi-constructor sqn qc-name)
+        (ignore sqn)
+        (let ((qc (name->quasi-constructor qc-name)))
+          (or (quasi-constructor? qc)
+              (imps-error
+                  "DEDUCTION-GRAPH-ENABLE-QUASI-CONSTRUCTOR: ~A is not the name of a quasi-constructor"
+                  qc-name))
+          (enable-quasi-constructor qc)))
+
+(comment (define (imps-post-computation-node sqn)
+                 (let ((dg (sequent-node-graph sqn)))
+                   (post-computation-node sqn dg))))
+
+(define (annotate-dg-history sqn keyword . rest)
+        (cond
+          ((not (sequent-node? sqn)) 'ignore)
+          ((eq? keyword 'begin-block)
+           (increment
+               (deduction-graph-unended-block-count
+                   (sequent-node-graph sqn))))
+          ((eq? keyword 'end-block)
+           (if (positive?
+                   (deduction-graph-unended-block-count
+                       (sequent-node-graph sqn)))
+               (decrement
+                   (deduction-graph-unended-block-count
+                       (sequent-node-graph sqn)))
+               (imps-error
+                   "annotate-dg-history: Attempt to end block with none open.")))
+          ((eq? keyword 'let-script) 'dont-do-anything)
+          ((eq? keyword 'let-macete) 'dont-do-anything))
+        sqn)
+
+(build-universal-command dg-primitive-inference-direct-inference
+    'direct-inference (always value-true))
+
+(build-universal-command
+    dg-primitive-inference-unordered-conjunction-direct-inference
+    'unordered-direct-inference (always value-true))
+
+(build-universal-command
+    dg-primitive-inference-insistent-direct-inference
+    'insistent-direct-inference (always value-true))
+
+(build-universal-command deduction-graph-antecedent-inference
+    'antecedent-inference (always value-true)
+    'antececent-inference-retrieval-protocol)
+
+(build-universal-command deduction-graph-contrapose 'contrapose
+    (always value-true) 'single-formula-retrieval-protocol)
+
+(build-universal-command dg-primitive-inference-simplification
+    'simplify (always value-true))
+
+(build-universal-command
+    dg-primitive-inference-insistent-simplification
+    'simplify-insistently (always value-true))
+
+(build-universal-command
+    dg-primitive-inference-simplification-with-minor-premises
+    'simplify-with-minor-premises (always value-true))
+
+(build-universal-command deduction-graph-beta-reduce 'beta-reduce
+    (always value-true))
+
+(build-universal-command deduction-graph-beta-reduce-insistently
+    'beta-reduce-insistently (always value-true))
+
+(build-universal-command deduction-graph-beta-reduce-repeatedly
+    'beta-reduce-repeatedly (always value-true))
+
+(build-universal-command
+    deduction-graph-beta-reduce-with-minor-premises
+    'beta-reduce-with-minor-premises (always value-true))
+
+(build-universal-command dg-primitive-inference-extensionality
+    'extensionality (always value-true))
+
+(build-universal-command deduction-graph-weaken 'weaken (always value-true)
+    'formula-list-by-index-retrieval-protocol)
+
+(build-universal-command deduction-graph-force-substitution
+    'force-substitution (always value-true)
+    'force-substitution-retrieval-protocol)
+
+(build-universal-command deduction-graph-apply-macete 'apply-macete
+    (always value-true) 'macete-retrieval-protocol)
+
+(build-universal-command
+    deduction-graph-apply-macete-with-minor-premises
+    'apply-macete-with-minor-premises (always value-true)
+    'macete-retrieval-protocol)
+
+(build-universal-command deduction-graph-apply-macete-locally
+    'apply-macete-locally (always value-true)
+    'macete-and-expressions-in-formula-retrieval-protocol)
+
+(build-universal-command
+    deduction-graph-apply-macete-locally-with-minor-premises
+    'apply-macete-locally-with-minor-premises (always value-true)
+    'macete-and-expressions-in-formula-retrieval-protocol)
+
+(build-universal-command deduction-graph-raise-conditional-inference
+    'raise-conditional (always value-true)
+    'locations-in-formula-retrieval-protocol)
+
+(build-universal-command deduction-graph-eliminate-iota 'eliminate-iota
+    (always value-true) 'eliminate-iota-retrieval-protocol)
+
+(build-universal-command deduction-graph-backchain 'backchain
+    (always value-true) 'backchain-inference-rp)
+
+(build-universal-command deduction-graph-backchain-backwards
+    'backchain-backwards (always value-true)
+    'backchain-backwards-inference-rp)
+
+(build-universal-command deduction-graph-backchain-through-formula
+    'backchain-through-formula (always value-true)
+    'single-formula-retrieval-protocol)
+
+(build-universal-command deduction-graph-incorporate-antecedent
+    'incorporate-antecedent (always value-true)
+    'single-formula-retrieval-protocol)
+
+(build-universal-command deduction-graph-cut-using-sequent
+    'cut-using-sequent (always value-true) 'cut-retrieval-protocol)
+
+(build-universal-command deduction-graph-cut-with-single-formula
+    'cut-with-single-formula (always value-true)
+    'cut-with-single-formula-retrieval-protocol)
+
+(build-universal-command deduction-graph-generalize-using-sequent
+    'generalize-using-sequent (always value-true)
+    'one-sequent-retrieval-protocol)
+
+(build-universal-command deduction-graph-assume-theorem 'assume-theorem
+    (always value-true) 'theorem-retrieval-protocol)
+
+(build-universal-command dg-primitive-inference-choice
+    'choice-principle (always value-true))
+
+(build-universal-command dg-primitive-inference-definedness
+    'definedness (always value-true))
+
+(build-universal-command dg-primitive-inference-sort-definedness
+    'sort-definedness (always value-true))
+
+(build-universal-command imps-edit-and-post-sqn
+    'edit-and-post-sequent-node (always value-true)
+    'sequent-edit-and-post-retrieval-protocol)
+
+(build-universal-command deduction-graph-disable-quasi-constructor
+    'disable-quasi-constructor (always value-true)
+    'disable-quasi-constructor-retrieval-protocol)
+
+(build-universal-command deduction-graph-enable-quasi-constructor
+    'enable-quasi-constructor (always value-true)
+    'enable-quasi-constructor-retrieval-protocol)
+
+(comment (build-universal-command imps-post-computation-node
+             'post-computation-node (always value-true)))
+
+(build-universal-command annotate-dg-history 'annotate (always value-true)
+    'annotate-protocol)

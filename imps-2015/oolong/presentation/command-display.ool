@@ -1,0 +1,191 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment command-display)
+
+(set-command-display (name->command 'apply-macete)
+    (lambda (tex-summary entry sqns command arguments port)
+      (ignore entry command)
+      (format port "Use the macete $\\mbox{")
+      (format port
+              (string-downcase
+                  (format nil "{\\sc ~A}"
+                          (name-for-tex
+                              (coerce-to-macete (car arguments))))))
+      (format port "}$ on ")
+      (enumerate-a-list-of-sequent-numbers tex-summary sqns port)
+      (format port ". ")))
+
+(set-command-display (name->command 'apply-macete-with-minor-premises)
+    (lambda (tex-summary entry sqns command arguments port)
+      (ignore entry command)
+      (format port "Use the macete (with minor premises) $\\mbox{")
+      (format port
+              (string-downcase
+                  (format nil "{\\sc ~A}"
+                          (name-for-tex
+                              (coerce-to-macete (car arguments))))))
+      (format port "}$ on ")
+      (enumerate-a-list-of-sequent-numbers tex-summary sqns port)
+      (format port ". ")))
+
+(set-command-display (name->command 'force-substitution)
+    (lambda (tex-summary entry sqns command arguments port)
+      (ignore entry command)
+      (let ((sqn (car sqns)))
+        (destructure
+            (((target-input replacement-input occurrences) arguments))
+            (format port "Force substitution of ")
+            (display-strings-as-expressions sqn (list target-input)
+                port)
+            (format port " by ")
+            (display-strings-as-expressions sqn
+                (list replacement-input) port)
+            (format port " at the locations ~A, " occurrences)
+            (format port " in ")
+            (enumerate-a-list-of-sequent-numbers tex-summary sqns port)
+            (format port ". ")))))
+
+(set-command-display (name->command 'simplify)
+    (lambda (tex-summary entry sqns command arguments port)
+      (ignore entry arguments command)
+      (format port "Simplify sequent~P " (length sqns))
+      (enumerate-a-list-of-sequent-numbers tex-summary sqns port)
+      (format port ". ")))
+
+(set-command-display (name->command 'direct-inference-strategy)
+    (lambda (tex-summary entry sqns command arguments port)
+      (ignore entry arguments command)
+      (format port "Do {\\sc direct-inference-strategy} on ")
+      (enumerate-a-list-of-sequent-numbers tex-summary sqns port)
+      (format port ". ")))
+
+(set-command-display (name->command 'beta-reduce)
+    (lambda (tex-summary entry sqns command arguments port)
+      (ignore entry arguments command)
+      (format port "Beta-reduce ")
+      (enumerate-a-list-of-sequent-numbers tex-summary sqns port)
+      (format port ". ")))
+
+(set-command-display (name->command 'unfold-single-defined-constant)
+    (lambda (tex-summary entry sqns command arguments port)
+      (ignore command)
+      (let ((language
+                (theory-language
+                    (deduction-graph-theory
+                        (dg-history-entry-graph entry)))))
+        (destructure (((occurrences constant-name) arguments))
+            (format port "Unfold the defined constant ")
+            (display-object-in-tex-format-without-periods
+                (find-constant language constant-name) port)
+            (format port " at the location~P " (length occurrences))
+            (format-a-list-elegantly port occurrences)
+            (format port " in ")
+            (enumerate-a-list-of-sequent-numbers tex-summary sqns port)
+            (format port ". ")))))
+
+(set-command-display (name->command 'induction)
+    (lambda (tex-summary entry sqns command arguments port)
+      (ignore command)
+      (let ((sqn (car (dg-history-entry-sequent-nodes entry))))
+        (destructure (((inductor term-strings) arguments))
+            (ignore inductor) (format port " Do induction on ")
+            (enumerate-a-list-of-sequent-numbers tex-summary sqns port)
+            (if term-strings
+                (block (format port " on the variable~P "
+                               (length term-strings))
+                  (display-strings-as-expressions sqn term-strings
+                      port)
+                  (format port ". "))
+                (format port
+                        " letting {\\sc imps}  guess the variable of induction. "))))))
+
+(set-command-display (name->command 'instantiate-existential)
+    (lambda (tex-summary entry sqns command arguments port)
+      (ignore entry command)
+      (let ((sqn (car sqns)))
+        (format port " Instantiate existential assertion~P of ~P"
+                (length sqns) (length sqns))
+        (enumerate-a-list-of-sequent-numbers tex-summary sqns port)
+        (format port " with the term~P " (length (car arguments)))
+        (display-strings-as-expressions sqn (car arguments) port)
+        (format port ". "))))
+
+(set-command-display (name->command 'contrapose)
+    (lambda (tex-summary entry sqns command arguments port)
+      (ignore entry command)
+      (format port "Contrapose assumption")
+      (display-single-formula-in-tex-format
+          (sqn-coerce-to-assumption (car sqns) (car arguments)) port)
+      (format port "in ")
+      (enumerate-a-list-of-sequent-numbers tex-summary sqns port)
+      (format port ". ")))
+
+(set-command-display (name->command 'instantiate-theorem)
+    (lambda (tex-summary entry sqns command arguments port)
+      (ignore entry command)
+      (let ((sqn (car sqns)))
+        (destructure (((thm-name term-strings) arguments))
+            (format port " In ")
+            (enumerate-a-list-of-sequent-numbers tex-summary sqns port)
+            (format port
+                    " instantiate the theorem {\\sc ~A } with the expression~P"
+                    (string-downcase
+                        (backslash-special-chars thm-name))
+                    (length term-strings))
+            (display-strings-as-expressions sqn term-strings port)))))
+
+(define (display-strings-as-expressions sqn term-strings port)
+        (bind (((brief-parameter-specification?) value-true)
+               (*use-periods?* value-false))
+              (display-expression-list-in-tex-format
+                  (map (lambda (x) (sequent-node-read sqn x))
+                       term-strings)
+                  port)))

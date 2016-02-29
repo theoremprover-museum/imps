@@ -1,0 +1,671 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment induction-strategies)
+
+(define-structure-type inductor name base-case-hook induction-step-hook
+    matcher universal-matrix-matcher induction-variables
+    induction-macete induction-step induction-step-instantiations
+    induction-step-matcher dont-unfold
+    (((name soi) (inductor-name soi))))
+
+(define *imps-inductors* (make-table '*imps-inductors*))
+
+(define (build-inductor the-name induction-macete abstractor-matcher
+            induction-step)
+        (let ((struct (make-inductor)))
+          (set (table-entry *imps-inductors* the-name) struct)
+          (set (inductor-name struct) the-name)
+          (set (inductor-induction-step-hook struct) value-false)
+          (set (inductor-induction-step-instantiations struct) (fail))
+          (set (inductor-induction-macete struct) induction-macete)
+          (set (inductor-matcher struct)
+               (build-expression-matcher-unsafe abstractor-matcher))
+          (set (inductor-universal-matrix-matcher struct)
+               (build-expression-matcher-unsafe
+                   (universal-matrix abstractor-matcher nil)))
+          (set (inductor-induction-variables struct)
+               (cdr (expression-components abstractor-matcher)))
+          (set (inductor-induction-step struct) induction-step)
+          (set (inductor-dont-unfold struct) the-empty-set)
+          (set (inductor-induction-step-matcher struct)
+               (build-expression-matcher-unsafe induction-step))
+          struct))
+
+(define (find-induction-variables-in-formula inductor formula)
+        (let ((subst (funcall (inductor-universal-matrix-matcher
+                                  inductor)
+                              formula))
+              (induction-variables
+                  (inductor-induction-variables inductor)))
+          (if (and (succeed? subst)
+                   (every? (lambda (x)
+                             (substitution-find-replacement subst x))
+                           induction-variables))
+              (map (lambda (x)
+                     (substitution-find-replacement subst x))
+                   induction-variables)
+              (let ((subst (funcall (inductor-matcher inductor)
+                                    formula)))
+                (if (succeed? subst)
+                    (map (lambda (x)
+                           (substitution-find-replacement subst x))
+                         induction-variables)
+                    nil)))))
+
+(define (fringe-terms inductor)
+        (big-u (map (lambda (x)
+                      (make-set (arguments (expression-rhs x))))
+                    (ultimate-conjuncts
+                        (list (inductor-induction-step inductor))))))
+
+(define (fringe-term-instantiations inductor)
+        (let ((subst (inductor-induction-step-instantiations inductor)))
+          (map (lambda (term) (apply-substitution subst term))
+               (fringe-terms inductor))))
+
+(define (non-trivial-formula-for-induction? inductor formula)
+        (let ((induction-variables
+                  (find-induction-variables-in-formula inductor
+                      formula)))
+          (and induction-variables
+               (every? variable? induction-variables))))
+
+(define (seek-and-do-induction-inference inductor sqn)
+        (let ((theory (context-theory (sequent-node-context sqn))))
+          (cond
+            ((expression-matches? (inductor-matcher inductor)
+                 (sequent-node-assertion sqn) theory)
+             (immediate-induction-inference inductor sqn))
+            ((and (matching-subexpression? (inductor-matcher inductor)
+                      (sequent-node-assertion sqn) theory)
+                  (receive (direct-inference matching-sequent)
+                           (deduction-graph-direct-inference-to-match
+                               (inductor-matcher inductor) sqn theory)
+                           (and (succeed? direct-inference)
+                                (expression-matches?
+                                    (inductor-matcher inductor)
+                                    (sequent-node-assertion
+                                     matching-sequent)
+                                    theory)
+                                matching-sequent)))
+             =>
+             (lambda (x) (immediate-induction-inference inductor x)))
+            ((and (subexpression-satisfies?
+                      (lambda (x)
+                        (and (expression-matches?
+                                 (inductor-universal-matrix-matcher
+                                     inductor)
+                                 x theory)
+                             (non-trivial-formula-for-induction?
+                                 inductor x)))
+                      (sequent-node-assertion sqn))
+                  (receive (direct-inference matching-sequent)
+                           (deduction-graph-direct-inference-to-satisfaction
+                               (lambda (x)
+                                 (and (expression-matches?
+                                       (inductor-universal-matrix-matcher
+                                        inductor)
+                                       x theory)
+                                      (non-trivial-formula-for-induction?
+                                       inductor x)))
+                               sqn)
+                           (and (succeed? direct-inference)
+                                matching-sequent)))
+             => (lambda (x) (generalize-and-induct inductor x)))
+            (else (recover-induction-from-sequent inductor sqn)))))
+
+(define (generalize-and-induct inductor matching-sequent)
+        (let ((theory (context-theory
+                          (sequent-node-context matching-sequent))))
+          (if (expression-matches?
+                  (inductor-universal-matrix-matcher inductor)
+                  (sequent-node-assertion matching-sequent) theory)
+              (let* ((vars (find-induction-variables-in-formula
+                               inductor
+                               (sequent-node-assertion
+                                   matching-sequent)))
+                     (generalization-direct-inference
+                         (deduction-graph-generalize-sequent
+                             matching-sequent vars)))
+                (if (succeed? generalization-direct-inference)
+                    (block (walk (deduction-graph-strategy-simplification-procedure)
+                                 (cdr (inference-node-hypotheses
+                                       generalization-direct-inference)))
+                      (immediate-induction-inference inductor
+                          (inference-node-1st-hypothesis
+                              generalization-direct-inference)))
+                    (fail)))
+              (fail))))
+
+(define (recover-induction-from-sequent inductor sqn)
+        (let ((abstractor-matcher
+                  (inductor-universal-matrix-matcher inductor)))
+          (if (implication? (matcher-expression abstractor-matcher))
+              (let ((premise-matcher
+                        (build-expression-matcher
+                            (expression-lhs
+                                (matcher-expression abstractor-matcher)))))
+                (recover-induction-from-sequent-aux inductor
+                    premise-matcher sqn))
+              (fail))))
+
+(define (induction-variables-given? inductor)
+        (succeed? (inductor-induction-step-instantiations inductor)))
+
+(define (recover-induction-from-sequent-aux inductor premise-matcher
+            sqn)
+        (let ((theory (context-theory (sequent-node-context sqn))))
+          (let* ((sqn (insistently-split-conjunctions sqn))
+                 (matching-assumptions
+                     (iterate loop
+                              ((assums (sequent-node-assumptions sqn))
+                               (matching nil))
+                              (cond
+                                ((null? assums) matching)
+                                ((expression-matches? premise-matcher
+                                     (car assums) value-false)
+                                 (if (induction-variables-given?
+                                      inductor)
+                                     (let
+                                      ((subst
+                                        (funcall premise-matcher
+                                         (car assums))))
+                                       (if
+                                        (sub-substitution?
+                                         (inductor-induction-step-instantiations
+                                          inductor)
+                                         subst)
+                                        (loop
+                                          (cdr assums)
+                                          (cons (car assums) matching))
+                                        (loop (cdr assums) matching)))
+                                     (loop
+                                       (cdr assums)
+                                       (cons (car assums) matching))))
+                                (else (loop (cdr assums) matching))))))
+            (iterate test ((trials matching-assumptions))
+                     (if (null? trials)
+                         (if (or (and (not
+                                       (quasi-equation?
+                                        (sequent-node-assertion sqn)))
+                                      (implication?
+                                       (sequent-node-assertion sqn)))
+                                 (universal?
+                                     (sequent-node-assertion sqn)))
+                             (let ((inference
+                                    (dg-primitive-inference-direct-inference
+                                     sqn)))
+                               (if (succeed? inference)
+                                   (recover-induction-from-sequent-aux
+                                    inductor premise-matcher
+                                    (inference-node-1st-hypothesis
+                                     inference))
+                                   (fail)))
+                             (fail))
+                         (let* ((sqn (revert-formulas-from-context-to-assertion
+                                      sqn (car trials)))
+                                (new-assertion
+                                    (implication (car trials)
+                                     (sequent-node-assertion sqn))))
+                           (if (and (expression-matches?
+                                     (inductor-universal-matrix-matcher
+                                      inductor)
+                                     new-assertion theory)
+                                    (every? variable?
+                                     (find-induction-variables-in-formula
+                                      inductor new-assertion)))
+                               (let* ((implication-elim
+                                       (dg-primitive-inference-implication-elimination
+                                        sqn (car trials))))
+                                 (if (succeed? implication-elim)
+                                     (generalize-and-induct inductor
+                                      (inference-node-1st-hypothesis
+                                       implication-elim))
+                                     (test (cdr trials))))
+                               (test (cdr trials)))))))))
+
+(define (insistently-split-conjunctions sqn)
+        (iterate loop
+                 ((assums (sequent-node-assumptions sqn)) (sqn sqn))
+                 (cond
+                   ((null? assums) sqn)
+                   ((conjunction? (car assums))
+                    (let* ((inference
+                               (dg-primitive-inference-antecedent-inference
+                                   sqn (car assums)))
+                           (new-sqn (if (succeed? inference)
+                                     (car
+                                      (inference-node-hypotheses
+                                       inference))
+                                     sqn)))
+                      (loop (cdr assums) new-sqn)))
+                   (else (loop (cdr assums) sqn)))))
+
+(define (revert-formulas-from-context-to-assertion sqn expr)
+        (let ((vars (free-variables expr)))
+          (iterate loop
+                   ((assums (sequent-node-assumptions sqn)) (sqn sqn))
+                   (cond
+                     ((null? assums) sqn)
+                     ((and (not (eq? (car assums) expr))
+                           (set-intersection
+                               (free-variables (car assums)) vars))
+                      (let* ((implication-elim
+                                 (dg-primitive-inference-implication-elimination
+                                     sqn (car assums))))
+                        (if (succeed? implication-elim)
+                            (loop
+                              (cdr assums)
+                              (inference-node-1st-hypothesis
+                                  implication-elim))
+                            (loop (cdr assums) sqn))))
+                     (else (loop (cdr assums) sqn))))))
+
+(define (immediate-induction-inference inductor sqn)
+        (let ((induction-inference
+                  (deduction-graph-apply-macete sqn
+                      (inductor-induction-macete inductor))))
+          (if (succeed? induction-inference)
+              (let ((sqn-1 (inference-node-1st-hypothesis
+                               induction-inference)))
+                (if (conjunction? (sequent-node-assertion sqn-1))
+                    (let ((conjunction-direct-inference
+                              (dg-primitive-inference-unordered-conjunction-direct-inference
+                                  sqn-1)))
+                      (let ((base-case
+                                (inference-node-1st-hypothesis
+                                    conjunction-direct-inference))
+                            (induction-step
+                                (inference-node-2nd-hypothesis
+                                    conjunction-direct-inference)))
+                        (if (succeed? conjunction-direct-inference)
+                            (block (dg-register-node 'base-case
+                                    base-case)
+                              (dg-register-node 'induction-step
+                                  induction-step)
+                              (do-base-case-inferences inductor
+                                  base-case)
+                              (do-induction-step-inferences inductor
+                                  induction-step))))
+                      (succeed))
+                    (fail)))
+              (fail))))
+
+(define (do-base-case-inferences inductor sqn)
+        (let ((base-case-hook (inductor-base-case-hook inductor)))
+          (cond
+            ((macete? base-case-hook)
+             (deduction-graph-apply-macete sqn base-case-hook))
+            ((dg-command? base-case-hook) (funcall base-case-hook sqn))
+            (else (fail)))))
+
+(define raise-conditionals-after-induction?
+        (make-simple-switch 'raise-conditionals-after-induction?
+            boolean? value-false))
+
+(define (do-induction-step-inferences inductor sqn)
+        (let ((theory (context-theory (sequent-node-context sqn))))
+          (receive (direct-inference ())
+                   (deduction-graph-direct-inference-to-match
+                       (inductor-induction-step-matcher inductor) sqn
+                       theory)
+                   (let ((sqn (if (succeed? direct-inference)
+                                  (inference-node-1st-hypothesis
+                                      direct-inference)
+                                  sqn)))
+                     (set (inductor-induction-step-instantiations
+                              inductor)
+                          (funcall (inductor-induction-step-matcher
+                                    inductor)
+                                   (sequent-node-assertion sqn)))
+                     (let* ((direct-inference-to-implications
+                                (if (succeed?
+                                     (inductor-induction-step-instantiations
+                                      inductor))
+                                    (if
+                                     (conjunction?
+                                      (sequent-node-assertion sqn))
+                                     (dg-primitive-inference-unordered-conjunction-direct-inference
+                                      sqn)
+                                     direct-inference)
+                                    (fail)))
+                            (sqns (if (succeed?
+                                       direct-inference-to-implications)
+                                      (inference-node-hypotheses
+                                       direct-inference-to-implications)
+                                      (list sqn))))
+                       (if (succeed?
+                               (inductor-induction-step-instantiations
+                                   inductor))
+                           (walk (lambda (sqn-0)
+                                   (let*
+                                    ((simplification-inference
+                                      (funcall
+                                       (deduction-graph-strategy-simplification-procedure)
+                                       sqn-0))
+                                     (sqn-1
+                                      (if
+                                       (succeed-without-grounding?
+                                        simplification-inference)
+                                       (inference-node-1st-hypothesis
+                                        simplification-inference)
+                                       sqn-0))
+                                     (direct-inference
+                                      (dg-primitive-inference-direct-inference
+                                       sqn-1))
+                                     (sqn-2
+                                      (if (succeed? direct-inference)
+                                       (inference-node-1st-hypothesis
+                                        direct-inference)
+                                       sqn-1))
+                                     (expansion-inference
+                                      (induction-step-definition-expansion
+                                       inductor sqn-2))
+                                     (sqn-3
+                                      (if
+                                       (succeed-without-grounding?
+                                        expansion-inference)
+                                       (inference-node-1st-hypothesis
+                                        expansion-inference)
+                                       sqn-2))
+                                     (global-induction-step-hook-inference
+                                      (induction-step-global-macete-application
+                                       inductor sqn-3))
+                                     (sqn-4
+                                      (if
+                                       (succeed?
+                                        global-induction-step-hook-inference)
+                                       (inference-node-1st-hypothesis
+                                        global-induction-step-hook-inference)
+                                       sqn-3))
+                                     (cross-fertilization-inference
+                                      (deduction-graph-cross-fertilize
+                                       sqn-4))
+                                     (sqn-5
+                                      (if
+                                       (succeed?
+                                        cross-fertilization-inference)
+                                       (inference-node-1st-hypothesis
+                                        cross-fertilization-inference)
+                                       sqn-4))
+                                     (induction-hook-inference
+                                      (induction-step-hook-application
+                                       inductor sqn-5))
+                                     (sqn-6
+                                      (if
+                                       (succeed-without-grounding?
+                                        induction-hook-inference)
+                                       (inference-node-1st-hypothesis
+                                        induction-hook-inference)
+                                       sqn-5)))
+                                     (if
+                                      (raise-conditionals-after-induction?)
+                                      (prove-by-raising-conditionals-and-simplification
+                                       sqn-6
+                                       (make-strategy-parameters))
+                                      value-true)))
+                                 sqns)
+                           (fail)))))))
+
+(define (induction-step-definition-expansion inductor sqn)
+        (let ((fringes (map (lambda (x)
+                              (context-simplify
+                                  (sequent-node-context sqn) x 2))
+                            (fringe-term-instantiations inductor))))
+          (deduction-graph-repeatedly-unfold-recursive-definitions
+              (lambda (s) (set-intersection fringes (arguments s)))
+              (inductor-dont-unfold inductor) sqn)))
+
+(define (induction-step-global-macete-application inductor sqn)
+        (let ((fringes (map (lambda (x)
+                              (context-simplify
+                                  (sequent-node-context sqn) x 2))
+                            (fringe-term-instantiations inductor))))
+          (deduction-graph-repeatedly-apply-macete-conditionally sqn
+              (global-induction-step-hook)
+              (lambda (s) (set-intersection fringes (arguments s))))))
+
+(define (induction-step-hook-application inductor sqn)
+        (let ((induction-step-hook
+                  (inductor-induction-step-hook inductor)))
+          (cond
+            ((macete? induction-step-hook)
+             (deduction-graph-apply-macete sqn induction-step-hook))
+            ((dg-command? induction-step-hook)
+             (funcall induction-step-hook sqn))
+            (else (fail)))))
+
+(define (induct-on-variables-strategy sqn name-or-inductor
+            terms-or-term-strings)
+        (let ((vars (map (lambda (str)
+                           (sqn-coerce-to-expression sqn str))
+                         terms-or-term-strings))
+              (inductor
+                  (cond
+                    ((inductor? name-or-inductor) name-or-inductor)
+                    ((and (symbol? name-or-inductor)
+                          (name->inductor name-or-inductor)))
+                    (else (imps-error
+                              "INDUCT-ON-VARIABLES-STRATEGY: ~A is not an inductor or the name of one."
+                              name-or-inductor)))))
+          (or (every? variable? vars)
+              (imps-error
+                  "Weirdo attempt to induct. You can only induct on variables!"))
+          (bind (((inductor-induction-step-instantiations inductor)
+                  (if vars
+                      (map cons (inductor-induction-variables inductor)
+                           vars)
+                      (fail))))
+                (seek-and-do-induction-inference inductor sqn))))
+
+(define (build-inductor-from-induction-principle induction-theorem
+            the-name base-case-hook induction-step-hook)
+        (let ((abstraction-for-induction-name
+                  (symbol-append 'abstraction-for- the-name))
+              (induction-macete-name
+                  (symbol-append the-name '-composite-macete)))
+          (or (theorem-name induction-theorem)
+              (imps-error
+                  "BUILD-INDUCTOR-FROM-INDUCTION-PRINCIPLE: Induction principle is not a named theorem."))
+          (if (or (name->macete abstraction-for-induction-name)
+                  (name->macete induction-macete-name))
+              (build-inductor-from-induction-principle
+                  induction-theorem (symbol-append '$ the-name)
+                  base-case-hook induction-step-hook)
+              (let* ((induction-formula
+                         (theorem-formula induction-theorem))
+                     (induction-theorem-name
+                         (theorem-name induction-theorem))
+                     (induction-matrix
+                         (universal-matrix induction-formula nil))
+                     (vars (newly-bound-variables induction-formula))
+                     (preds nil))
+                (or (biconditional? induction-matrix)
+                    (imps-error
+                        "BUILD-INDUCTOR-FROM-INDUCTION-PRINCIPLE: Induction principle
+must be a universally quantified biconditional."))
+                (walk (lambda (x)
+                        (if (expression-of-category-prop? x)
+                            (push preds x)))
+                      vars)
+                (or (and (= (length preds) 1)
+                         (predicator? (car preds)))
+                    (imps-error
+                        "BUILD-INDUCTOR-FROM-INDUCTION-PRINCIPLE: Induction principle must contain exactly one universally quantified predicator."))
+                (let* ((universally-quantified-predicator (car preds))
+                       (induction-lhs
+                           (expression-lhs induction-matrix))
+                       (induction-lhs-matrix
+                           (universal-matrix induction-lhs nil))
+                       (induction-lhs-vars
+                           (newly-bound-variables induction-lhs)))
+                  (let* ((propositional-variable
+                             (new-variable prop 'p
+                                 (variables induction-lhs)))
+                         (abstractor-matcher
+                             (if (implication? induction-lhs-matrix)
+                                 (apply forall
+                                        (implication
+                                         (implication-antecedent
+                                          induction-lhs-matrix)
+                                         propositional-variable)
+                                        induction-lhs-vars)
+                                 (apply forall propositional-variable
+                                        induction-lhs-vars)))
+                         (abstractor-rhs
+                             (if (implication? induction-lhs-matrix)
+                                 (apply forall
+                                        (implication
+                                         (implication-antecedent
+                                          induction-lhs-matrix)
+                                         (apply apply-operator
+                                          (apply imps-lambda
+                                           propositional-variable
+                                           induction-lhs-vars)
+                                          induction-lhs-vars))
+                                        induction-lhs-vars)
+                                 (apply forall
+                                        (apply apply-operator
+                                         (apply imps-lambda
+                                          propositional-variable
+                                          induction-lhs-vars)
+                                         induction-lhs-vars)
+                                        induction-lhs-vars)))
+                         (abstraction-for-induction
+                             (add-unsafe-elementary-macete
+                                 abstraction-for-induction-name
+                                 (biconditional abstractor-matcher
+                                     abstractor-rhs)))
+                         (abstraction-for-induction-revised-name
+                             (macete-name abstraction-for-induction))
+                         (induction-macete
+                             (build-and-install-macete-from-sexp
+                                 (list 'sequential
+                                       (list* 'sound
+                                        abstraction-for-induction-revised-name
+                                        '(beta-reduce-repeatedly
+                                          beta-reduce-repeatedly))
+                                       induction-theorem-name)
+                                 induction-macete-name))
+                         (induction-step
+                             (let ((induction-matrix-rhs
+                                    (expression-rhs induction-matrix)))
+                               (or (and
+                                    (conjunction? induction-matrix-rhs)
+                                    (=
+                                     (length
+                                      (expression-components
+                                       induction-matrix-rhs))
+                                     2))
+                                   (imps-error
+                                    "BUILD-INDUCTOR-FROM-INDUCTION-PRINCIPLE: Induction principle requires one base case and one induction step."))
+                               (iterate loop
+                                        ((try-induction-step
+                                          (universal-matrix
+                                           (cadr
+                                            (expression-components
+                                             induction-matrix-rhs))
+                                           nil)))
+                                        (if
+                                         (and
+                                          (implication?
+                                           try-induction-step)
+                                          (not
+                                           (memq?
+                                            universally-quantified-predicator
+                                            (free-variables
+                                             (implication-antecedent
+                                              try-induction-step)))))
+                                         (loop
+                                           (implication-consequent
+                                            try-induction-step))
+                                         try-induction-step)))))
+                    (or (every? implication?
+                                (ultimate-conjuncts
+                                    (list induction-step)))
+                        (imps-error
+                            "BUILD-INDUCTOR-FROM-INDUCTION-PRINCIPLE: Induction step must be an implication or a conjunction of implications."))
+                    (let ((inductor
+                              (build-inductor the-name induction-macete
+                                  abstractor-matcher induction-step)))
+                      (set (inductor-base-case-hook inductor)
+                           base-case-hook)
+                      (set (inductor-induction-step-hook inductor)
+                           induction-step-hook)
+                      inductor)))))))
+
+(define (name->inductor the-name)
+        (table-entry *imps-inductors* the-name))
+
+(build-universal-command
+    (lambda (sqn name-or-inductor terms-or-term-strings)
+      (induct-on-variables-strategy sqn name-or-inductor
+          terms-or-term-strings))
+    'induction (always value-true) 'induction-arguments-retrieval-protocol)
+
+(define (add-macete-to-induction-step-hook inductor macete)
+        (let ((hook (inductor-induction-step-hook inductor)))
+          (if (null? hook)
+              (set (inductor-induction-step-hook inductor) macete)
+              (set (inductor-induction-step-hook inductor)
+                   (funcall (constructor-name->macete-constructor
+                                'series)
+                            (inductor-induction-step-hook inductor)
+                            macete)))))
+
+(define (build-translated-inductor-from-induction-principle translation
+            induction-theorem translated-name base-case-hook
+            induction-step-hook)
+        (build-inductor-from-induction-principle
+            (transport-theorem translation induction-theorem
+                (lambda (sym)
+                  (concatenate-symbol sym '-for- translated-name)))
+            translated-name base-case-hook induction-step-hook))

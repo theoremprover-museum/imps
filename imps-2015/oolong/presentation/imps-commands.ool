@@ -1,0 +1,284 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment imps-commands)
+
+(define *command-applicability-table* nil)
+
+(define *universally-applicable-command-names*
+        (list "simplify" "simplify-with-minor-premises"
+              "cut-with-single-formula" "case-split"
+              "force-substitution" "instantiate-theorem"
+              "instantiate-transported-theorem" "assume-theorem"
+              "assume-transported-theorem"
+              "prove-by-logic-and-simplification"))
+
+(define (antecedent-commands-install-predicate commands predicate)
+        (push *command-applicability-table*
+              (cons (lambda (sqn)
+                      (any? predicate (sequent-node-assumptions sqn)))
+                    commands)))
+
+(define (assertion-commands-install-predicate commands predicate)
+        (push *command-applicability-table*
+              (cons (lambda (sqn)
+                      (funcall predicate (sequent-node-assertion sqn)))
+                    commands)))
+
+(define (applicable-commands sqn)
+        (let ((command-names nil))
+          (walk (lambda (x)
+                  (destructure (((pred . commands) x))
+                      (if (funcall pred sqn)
+                          (set command-names
+                               (set-union command-names
+                                   (map (lambda (x) (name x)) commands))))))
+                *command-applicability-table*)
+          (append! (map (lambda (x)
+                          (string-downcase (symbol->string x)))
+                        command-names)
+                   *universally-applicable-command-names*)))
+
+(define (d-i-applicable? expr)
+        (and (not (expression-quasi-constructor-if-enabled expr))
+             (or (implication? expr) (universal? expr)
+                 (conjunction? expr) (disjunction? expr)
+                 (biconditional? expr) (conditional-formula? expr))))
+
+(define (i-d-i-applicable? expr)
+        (and (expression-quasi-constructor-if-enabled expr)
+             (or (implication? expr) (universal? expr)
+                 (conjunction? expr) (disjunction? expr)
+                 (biconditional? expr) (conditional-formula? expr))))
+
+(define (a-i-applicable? expr)
+        (or (implication? expr) (existential? expr) (conjunction? expr)
+            (disjunction? expr) (biconditional? expr)
+            (conditional-formula? expr)))
+
+(define (iota-i-applicable? expr)
+        (and (or (atomic-formula? expr) (negated-atomic-formula? expr))
+             (paths-to-satisfaction expr iota-expression? -1)))
+
+(define (x-i-applicable? expr)
+        (labels (((extensionality-expression? expr)
+                  (or (and (equation? expr)
+                           (higher-sort?
+                               (expression-sorting
+                                   (expression-lhs expr))))
+                      (and (quasi-equation? expr)
+                           (higher-sort?
+                               (expression-sorting
+                                   (quasi-equation-lhs expr)))))))
+          (or (extensionality-expression? expr)
+              (and (negation? expr)
+                   (extensionality-expression? (negation-body expr))))))
+
+(define (br-i-applicable? expr)
+        (iterate loop ((expr expr))
+                 (or (lambda-application? expr)
+                     (any? #'loop
+                           (expression-quasi-components-or-components
+                               expr)))))
+
+(define (i-br-i-applicable? expr)
+        (iterate loop ((expr expr))
+                 (or (lambda-application? expr)
+                     (any? #'loop (expression-components expr)))))
+
+(define (rc-i-applicable? expr)
+        (iterate loop ((expr expr))
+                 (or (conditional? expr)
+                     (any? #'loop
+                           (expression-quasi-components-or-components
+                               expr)))))
+
+(define (antecedent-commands-install-predicates-from-list list)
+        (walk (lambda (x)
+                (let ((c-names (car x)) (predicate (cadr x)))
+                  (antecedent-commands-install-predicate
+                      (map name->command c-names) predicate)))
+              list))
+
+(define (assertion-commands-install-predicates-from-list list)
+        (walk (lambda (x)
+                (let ((c-names (car x)) (predicate (cadr x)))
+                  (assertion-commands-install-predicate
+                      (map name->command c-names) predicate)))
+              list))
+
+(assertion-commands-install-predicates-from-list
+    (list (list '(eliminate-iota) iota-i-applicable?)
+          (list '(eliminate-defined-iota-expression)
+                (lambda (expr)
+                  (paths-to-satisfaction expr iota-expression? -1)))
+          (list '(extensionality) x-i-applicable?)
+          (list '(direct-inference
+                     direct-and-antecedent-inference-strategy)
+                d-i-applicable?)
+          (list '(insistent-direct-inference
+                     insistent-direct-and-antecedent-inference-strategy)
+                i-d-i-applicable?)
+          (list '(instantiate-existential) existential?)
+          (list '(definedness) convergence?)
+          (list '(sort-definedness sort-definedness-and-conditionals)
+                convergence-in-sort?)
+          (list '(beta-reduce beta-reduce-repeatedly
+                     beta-reduce-with-minor-premises)
+                br-i-applicable?)
+          (list '(beta-reduce-insistently) i-br-i-applicable?)
+          (list '(choice-principle) choice-principle-recognizer)
+          (list '(raise-conditional case-split-on-conditionals)
+                rc-i-applicable?)))
+
+(antecedent-commands-install-predicates-from-list
+    (list (list '(instantiate-universal-antecedent) universal?)
+          (list '(contrapose incorporate-antecedent simplify-antecedent
+                     weaken)
+                (always value-true))
+          (list '(beta-reduce-antecedent) br-i-applicable?)
+          (list '(antecedent-inference antecedent-inference-strategy)
+                a-i-applicable?)))
+
+(define (backchainable? sqn formula)
+        (succeed?
+            (backchain-against-formula (sequent-node-context sqn)
+                (sequent-node-assertion sqn) formula)))
+
+(define (backwards-backchainable? sqn formula)
+        (bind (((backchain-forwards-through-expression?) value-false))
+              (succeed?
+                  (backchain-against-formula (sequent-node-context sqn)
+                      (sequent-node-assertion sqn) formula))))
+
+(push *command-applicability-table*
+      (cons (lambda (sqn)
+              (any? (lambda (ass) (backchainable? sqn ass))
+                    (sequent-node-assumptions sqn)))
+            (list (name->command 'backchain)
+                  (name->command 'backchain-repeatedly))))
+
+(define (unfoldable-defs? sqn)
+        (let ((theory (deduction-graph-theory (sequent-node-graph sqn))))
+          (iterate loop ((expr (sequent-node-assertion sqn)))
+                   (if (constant? expr)
+                       (theory-defined-constant? theory expr)
+                       (any? #'loop
+                             (expression-quasi-components-or-components
+                                 expr))))))
+
+(define (unfoldable-direct-defs? sqn)
+        (let ((theory (deduction-graph-theory (sequent-node-graph sqn))))
+          (iterate loop ((expr (sequent-node-assertion sqn)))
+                   (if (constant? expr)
+                       (theory-directly-defined-constant? theory expr)
+                       (any? #'loop
+                             (expression-quasi-components-or-components
+                                 expr))))))
+
+(define (unfoldable-recursive-defs? sqn)
+        (let ((theory (deduction-graph-theory (sequent-node-graph sqn))))
+          (iterate loop ((expr (sequent-node-assertion sqn)))
+                   (if (constant? expr)
+                       (theory-recursively-defined-constant? theory
+                           expr)
+                       (any? #'loop
+                             (expression-quasi-components-or-components
+                                 expr))))))
+
+(push *command-applicability-table*
+      (cons unfoldable-defs?
+            (list (name->command 'unfold-single-defined-constant)
+                  (name->command
+                      'unfold-single-defined-constant-globally)
+                  (name->command 'unfold-defined-constants))))
+
+(push *command-applicability-table*
+      (cons (lambda (sqn)
+              (let ((assertion (sequent-node-assertion sqn)))
+                (and (existential? assertion)
+                     (let ((nbvs (binding-variables assertion))
+                           (conjuncts
+                               (ultimate-conjuncts
+                                   (list (binding-body assertion)))))
+                       (succeed?
+                           (auto-instantiate-existential-find-terms sqn
+                               nbvs conjuncts))))))
+            (list (name->command 'auto-instantiate-existential))))
+
+(push *command-applicability-table*
+      (cons (lambda (sqn)
+              (any? (lambda (assumption)
+                      (and (universal? assumption)
+                           (let ((nbvs (binding-variables assumption))
+                                 (conjuncts
+                                     (map push-not
+                                      (ultimate-disjuncts
+                                       (list (binding-body assumption))))))
+                             (succeed?
+                                 (auto-instantiate-existential-find-terms
+                                     sqn nbvs conjuncts)))))
+                    (sequent-node-assumptions sqn)))
+            (list (name->command
+                      'auto-instantiate-universal-antecedent))))
+
+(push *command-applicability-table*
+      (cons enabled-quasi-constructors-in-sequent
+            (list (name->command 'simplify-insistently))))
+
+(push *command-applicability-table*
+      (cons determine-applicable-inductors
+            (list (name->command 'induction))))
+
+(push *command-applicability-table*
+      (cons (lambda (sqn)
+              (and (br-i-applicable? (sequent-node-assertion sqn))
+                   (enabled-quasi-constructors-in-sequent sqn)))
+            (list (name->command 'beta-reduce-insistently))))

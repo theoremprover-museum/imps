@@ -1,0 +1,317 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment innards-for-languages)
+
+(define *imps-variable-table*
+        (make-two-d-table '*imps-variable-table*))
+
+(define (find-variable the-name sorting)
+        (if (not (symbol? the-name))
+            (imps-error
+                "FIND-VARIABLE: variable-name must be a symbol: ~S"
+                the-name))
+        (if (not (sorting? sorting))
+            (imps-error
+                "FIND-VARIABLE: the sorting ~S for variable ~A is not found in current language"
+                sorting the-name))
+        (let ((entry (two-d-table-entry *imps-variable-table* the-name
+                         sorting)))
+          (or entry
+              (let ((new-var (make-formal-symbol variable? sorting
+                                 the-name)))
+                (set (two-d-table-entry *imps-variable-table* the-name
+                         sorting)
+                     new-var)
+                new-var))))
+
+(define (new-variable sorting sym avoid-vars)
+        (or (symbol? sym)
+            (imps-error "NEW-VARIABLE : non-symbol argument ~S." sym))
+        (let ((str (symbol->string sym))
+              (avoid-strs
+                  (map (lambda (v)
+                         (if (symbol? (name v))
+                             (symbol->string (name v)) ""))
+                       avoid-vars)))
+          (if (not (mem? string-equal? str avoid-strs))
+              (find-variable sym sorting)
+              (let* ((str (string-var-root str))
+                     (avoid-strs
+                         (set-separate
+                             (lambda (avoid) (substring? str avoid))
+                             avoid-strs)))
+                (iterate iter ((i 0))
+                         (let ((guess (format nil "~A_$~D" str i)))
+                           (if (mem? string-equal? guess avoid-strs)
+                               (iter (fx+ i 1))
+                               (find-variable (string->symbol guess)
+                                   sorting))))))))
+
+(define (clip-at-last-$ string)
+        (substring string 0 (last-$-pos string)))
+
+(define (last-$-pos string)
+        (let ((len (string-length string)))
+          (iterate iter ((i 0) (pos value-false))
+                   (cond
+                     ((fx= i len) pos)
+                     ((char= #\$ (string-elt string i))
+                      (iter (fx+ i 1) i))
+                     (else (iter (fx+ i 1) pos))))))
+
+(define (string-var-root str)
+        (let ((len (string-length str)))
+          (iterate iter ((i (fx- len 1)) (digits-too value-true))
+                   (cond
+                     ((fx< i 0)
+                      (imps-error
+                          "string-var-root : root not found in ~S" str))
+                     ((and digits-too (digit? (string-elt str i) 10))
+                      (iter (fx- i 1) value-true))
+                     ((char= (string-elt str i) #\$)
+                      (iter (fx- i 1) value-false))
+                     ((char= (string-elt str i) #\_)
+                      (iter (fx- i 1) value-false))
+                     (else (substring str 0 (fx+ i 1)))))))
+
+(define (undollar-variable var)
+        (let ((n (name var)))
+          (if (symbol? n)
+              (find-variable
+                  (string->symbol (clip-at-last-$ (symbol->string n)))
+                  (expression-sorting var))
+              var)))
+
+(define (new-variables sorting sym avoid-vars how-many)
+        (iterate iter ((i 0) (new-variables nil) (avoid avoid-vars))
+                 (if (>= i how-many) (reverse! new-variables)
+                     (let ((new (new-variable sorting
+                                    (concatenate-symbol sym '_ i)
+                                    avoid)))
+                       (iter (1+ i) (cons new new-variables)
+                             (cons new avoid))))))
+
+(define (sorts->new-variables sorting-list sym avoid-vars)
+        (iterate iter
+                 ((i 0) (sorting-list sorting-list) (new-variables nil)
+                  (avoid-vars avoid-vars))
+                 (if (null? sorting-list) (reverse! new-variables)
+                     (let ((new (new-variable (car sorting-list)
+                                    (concatenate-symbol sym '_ i)
+                                    avoid-vars)))
+                       (iter (1+ i) (cdr sorting-list)
+                             (cons new new-variables)
+                             (cons new avoid-vars))))))
+
+(define (sorts-and-names->new-variables sorting-list sym-list
+            avoid-vars)
+        (iterate iter
+                 ((sorting-list sorting-list) (sym-list sym-list)
+                  (new-variables nil) (avoid-vars avoid-vars))
+                 (if (null? sorting-list) (reverse! new-variables)
+                     (let ((new (new-variable (car sorting-list)
+                                    (car sym-list) avoid-vars)))
+                       (iter (cdr sorting-list) (cdr sym-list)
+                             (cons new new-variables)
+                             (cons new avoid-vars))))))
+
+(define (var-list->new-variables var-list avoid-vars)
+        (iterate iter ((var-list var-list) (new-var-list nil))
+                 (if (null? var-list) (reverse! new-var-list)
+                     (let* ((first (car var-list))
+                            (new (new-variable
+                                     (expression-sorting first)
+                                     (name first) avoid-vars)))
+                       (iter (cdr var-list) (cons new new-var-list))))))
+
+(define (mark-variable variable sym avoid-vars)
+        (new-variable (expression-sorting variable)
+            (concatenate-symbol (name variable) '_ sym) avoid-vars))
+
+(define (mark-variables variable-list sym avoid-vars)
+        (let ((name-list
+                  (map (lambda (var)
+                         (concatenate-symbol (name var) '_ sym))
+                       variable-list))
+              (sorting-list (map expression-sorting variable-list)))
+          (sorts-and-names->new-variables sorting-list name-list
+              avoid-vars)))
+
+(define (formal-symbol-chart-ass obj alist)
+        (ass (lambda (obj key)
+               (or (eq? obj key)
+                   (and (numerical-object? obj) (numerical-object? key)
+                        (numerical-= obj key))))
+             obj alist))
+
+(define (make-formal-symbol-chart) (list '*formal-symbol-chart*))
+
+(define (add-formal-symbol-to-chart formal-symbol-chart local-name
+            formal-symbol)
+        (let ((sub-chart
+                  (formal-symbol-chart-ass local-name
+                      (cdr formal-symbol-chart))))
+          (cond
+            ((and sub-chart (memq? formal-symbol sub-chart)))
+            (sub-chart
+                (set (cdr sub-chart)
+                     (cons formal-symbol (cdr sub-chart))))
+            (else (let ((remainder (cdr formal-symbol-chart)))
+                    (set (cdr formal-symbol-chart)
+                         (cons (list local-name formal-symbol)
+                               remainder)))))
+          formal-symbol))
+
+(define (retrieve-formal-symbol chart the-name . sorting)
+        (let ((sub-chart
+                  (formal-symbol-chart-ass the-name (cdr chart))))
+          (cond
+            ((not sub-chart) value-false)
+            ((null? (cddr sub-chart)) (cadr sub-chart))
+            (else (let ((sorting (car sorting)))
+                    (iterate search ((candidates (cdr sub-chart)))
+                             (if (null? candidates) value-false
+                                 (let ((candidate (car candidates)))
+                                   (if
+                                    (sortings-equal? sorting
+                                     (expression-sorting candidate))
+                                    candidate
+                                    (search (cdr candidates)))))))))))
+
+(define (glean-formal-symbols-from-chart chart)
+        (iterate iter ((chart (cdr chart)) (already nil))
+                 (if (null? chart) already
+                     (iter (cdr chart) (append (cdar chart) already)))))
+
+(define (retrieve-or-add-formal-symbol home chart the-name sorting)
+        (cond
+          (sorting (or (retrieve-formal-symbol chart the-name sorting)
+                       (let ((new-constant
+                                 (make-formal-symbol constant? sorting
+                                     the-name home)))
+                         (add-formal-symbol-to-chart chart the-name
+                             new-constant)
+                         new-constant)))
+          ((retrieve-formal-symbol chart the-name))
+          (else value-false)))
+
+(define (install-constants-in-chart new-symbols)
+        (let ((chart (make-formal-symbol-chart)))
+          (walk (lambda (c)
+                  (add-formal-symbol-to-chart chart (name c) c))
+                new-symbols)
+          chart))
+
+(define *compound-expression-table*
+        (make-two-d-table '*compound-expression-table*))
+
+(define (retrieve-from-compound-table constructor components)
+        (let ((entry-list
+                  (two-d-table-entry *compound-expression-table*
+                      constructor (hash-combine-exprs components))))
+          (iterate search ((candidates entry-list))
+                   (if (null? candidates) value-false
+                       (let ((comp (expression-components
+                                    (car candidates))))
+                         (if (equal? comp components) (car candidates)
+                             (search (cdr candidates))))))))
+
+(define (insert-in-compound-table constructor components expression)
+        (let ((computed-hash (hash-combine-exprs components)))
+          (push (two-d-table-entry *compound-expression-table*
+                    constructor computed-hash)
+                expression)
+          expression))
+
+(define (walk-compound-expressions proc)
+        (walk-table
+            (lambda (key subtable)
+              (ignore key)
+              (walk-table
+                  (lambda (key entry-list)
+                    (ignore key)
+                    (walk proc entry-list))
+                  subtable))
+            *compound-expression-table*))
+
+(define (count-imps-expressions)
+        (let ((count 0))
+          (walk-compound-expressions (lambda (e) (increment count)))
+          count))
+
+(define (walk-compound-expression-lists list-proc)
+        (walk-table
+            (lambda (key subtable)
+              (ignore key)
+              (walk-table (lambda (key entry-list)
+                            (ignore key)
+                            (funcall list-proc entry-list))
+                          subtable))
+            *compound-expression-table*))
+
+;;;(define (garbage-collect-expressions)
+;;;        (let ((wk (make-weak-set)))
+;;;          (walk-compound-expressions
+;;;              (lambda (e) (add-to-weak-set! wk e)))
+;;;          (walk-table
+;;;              (lambda (key subtable)
+;;;                (set (table-entry *compound-expression-table* key)
+;;;                     value-false))
+;;;              *compound-expression-table*)
+;;;          (crawl (the-environment))
+;;;          (gc)
+;;;          (set *compound-expression-table*
+;;;               (make-two-d-table '*compound-expression-table*))
+;;;          (walk-weak-set
+;;;              (lambda (e)
+;;;                (insert-in-compound-table (expression-constructor e)
+;;;                    (expression-components e) e))
+;;;              wk)))

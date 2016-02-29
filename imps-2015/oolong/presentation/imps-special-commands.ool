@@ -1,0 +1,148 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment imps-commands)
+
+(define *special-command-applicability-table* nil)
+
+(define *universally-applicable-special-command-names*
+        (list "cut-using-sequent" "generalize-using-sequent"))
+
+(define (antecedent-special-commands-install-predicate commands
+            predicate)
+        (push *special-command-applicability-table*
+              (cons (lambda (sqn)
+                      (any? predicate (sequent-node-assumptions sqn)))
+                    commands)))
+
+(define (assertion-special-commands-install-predicate commands
+            predicate)
+        (push *special-command-applicability-table*
+              (cons (lambda (sqn)
+                      (funcall predicate (sequent-node-assertion sqn)))
+                    commands)))
+
+(define (applicable-special-commands sqn)
+        (let ((command-names nil))
+          (walk (lambda (x)
+                  (destructure (((pred . commands) x))
+                      (if (funcall pred sqn)
+                          (set command-names
+                               (set-union command-names
+                                   (map (lambda (x) (name x)) commands))))))
+                *special-command-applicability-table*)
+          (append! (map (lambda (x)
+                          (string-downcase (symbol->string x)))
+                        command-names)
+                   *universally-applicable-special-command-names*)))
+
+(define (antecedent-special-commands-install-predicates-from-list list)
+        (walk (lambda (x)
+                (let ((c-names (car x)) (predicate (cadr x)))
+                  (antecedent-special-commands-install-predicate
+                      (map name->command c-names) predicate)))
+              list))
+
+(define (assertion-special-commands-install-predicates-from-list list)
+        (walk (lambda (x)
+                (let ((c-names (car x)) (predicate (cadr x)))
+                  (assertion-special-commands-install-predicate
+                      (map name->command c-names) predicate)))
+              list))
+
+(assertion-special-commands-install-predicates-from-list
+    (list (list '(direct-inference-strategy
+                     direct-and-antecedent-inference-strategy-with-simplification
+                     insistent-direct-inference-strategy
+                     insistent-direct-and-antecedent-inference-strategy)
+                d-i-applicable?)
+          (list '(insistent-direct-inference-strategy
+                     insistent-direct-and-antecedent-inference-strategy)
+                i-d-i-applicable?)))
+
+(antecedent-special-commands-install-predicates-from-list
+    (list (list '(instantiate-universal-antecedent-multiply)
+                universal?)))
+
+(push *special-command-applicability-table*
+      (cons (lambda (sqn)
+              (any? (lambda (ass) (backchainable? sqn ass))
+                    (sequent-node-assumptions sqn)))
+            (list (name->command 'backchain-through-formula))))
+
+(push *special-command-applicability-table*
+      (cons (lambda (sqn)
+              (any? (lambda (ass) (backwards-backchainable? sqn ass))
+                    (sequent-node-assumptions sqn)))
+            (list (name->command 'backchain-backwards))))
+
+(push *special-command-applicability-table*
+      (cons unfoldable-defs?
+            (list (name->command 'unfold-defined-constants-repeatedly))))
+
+(push *special-command-applicability-table*
+      (cons unfoldable-direct-defs?
+            (list (name->command 'unfold-directly-defined-constants)
+                  (name->command
+                      'unfold-directly-defined-constants-repeatedly))))
+
+(push *special-command-applicability-table*
+      (cons unfoldable-recursive-defs?
+            (list (name->command 'unfold-recursively-defined-constants)
+                  (name->command
+                      'unfold-recursively-defined-constants-repeatedly))))
+
+(push *special-command-applicability-table*
+      (cons enabled-quasi-constructors-in-sequent
+            (list (name->command 'disable-quasi-constructor))))
+
+(push *special-command-applicability-table*
+      (cons disabled-quasi-constructors
+            (list (name->command 'enable-quasi-constructor))))

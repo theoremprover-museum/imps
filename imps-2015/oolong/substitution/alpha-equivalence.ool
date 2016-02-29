@@ -1,0 +1,360 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment alpha-equivalence)
+
+(define (find-alpha-root-in-list expr lst)
+        (enforce expression?
+                 (iterate iter ((lst lst))
+                          (cond
+                            ((null? lst) expr)
+                            ((compute-alpha-equivalent? expr (car lst))
+                             (expression-alpha-root (car lst)))
+                            (else (iter (cdr lst)))))))
+
+(define (user-alpha-equivalent? expr1 expr2)
+        (let ((r1 (enforce expression? (expression-alpha-root expr1)))
+              (r2 (enforce expression? (expression-alpha-root expr2))))
+          (eq? r1 r2)))
+
+(define (compute-alpha-equivalent? expr1 expr2)
+        (and (eq? (expression-height expr1) (expression-height expr2))
+             (eq? (expression-alpha-hash expr1)
+                  (expression-alpha-hash expr2))
+             (eq? (expression-constructor expr1)
+                  (expression-constructor expr2))
+             (set-equal? (expression-free-variables expr1)
+                 (expression-free-variables expr2))
+             (set-equal? (expression-constants expr1)
+                 (expression-constants expr2))
+             (alpha-equivalent-1? expr1 expr2 empty-lexical-locator
+                 empty-lexical-locator)))
+
+(define alpha-equivalent? user-alpha-equivalent?)
+
+(define (alpha-equivalent-1? expr1 expr2 ll-1 ll-2)
+        (and (eq? (expression-height expr1) (expression-height expr2))
+             (eq? (expression-alpha-hash expr1)
+                  (expression-alpha-hash expr2))
+             (eq? (expression-constructor expr1)
+                  (expression-constructor expr2))
+             (cond
+               ((or (constant? expr1) (constant? expr2))
+                (eq? expr1 expr2))
+               ((or (variable? expr1) (variable? expr2))
+                (receive (over1 back1) (ll-retrieve-var ll-1 expr1)
+                         (receive (over2 back2)
+                                  (ll-retrieve-var ll-2 expr2)
+                                  (if (or over1 over2)
+                                      (and (eq? over1 over2)
+                                       (eq? back1 back2))
+                                      (eq? expr1 expr2)))))
+               (else (and (eq? (expression-constructor expr1)
+                               (expression-constructor expr2))
+                          (= (length (expression-components expr1))
+                             (length (expression-components expr2)))
+                          (if (binding-expression? expr1)
+                              (let ((body1 (binding-body expr1))
+                                    (body2 (binding-body expr2))
+                                    (expr1-vars
+                                     (binding-variables expr1))
+                                    (expr2-vars
+                                     (binding-variables expr2)))
+                                (and (eq? (expression-alpha-hash body1)
+                                      (expression-alpha-hash body2))
+                                     (alpha-match-vars? expr1-vars
+                                      expr2-vars)
+                                     (alpha-equivalent-1? body1 body2
+                                      (ll-prepend-var-list ll-1
+                                       expr1-vars)
+                                      (ll-prepend-var-list ll-2
+                                       expr2-vars))))
+                              (every? (lambda (c1 c2)
+                                        (and
+                                         (eq?
+                                          (expression-alpha-hash c1)
+                                          (expression-alpha-hash c2))
+                                         (alpha-equivalent-1? c1 c2
+                                          ll-1 ll-2)))
+                                      (expression-components expr1)
+                                      (expression-components expr2))))))))
+
+(define (match expr pattern) (match-under-exoscopes expr pattern nil))
+
+(define (match-under-exoscopes expr pattern exoscopes)
+        (match-with-exoscopes-and-subst expr pattern
+            the-empty-substitution exoscopes))
+
+(define (match-with-exoscopes-and-subst expr pattern substitution
+            exoscopes)
+        (if (match-check? expr pattern)
+            (alpha-match-1 expr pattern substitution
+                empty-lexical-locator empty-lexical-locator exoscopes)
+            (fail)))
+
+(define (alpha-match-1 expr pattern substitution ll-expr ll-pattern
+            exoscopes)
+        (cond
+          ((fail? substitution) (fail))
+          ((constant? pattern)
+           (if (eq? expr pattern) substitution (fail)))
+          ((eq? expr pattern)
+           (if (locators-agree? ll-expr ll-pattern
+                   (free-variables expr))
+               (join-two-substitutions substitution
+                   (identity-substitution
+                       (free-variables-for-locator ll-expr expr)))
+               (fail)))
+          ((variable? pattern)
+           (locator-enrich-substitution expr pattern substitution
+               ll-expr ll-pattern exoscopes))
+          (else (let ((expr-constructor (expression-constructor expr))
+                      (pattern-constructor
+                          (expression-constructor pattern)))
+                  (cond
+                    ((not (eq? expr-constructor pattern-constructor))
+                     (fail))
+                    ((not (= (length (expression-components expr))
+                             (length (expression-components pattern))))
+                     (fail))
+                    ((binding-constructor? pattern-constructor)
+                     (let ((pattern-vars (binding-variables pattern))
+                           (expr-vars (binding-variables expr)))
+                       (if (alpha-match-vars? pattern-vars expr-vars)
+                           (alpha-match-1 (binding-body expr)
+                               (binding-body pattern) substitution
+                               (ll-prepend-var-list ll-expr expr-vars)
+                               (ll-prepend-var-list ll-pattern
+                                   pattern-vars)
+                               (set-difference exoscopes pattern-vars))
+                           (fail))))
+                    (else (alpha-match-components
+                              (expression-components expr)
+                              (expression-components pattern)
+                              substitution ll-expr ll-pattern
+                              exoscopes)))))))
+
+(define (alpha-match-components expr-components pattern-components
+            substitution ll-expr ll-pattern exoscopes)
+        (if (not (= (length expr-components)
+                    (length pattern-components)))
+            (fail)
+            (iterate iter
+                     ((expr-components expr-components)
+                      (pattern-components pattern-components)
+                      (substitution substitution))
+                     (cond
+                       ((fail? substitution) (fail))
+                       ((null? expr-components) substitution)
+                       (else (iter (cdr expr-components)
+                                   (cdr pattern-components)
+                                   (alpha-match-1 (car expr-components)
+                                    (car pattern-components)
+                                    substitution ll-expr ll-pattern
+                                    exoscopes)))))))
+
+(define (alpha-match-vars? pattern-vars expr-vars)
+        (and (= (length pattern-vars) (length expr-vars))
+             (every? (lambda (pv ev) (same-sorted? pv ev)) pattern-vars
+                     expr-vars)))
+
+(define (ll-prepend-var-list ll var-list)
+        (if (null? var-list) ll
+            (lambda (var over)
+              (let ((index (posq var var-list)))
+                (if (not index) (funcall ll var (fx+ over 1))
+                    (return over index))))))
+
+(define empty-lexical-locator
+        (lambda (var over) (ignore var over) (return value-false value-false)))
+
+(define (ll-retrieve-var ll var) (funcall ll var 0))
+
+(define (locator-defined-for-var? ll var)
+        (receive (over back) (ll-retrieve-var ll var) (ignore back)
+                 (true? over)))
+
+(define (locators-agree? ll-1 ll-2 vars)
+        (every? (lambda (v)
+                  (receive (1-over 1-back) (ll-retrieve-var ll-1 v)
+                           (receive (2-over 2-back)
+                                    (ll-retrieve-var ll-2 v)
+                                    (and (eq? 1-over 2-over)
+                                     (eq? 1-back 2-back)))))
+                vars))
+
+(define (locator-enrich-substitution expr var substitution ll-expr
+            ll-var exoscopes)
+        (cond
+          ((and (memq? var exoscopes) (eq? var expr)) substitution)
+          ((memq? var exoscopes) (fail))
+          (else (receive (over back) (ll-retrieve-var ll-var var)
+                         (receive (expr-over expr-back)
+                                  (ll-retrieve-var ll-expr expr)
+                                  (cond
+                                    ((and over expr-over
+                                      (= expr-over over)
+                                      (= expr-back back))
+                                     substitution)
+                                    ((or over expr-over) (fail))
+                                    ((not
+                                      (free-for-locator? ll-expr expr))
+                                     (fail))
+                                    (else
+                                     (add-subst-component
+                                      (make-subst-component var expr)
+                                      substitution))))))))
+
+(define (free-for-locator? ll expr)
+        (let ((fvs (free-variables expr)))
+          (every? (lambda (var)
+                    (not (locator-defined-for-var? ll var)))
+                  fvs)))
+
+(define (free-variables-for-locator ll expr)
+        (set-separate
+            (lambda (var) (not (locator-defined-for-var? ll var)))
+            (free-variables expr)))
+
+(define (locators-agree-if-first-defined? ll-1 ll-2 var-1 var-2)
+        (receive (1-over 1-back) (ll-retrieve-var ll-1 var-1)
+                 (if 1-over
+                     (receive (2-over 2-back)
+                              (ll-retrieve-var ll-2 var-2)
+                              (and 2-over (= 2-over 1-over)
+                                   (= 2-back 1-back)))
+                     value-true)))
+
+(define (match-check? expr pattern)
+  (cond
+   ;;This is a complete hack. The stack gets screwed up.
+   ((not (and (expression? expr) (expression? pattern))) value-false)
+
+   ((eq? expr pattern) value-true)
+   ((< (expression-height expr) (expression-height pattern))
+    value-false)
+   ((not (subset? (expression-constants pattern)
+		  (expression-constants expr)))
+    value-false)
+   ((constant? pattern) value-true)
+   ((variable? pattern)
+    (sorts-may-overlap? (expression-sorting expr)
+			(expression-sorting pattern)))
+   ((not (match-by-leading-constants? expr pattern)) value-false)
+   (else (let ((expr-constructor (expression-constructor expr))
+	       (pattern-constructor
+		(expression-constructor pattern)))
+	   (and (eq? expr-constructor pattern-constructor)
+		(let ((expr-components
+		       (expression-components expr))
+		      (pattern-components
+		       (expression-components pattern)))
+		  (and (eq? (length expr-components)
+			    (length pattern-components))
+		       (if (binding-constructor?
+			    pattern-constructor)
+			   (and (every? same-sorted?
+                                        (cdr pattern-components)
+                                        (cdr expr-components))
+				(match-check?
+				 (car expr-components)
+				 (car pattern-components)))
+			 (every? match-check? expr-components
+				 pattern-components)))))))))
+
+(define (paths-to-alpha-occurrences expr subexp . depth-bound)
+        (let ((depth-bound (if depth-bound (car depth-bound) -1)))
+          (cond
+            ((=0? depth-bound) nil)
+            ((alpha-equivalent? subexp expr) (list nil))
+            ((> (expression-height subexp) (expression-height expr))
+             nil)
+            (else (do ((components (expression-components expr)
+                           (cdr components))
+                       (index 0 (1+ index))
+                       (paths nil
+                              (append! (map!
+                                        (lambda (path)
+                                          (cons index path))
+                                        (paths-to-alpha-occurrences
+                                         (car components) subexp
+                                         (-1+ depth-bound)))
+                                       paths)))
+                      ((null? components) paths))))))
+
+(define (alpha-match-find-paths-and-substs expr pattern exoscopes)
+        (flet (((extend-by-index index)
+                  (lambda (path-and-subst)
+                    (destructure (((path . subst) path-and-subst))
+                        (cons (cons index path) subst)))))
+          (let ((subst (match-under-exoscopes expr pattern exoscopes)))
+            (cond
+              ((succeed? subst) (list (cons nil subst)))
+              ((>= (expression-height pattern)
+                   (expression-height expr))
+               nil)
+              ((binding-expression? expr)
+               (map! (extend-by-index 0)
+                     (alpha-match-find-paths-and-substs
+                         (binding-body expr) pattern
+                         (set-union (binding-variables expr) exoscopes))))
+              ((expression-constructor expr)
+               (do ((components
+                        (expression-quasi-components-or-components
+                            expr)
+                        (cdr components))
+                    (index 0 (1+ index))
+                    (paths-and-substs nil
+                        (append! (map! (extend-by-index index)
+                                       (alpha-match-find-paths-and-substs
+                                        (car components) pattern
+                                        exoscopes))
+                                 paths-and-substs)))
+                   ((null? components) paths-and-substs)))))))

@@ -1,0 +1,296 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment sort-definitions)
+
+(define-structure-type sort-definition home-theory sort quasi-sort
+    axiom theorems usage-list
+    (((name self) (name (sort-definition-sort self)))
+     ((print self port)
+      (format port "#{IMPS-sort-definition ~A: ~S ~S}"
+              (object-hash self) (name (sort-definition-sort self))
+              (sort-definition-quasi-sort self)))))
+
+(define (nonemptyness-formula sort-definition)
+        (or (sort-definition? sort-definition)
+            (imps-error "NONEMPTYNESS-FORMULA: ~S ~A." sort-definition
+                "is not a sort definition"))
+        (make-nonemptyness-formula
+            (sort-definition-quasi-sort sort-definition)))
+
+(define (add-nonemptyness-theorem sort-def)
+        (let ((theory (sort-definition-home-theory sort-def)))
+          (theory-add-theorem theory (nonemptyness-formula sort-def)
+              (concatenate-symbol 'nonemptyness-formula-for-
+                  (name sort-def) '_ (name theory)))))
+
+(define (build-sort-definition theory the-name quasi-sort . usage-list)
+        (or (and (theory? theory)
+                 (or (symbol? the-name) (anonymous-name? the-name))
+                 (closed? quasi-sort) (quasi-sort? quasi-sort)
+                 (contains-expression? (theory-language theory)
+                     quasi-sort))
+            (imps-error
+                "BUILD-SORT-DEFINITION: bad arguments ~S ~S ~S." theory
+                the-name quasi-sort))
+        (and (prop-sorting? (quasi-sort-domain quasi-sort))
+             (imps-error
+                 "BUILD-SORT-DEFINITION: ~S is of category PROP."
+                 quasi-sort))
+        (and (eq? theory the-kernel-theory)
+             (imps-error
+                 "BUILD-SORT-DEFINITION: The first argument may not be the
+                    kernel theory."))
+        (let* ((new-sort
+                   (or (name->sort (theory-language theory) the-name)
+                       (build-new-sort (quasi-sort-domain quasi-sort)
+                           the-name)))
+               (axiom (make-axiom-for-sort-definition theory the-name
+                          new-sort quasi-sort usage-list))
+               (theorems
+                   (make-theorems-for-sort-definition theory the-name
+                       new-sort quasi-sort usage-list))
+               (definition (make-sort-definition)))
+          (set (sort-definition-home-theory definition) theory)
+          (set (sort-definition-sort definition) new-sort)
+          (set (sort-definition-quasi-sort definition) quasi-sort)
+          (set (sort-definition-axiom definition) axiom)
+          (set (sort-definition-theorems definition) theorems)
+          (set (sort-definition-usage-list definition) usage-list)
+          definition))
+
+(define (make-axiom-for-sort-definition theory the-name new-sort
+            quasi-sort usage-list)
+        (let ((var (new-variable (type-of-sort new-sort) 'x
+                       (variables quasi-sort))))
+          (build-theorem theory
+              (forall (biconditional (defined-in var new-sort)
+                          (beta-reduce (apply-operator quasi-sort var)))
+                      var)
+              (concatenate-symbol the-name '-defining-axiom_
+                  (name theory))
+              usage-list)))
+
+(define (make-theorems-for-sort-definition theory the-name new-sort
+            quasi-sort usage-list)
+        (let* ((var1 (new-variable new-sort 'x (variables quasi-sort)))
+               (var2 (new-variable (type-of-sort new-sort) 'x
+                         (variables quasi-sort)))
+               (quasi-sort-domain (quasi-sort-domain quasi-sort))
+               (formula1
+                   (forall (beta-reduce
+                               (apply-operator quasi-sort var1))
+                           var1))
+               (formula2
+                   (forall (defined-in var1 quasi-sort-domain) var1))
+               (formula3
+                   (forall (implication
+                               (beta-reduce
+                                   (apply-operator quasi-sort var2))
+                               (defined-in var2 new-sort))
+                           var2)))
+          (make-set
+              (list (build-theorem theory formula1
+                        (concatenate-symbol the-name '-in-quasi-sort_
+                            (name theory))
+                        usage-list)
+                    (build-theorem theory formula2
+                        (concatenate-symbol the-name
+                            '-in-quasi-sort-domain_ (name theory))
+                        (cons 'd-r-convergence usage-list))
+                    (build-theorem theory formula3 value-false
+                        (cons 'd-r-convergence usage-list))))))
+
+(define (theory-add-sort-definition theory definition)
+        (let ((home-theory (sort-definition-home-theory definition))
+              (name (funcall name (sort-definition-sort definition))))
+          (and (eq? home-theory the-kernel-theory)
+               (imps-error "THEORY-ADD-SORT-DEFINITION: ~A."
+                   "Sort definitions may not be added to the kernel theory"))
+          (or (eq? home-theory theory)
+              (structural-sub-theory? home-theory theory)
+              (imps-error "THEORY-ADD-SORT-DEFINITION: ~A ~S ~A ~S"
+                  "The home-theory of" definition
+                  "is neither a structural sub-theory of nor equal to"
+                  theory))
+          (or (preserve-theory-language?)
+              (and (name->sort (theory-language theory) name)
+                   (imps-error
+                       "THEORY-ADD-SORT-DEFINITION: ~S ~A ~S ~A" name
+                       "has been used in the home-theory" theory
+                       "of the sort definition")))
+          (let ((super-theory
+                    (find-super-theory-having-sort theory name)))
+            (and super-theory
+                 (imps-error
+                     "THEORY-ADD-SORT-DEFINITION: ~S ~A ~S ~A ~S ~A"
+                     name "has been used in the super-theory"
+                     super-theory "of the home-theory" home-theory
+                     "of the sort definition")))
+          (let ((formula (nonemptyness-formula definition)))
+            (or (theory-entails-immediately? home-theory formula)
+                (theory-theorem? home-theory formula)
+                (imps-error
+                    "THEORY-ADD-SORT-DEFINITION: ~S ~A ~S; ~A ~S."
+                    (sort-definition-quasi-sort definition)
+                    "is not known to have a nonempty domain in"
+                    home-theory "prove" formula)))
+          (let ((theories
+                    (add-set-element home-theory
+                        (find-structural-super-theories home-theory))))
+            (set-walk
+                (lambda (theory-x)
+                  (theory-add-sort-definition-aux theory-x definition))
+                theories))
+          (let ((theorems (sort-definition-theorems definition)))
+            (or (empty-set? theorems)
+                (set-walk
+                    (lambda (theorem)
+                      (theory-add-theorem-without-event home-theory
+                          theorem value-false))
+                    theorems)))
+          definition))
+
+(define (theory-add-sort-definition-aux theory definition)
+        (let* ((sort (sort-definition-sort definition))
+               (resolver
+                   (extend-sort-resolver (theory-language theory)
+                       (name sort) sort))
+               (axiom (sort-definition-axiom definition)))
+          (theory-push-definition-event theory definition)
+          (or (preserve-theory-language?)
+              (extend-theory-language theory nil resolver))
+          (set (theory-sort-definitions theory)
+               (append-item-to-end-of-list definition
+                   (theory-sort-definitions theory)))
+          (theory-add-theorem-aux theory axiom value-false)))
+
+(define (theory-build-sort-definition theory the-name quasi-sort
+            . usage-list)
+        (or (get-existing-sort-definition theory the-name quasi-sort
+                usage-list)
+            (theory-add-sort-definition theory
+                (apply build-sort-definition theory the-name quasi-sort
+                       usage-list))))
+
+;;Note: Changed Wed May 14 16:46:10 EDT 1997 by jt
+
+(define (theory-build-sort-definition-with-witness theory the-name
+            quasi-sort witness . usage-list)
+        (or (get-existing-sort-definition theory the-name quasi-sort
+                usage-list)
+            (let ((def (apply build-sort-definition theory the-name
+                              quasi-sort usage-list)))
+              (or (eq? (type-of-sort (expression-sorting witness))
+                       (type-of-sort (quasi-sort-domain quasi-sort)))
+                  (imps-error
+                      "THEORY-BUILD-SORT-DEFINITION-WITH-WITNESS: ~A ~S ~A ~S."
+                      "The type of the sort of" witness
+                      "is not the same as the type of the domain of"
+                      quasi-sort))
+              (let ((formula (apply-operator quasi-sort witness)))
+                (or (theory-entails-immediately? theory formula)
+                    (theory-theorem? theory formula)
+                    (theory-theorem? theory
+                        (context-simplify-virgin
+                            (theory-null-context theory) formula
+                            (context-simplification-persistence)))
+                    (imps-error
+                        "THEORY-BUILD-SORT-DEFINITION-WITH-WITNESS: ~S ~A ~S ~A ~S."
+                        witness "is not known to satisfy" quasi-sort
+                        "in" theory))
+                (add-nonemptyness-theorem def)
+                (theory-add-sort-definition theory def)))))
+
+(define (theory-build-sort-definition-without-checking-nonemptyness
+            theory the-name quasi-sort . usage-list)
+        (or (get-existing-sort-definition theory the-name quasi-sort
+                usage-list)
+            (let ((def (apply build-sort-definition theory the-name
+                              quasi-sort usage-list)))
+              (add-nonemptyness-theorem def)
+              (theory-add-sort-definition theory def))))
+
+(define (get-existing-sort-definition theory the-name quasi-sort
+            usage-list)
+        (let ((def (theory-get-sort-definition theory the-name)))
+          (and def (eq? (sort-definition-quasi-sort def) quasi-sort)
+               (equal? (sort-definition-usage-list def) usage-list)
+               def)))
+
+(define (theory-get-sort-definition theory the-name)
+        (let ((defs (theory-sort-definitions theory)))
+          (iterate iter ((defs defs))
+                   (cond
+                     ((null? defs) value-false)
+                     ((eq? the-name
+                           (name (sort-definition-sort (car defs))))
+                      (car defs))
+                     (else (iter (cdr defs)))))))
+
+(define (theory-get-sort-definition-from-quasi-sort theory quasi-sort)
+        (let ((defs (theory-sort-definitions theory)))
+          (iterate iter ((defs defs))
+                   (cond
+                     ((null? defs) value-false)
+                     ((alpha-equivalent? quasi-sort
+                          (sort-definition-quasi-sort (car defs)))
+                      (car defs))
+                     (else (iter (cdr defs)))))))
+
+(define (theory-defined-sort? theory sort)
+        (and (sort? sort)
+             (true? (theory-get-sort-definition theory (name sort)))))
+
+(define (theory-defined-sorts theory)
+        (collect-set
+            (lambda (def)
+              (make-set (list (sort-definition-sort def))))
+            (theory-sort-definitions theory)))

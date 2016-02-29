@@ -1,0 +1,592 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment context-inequalities)
+
+(define (fully-instantiated-in-context? context expr)
+        (null? (set-difference (free-variables expr)
+                   (context-free-variables context))))
+
+(define (context-walk-inequalities processor proc params)
+        (let ((context (processor-parameters-context params)))
+          (if (<r processor)
+              (context-walk-entries-constructor-and-first-lead
+                  (lambda (expr)
+                    (if (eq? (<r processor) (operator expr))
+                        (funcall proc expr)))
+                  context apply-operator (<r processor)))
+          (if (<=r processor)
+              (context-walk-entries-constructor-and-first-lead
+                  (lambda (expr)
+                    (if (eq? (<=r processor) (operator expr))
+                        (funcall proc expr)))
+                  context apply-operator (<=r processor)))
+          (return)))
+
+(define (context-walk-negated-inequalities processor proc params)
+        (let ((context (processor-parameters-context params)))
+          (if (<r processor)
+              (context-walk-entries-constructor-and-first-lead
+                  (lambda (expr)
+                    (let ((unnegated
+                              (car (expression-components expr))))
+                      (if (and (application? unnegated)
+                               (eq? (<r processor)
+                                    (operator unnegated)))
+                          (funcall proc expr))))
+                  context negation (<r processor)))
+          (if (<=r processor)
+              (context-walk-entries-constructor-and-first-lead
+                  (lambda (expr)
+                    (let ((unnegated
+                              (car (expression-components expr))))
+                      (if (and (application? unnegated)
+                               (eq? (<=r processor)
+                                    (operator unnegated)))
+                          (funcall proc expr))))
+                  context negation (<=r processor)))
+          (return)))
+
+(define (context-walk-implicit-inequalities processor proc params)
+        (let ((context (processor-parameters-context params))
+              (persist (-1+ (processor-parameters-persistence params))))
+          (let* ((checker (lambda (term)
+                            (funcall (prune-simplification
+                                      context-entails-defined-in-sort?)
+                                     context term (base-sort processor)
+                                     persist))))
+            (context-walk-inequalities processor proc params)
+            (context-walk-negated-inequalities processor
+                (lambda (expr)
+                  (let ((applic (car (expression-components expr))))
+                    (let ((lhs (1starg applic)) (rhs (2ndarg applic)))
+                      (if (and (funcall checker lhs)
+                               (funcall checker rhs))
+                          (cond
+                            ((and (eq? (operator applic)
+                                       (<=r processor))
+                                  (not (null? (<r processor))))
+                             (funcall proc
+                                      (apply-operator (<r processor)
+                                       rhs lhs)))
+                            ((and (eq? (operator applic)
+                                       (<r processor))
+                                  (not (null? (<=r processor))))
+                             (funcall proc
+                                      (apply-operator (<=r processor)
+                                       rhs lhs)))
+                            (else value-false))))))
+                params)
+            (if (<=r processor)
+                (context-walk-equalities
+                    (lambda (expr)
+                      (let ((lhs (expression-lhs expr))
+                            (rhs (expression-rhs expr)))
+                        (if (and (funcall checker lhs)
+                                 (funcall checker rhs))
+                            (block (funcall proc
+                                    (apply-operator (<=r processor) lhs
+                                     rhs))
+                              (funcall proc
+                                       (apply-operator (<=r processor)
+                                        rhs lhs))))))
+                    context))
+            (return))))
+
+(define (context-walk-negated-equalities processor proc params)
+        (let ((context (processor-parameters-context params))
+              (persist (-1+ (processor-parameters-persistence params))))
+          (let* ((checker (lambda (term)
+                            (funcall (prune-simplification
+                                      context-entails-defined-in-sort?)
+                                     context term (base-sort processor)
+                                     persist))))
+            (context-walk-negated-equalities-or-quasi-equalities
+                (lambda (expr)
+                  (let ((unnegated (car (expression-components expr))))
+                    (if (and (funcall checker
+                                      (equivalence-lhs unnegated))
+                             (funcall checker
+                                      (equivalence-rhs unnegated)))
+                        (funcall proc expr))))
+                context))))
+
+(define (context-add-fully-instantiated-negated-equalities processor
+            params inequalities)
+        (if (<r processor)
+            (let ((context (processor-parameters-context params))
+                  (persist (-1+ (processor-parameters-persistence
+                                    params))))
+              (let* ((disjunctions nil)
+                     (simplify
+                         (lambda (expr)
+                           (funcall (prune-simplification
+                                     context-simplify)
+                                    context expr persist))))
+                (context-walk-negated-equalities processor
+                    (lambda (expr)
+                      (if (fully-instantiated-in-context? context expr)
+                          (let ((lhs (funcall simplify
+                                      (equivalence-lhs
+                                       (car
+                                        (expression-components expr)))))
+                                (rhs (funcall simplify
+                                      (equivalence-rhs
+                                       (car
+                                        (expression-components expr))))))
+                            (push disjunctions
+                                  (list (apply-operator (<r processor)
+                                         lhs rhs)
+                                        (apply-operator (<r processor)
+                                         rhs lhs))))))
+                    params)
+                (iterate loop
+                         ((disjunctions-of-conjuncts
+                              (list inequalities))
+                          (disjunctions disjunctions))
+                         (if (null? disjunctions)
+                             disjunctions-of-conjuncts
+                             (loop
+                               (append (map
+                                        (lambda (conjunct)
+                                          (cons (caar disjunctions)
+                                           conjunct))
+                                        disjunctions-of-conjuncts)
+                                       (map
+                                        (lambda (conjunct)
+                                          (cons (cadar disjunctions)
+                                           conjunct))
+                                        disjunctions-of-conjuncts))
+                               (cdr disjunctions))))))
+            disjunctions-of-conjuncts))
+
+(define (context-extract-fully-instantiated-inequalities processor
+            params)
+        (let ((context (processor-parameters-context params))
+              (persist (-1+ (processor-parameters-persistence params))))
+          (let* ((ineqs nil)
+                 (checker (lambda (term)
+                            (funcall (prune-simplification
+                                      context-entails-defined-in-sort?)
+                                     context term (base-sort processor)
+                                     persist)))
+                 (simplify
+                     (lambda (expr)
+                       (funcall (prune-simplification context-simplify)
+                                context expr persist))))
+            (context-walk-inequalities processor
+                (lambda (expr)
+                  (if (fully-instantiated-in-context? context expr)
+                      (let ((lhs (funcall simplify (1starg expr)))
+                            (rhs (funcall simplify (2ndarg expr))))
+                        (push ineqs
+                              (apply-operator (operator expr) lhs rhs)))))
+                params)
+            (context-walk-negated-inequalities processor
+                (lambda (expr)
+                  (if (fully-instantiated-in-context? context expr)
+                      (let ((applic (car (expression-components expr))))
+                        (let ((lhs (funcall simplify (1starg applic)))
+                              (rhs (funcall simplify (2ndarg applic))))
+                          (if (and (funcall checker lhs)
+                                   (funcall checker rhs))
+                              (cond
+                                ((and (eq? (operator applic)
+                                       (<=r processor))
+                                      (not (null? (<r processor))))
+                                 (push ineqs
+                                       (apply-operator (<r processor)
+                                        rhs lhs)))
+                                ((and (eq? (operator applic)
+                                       (<r processor))
+                                      (not (null? (<=r processor))))
+                                 (push ineqs
+                                       (apply-operator (<=r processor)
+                                        rhs lhs)))
+                                (else value-false)))))))
+                params)
+            (if (<=r processor)
+                (context-walk-equalities
+                    (lambda (expr)
+                      (if (fully-instantiated-in-context? context expr)
+                          (let ((lhs (expression-lhs expr))
+                                (rhs (expression-rhs expr)))
+                            (if (and (funcall checker lhs)
+                                     (funcall checker rhs))
+                                (let ((lhs (funcall simplify lhs))
+                                      (rhs (funcall simplify rhs)))
+                                  (block (push ineqs
+                                          (apply-operator
+                                           (<=r processor) lhs rhs))
+                                    (push ineqs
+                                     (apply-operator (<=r processor)
+                                      rhs lhs))))))))
+                    context))
+            (make-set ineqs))))
+
+(define (context-add-fully-instantiated-inequalities-and-negated-equalities
+            processor params inequalities)
+        (context-add-fully-instantiated-negated-equalities processor
+            params
+            (append (context-extract-fully-instantiated-inequalities
+                        processor params)
+                    inequalities)))
+
+(define (filter-discretizable-inequalities processor context ineqs)
+        (map (lambda (x) (discretize-inequality processor context x))
+             ineqs))
+
+(define (discretize-inequality processor context ineq)
+        (if (and (less-than? processor ineq)
+                 (any? (lambda (x)
+                         (and (funcall (prune-simplification
+                                        context-immediately-entails-defined-in-sort?)
+                                       context (1starg ineq) x)
+                              (funcall (prune-simplification
+                                        context-immediately-entails-defined-in-sort?)
+                                       context (2ndarg ineq) x)))
+                       (processor-discrete-sorts processor))
+                 (<=r processor))
+            (apply-operator (<=r processor)
+                (apply-operator (+r processor) (1starg ineq)
+                    (number->scalar-constant processor 1))
+                (2ndarg ineq))
+            ineq))
+
+(define (coerce-to-monomial processor expr)
+        (cond
+          ((and (multiplication? processor expr)
+                (let ((args (associative-arguments expr)))
+                  (if (scalar-constant? processor (car args)) args
+                      value-false)))
+           =>
+           (lambda (args)
+             (cons (expression-alpha-root
+                       (form-product-expression processor (cdr args)))
+                   (scalar-constant->numerical-object processor
+                       (car args)))))
+          (else (cons expr 1))))
+
+(define (coerce-to-monomial-or-find-and-install processor form expr)
+        (let* ((monom (coerce-to-monomial processor
+                          (expression-alpha-root expr)))
+               (find (assq (car monom) form)))
+          (if find
+              (block (set (cdr find)
+                          (numerical-+ (cdr find) (cdr monom)))
+                form)
+              (cons monom form))))
+
+(define (compute-constant-term-for-expression processor expr)
+        (cond
+          ((addition? processor expr)
+           (let ((args (associative-arguments expr)))
+             (iterate loop ((args args) (the-constants nil))
+                      (cond
+                        ((null? args) (apply numerical-+ the-constants))
+                        ((scalar-constant? processor (car args))
+                         (loop
+                           (cdr args)
+                           (cons (scalar-constant->numerical-object
+                                     processor (car args))
+                                 the-constants)))
+                        (else (loop (cdr args) the-constants))))))
+          ((scalar-constant? processor expr)
+           (scalar-constant->numerical-object processor expr))
+          (else 0)))
+
+(define (compute-linear-form-for-expression processor expr)
+        (cond
+          ((addition? processor expr)
+           (let ((args (associative-arguments expr)))
+             (iterate loop ((args args) (form nil))
+                      (cond
+                        ((null? args) form)
+                        ((scalar-constant? processor (car args))
+                         (loop (cdr args) form))
+                        (else (loop
+                                (cdr args)
+                                (coerce-to-monomial-or-find-and-install
+                                    processor form (car args))))))))
+          ((scalar-constant? processor expr) nil)
+          (else (list (coerce-to-monomial processor
+                          (expression-alpha-root expr))))))
+
+(define (compute-linear-inequality-for-expression processor expr)
+        (cond
+          ((or (less-than? processor expr)
+               (less-than-or-equals? processor expr))
+           (let* ((op (if (less-than? processor expr) < <=))
+                  (lhs-form
+                      (compute-linear-form-for-expression processor
+                          (1starg expr)))
+                  (rhs-form
+                      (compute-linear-form-for-expression processor
+                          (2ndarg expr)))
+                  (lhs-constant
+                      (compute-constant-term-for-expression processor
+                          (1starg expr)))
+                  (rhs-constant
+                      (compute-constant-term-for-expression processor
+                          (2ndarg expr)))
+                  (lhs (build-linear-inequality lhs-form lhs-constant
+                           op))
+                  (rhs (build-linear-inequality rhs-form rhs-constant
+                           op)))
+             (inequality-subtract rhs lhs)))
+          (else value-false)))
+
+(define (less-than? processor expr)
+        (and (application? expr) (eq? (operator expr) (<r processor))))
+
+(define (less-than-or-equals? processor expr)
+        (and (application? expr) (eq? (operator expr) (<=r processor))))
+
+(define (infeasible-set? processor exprs)
+        (let ((ineqs (map (lambda (x)
+                            (compute-linear-inequality-for-expression
+                                processor x))
+                          (make-set exprs))))
+          (linear-inequality-set-infeasible? ineqs)))
+
+(define (context-entails-linear-inequality? processor expr params)
+        (if (and (<r processor) (<=r processor)
+                 (or (less-than? processor expr)
+                     (less-than-or-equals? processor expr)))
+            (let ((context (processor-parameters-context params)))
+              (let* ((disjunction-ineqs
+                         (context-add-fully-instantiated-inequalities-and-negated-equalities
+                             processor params
+                             (context-and-theory-inequality-instances-containing-hot-subterms
+                                 processor expr params))))
+                (let ((neg-expr
+                          (if (less-than? processor expr)
+                              (apply-operator (<=r processor)
+                                  (2ndarg expr) (1starg expr))
+                              (apply-operator (<r processor)
+                                  (2ndarg expr) (1starg expr)))))
+                  (every? (lambda (ineqs)
+                            (infeasible-set? processor
+                                (filter-discretizable-inequalities
+                                    processor context
+                                    (cons neg-expr ineqs))))
+                          disjunction-ineqs))))
+            value-false))
+
+(define (context-entails-linear-equality? processor expr params)
+        (let ((context (processor-parameters-context params)))
+          (if (and (<r processor) (equation? expr))
+              (let ((disjunction-ineqs
+                        (map (lambda (ineqs)
+                               (filter-discretizable-inequalities
+                                   processor context ineqs))
+                             (context-add-fully-instantiated-inequalities-and-negated-equalities
+                                 processor params
+                                 (context-and-theory-inequality-instances-containing-hot-subterms
+                                     processor expr params)))))
+                (let ((neg-1 (discretize-inequality processor context
+                                 (apply-operator (<r processor)
+                                     (cadr
+                                      (expression-components expr))
+                                     (car (expression-components expr)))))
+                      (neg-2 (discretize-inequality processor context
+                                 (apply-operator (<r processor)
+                                     (car (expression-components expr))
+                                     (cadr
+                                      (expression-components expr))))))
+                  (and (every? (lambda (ineqs)
+                                 (infeasible-set? processor
+                                     (cons neg-1 ineqs)))
+                               disjunction-ineqs)
+                       (every? (lambda (ineqs)
+                                 (infeasible-set? processor
+                                     (cons neg-2 ineqs)))
+                               disjunction-ineqs))))
+              value-false)))
+
+(define (equality-or-inequality-hot-subterms processor expr)
+        (cond
+          ((or (less-than? processor expr)
+               (less-than-or-equals? processor expr))
+           (set-union (term-hot-subterms processor (1starg expr))
+               (term-hot-subterms processor (2ndarg expr))))
+          ((equation? expr)
+           (set-union
+               (term-hot-subterms processor (expression-lhs expr))
+               (term-hot-subterms processor (expression-rhs expr))))
+          (else nil)))
+
+(define (term-hot-subterms processor expr)
+        (flet (((monomial-hot-subterm expr)
+                  (cond
+                    ((and (multiplication? processor expr)
+                          (scalar-constant? processor (1starg expr)))
+                     (2ndarg expr))
+                    (else expr))))
+          (cond
+            ((addition? processor expr)
+             (let ((args (associative-arguments expr)))
+               (iterate loop ((args args) (form nil))
+                        (cond
+                          ((null? args) form)
+                          ((scalar-constant? processor (car args))
+                           (loop (cdr args) form))
+                          (else (loop
+                                  (cdr args)
+                                  (add-set-element
+                                      (monomial-hot-subterm (car args))
+                                      form)))))))
+            ((scalar-constant? processor expr) nil)
+            (else (list (monomial-hot-subterm expr))))))
+
+(define consult-theory-inequalities?
+        (make-simple-switch 'consult-theory-inequalities? boolean?
+            value-true))
+
+(define (context-and-theory-inequality-instances-containing-hot-subterms
+            processor expr params)
+        (if (< 0 (processor-parameters-persistence params))
+            (let ((hot-terms (equality-or-inequality-hot-subterms
+                                 processor expr)))
+              (append (context-inequality-instances-containing-hot-subterms
+                          processor hot-terms params)
+                      (if (consult-theory-inequalities?)
+                          (theory-inequality-instances-containing-hot-subterms
+                              processor hot-terms params)
+                          nil)))
+            nil))
+
+(define (theory-walk-inequalities processor proc theory)
+        (if (<r processor)
+            (walk-theory-theorems-matching-constructor-and-first-lead
+                (lambda (thm)
+                  (let ((expr (universal-matrix (theorem-formula thm)
+                                  nil)))
+                    (if (eq? (<r processor) (operator expr))
+                        (funcall proc expr))))
+                theory apply-operator (<r processor)))
+        (if (<=r processor)
+            (walk-theory-theorems-matching-constructor-and-first-lead
+                (lambda (thm)
+                  (let ((expr (universal-matrix (theorem-formula thm)
+                                  nil)))
+                    (if (eq? (<=r processor) (operator expr))
+                        (funcall proc expr))))
+                theory apply-operator (<=r processor)))
+        (return))
+
+(define (context-inequality-instances-containing-hot-subterms processor
+            hot-terms params)
+        (if hot-terms
+            (let ((persist (processor-parameters-persistence params))
+                  (context (processor-parameters-context params))
+                  (new-instances nil))
+              (context-walk-implicit-inequalities processor
+                  (lambda (ineq)
+                    (let ((ineq-hot-terms
+                              (equality-or-inequality-hot-subterms
+                                  processor ineq)))
+                      (walk (lambda (ineq-hot-term)
+                              (walk (lambda (y)
+                                      (if
+                                       (fully-instantiated-in-context?
+                                        context y)
+                                       (let
+                                        ((try
+                                          (funcall
+                                           (prune-simplification
+                                            context-match)
+                                           context y ineq-hot-term
+                                           persist)))
+                                         (if (succeed? try)
+                                          (let
+                                           ((new
+                                             (apply-substitution try
+                                              ineq)))
+                                            (if
+                                             (fully-instantiated-in-context?
+                                              context new)
+                                             (push new-instances new)))))))
+                                    hot-terms))
+                            ineq-hot-terms)))
+                  params)
+              (make-set new-instances))))
+
+(define (theory-inequality-instances-containing-hot-subterms processor
+            hot-terms params)
+        (let ((context (processor-parameters-context params)))
+          (if hot-terms
+              (let ((new-instances nil))
+                (theory-walk-inequalities processor
+                    (lambda (ineq)
+                      (let ((ineq-hot-terms
+                                (equality-or-inequality-hot-subterms
+                                    processor ineq)))
+                        (walk (lambda (x)
+                                (if (subset? (free-variables ineq)
+                                     (free-variables x))
+                                    (walk
+                                     (lambda (y)
+                                       (let ((try (match y x)))
+                                         (if
+                                          (and (succeed? try)
+                                           (funcall
+                                            (prune-simplification
+                                             context-strongly-entails-substitution-defined?)
+                                            context try 0))
+                                          (let
+                                           ((new
+                                             (apply-substitution try
+                                              ineq)))
+                                            (push new-instances new)))))
+                                     hot-terms)))
+                              ineq-hot-terms)))
+                    (context-theory context))
+                (make-set new-instances)))))

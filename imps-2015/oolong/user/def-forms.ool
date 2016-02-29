@@ -1,0 +1,1233 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment def-forms)
+
+(eval-always
+
+(define (collect-modifier-and-keyword-arguments-for-def-form args)
+  (iterate loop
+	   ((modifiers nil) (keyword-args nil) (args args))
+	   (if (null? args) (return modifiers keyword-args)
+	       (if (symbol? (car args))
+		   (loop
+		    (cons (car args) modifiers)
+		    keyword-args
+		    (cdr args))
+		   (if (and (proper-list? (car args))
+			    (symbol? (caar args)))
+		       (loop
+			modifiers
+			(cons (car args) keyword-args)
+			(cdr args))
+		       (imps-error
+			"COLLECT-MODIFIER-AND-KEYWORD-ARGUMENTS-FOR-DEF-FORM: Bad argument ~A:"
+			(car args)))))))
+
+(define (modifier-and-keyword-check-for-def-form modifiers
+						 keyword-args admissible-modifiers admissible-keywords
+						 required-keywords)
+  (walk (lambda (modifier)
+	  (or (memq? modifier admissible-modifiers)
+	      (imps-error
+	       "MODIFIER-AND-KEYWORD-CHECK-FOR-DEF-FORM: Bad modifier ~A."
+	       modifier)))
+	modifiers)
+  (walk (lambda (keyword-arg)
+	  (or (memq? (car keyword-arg)
+		     (cons 'syntax admissible-keywords))
+	      (imps-error
+	       "MODIFIER-AND-KEYWORD-CHECK-FOR-DEF-FORM: Bad keyword ~A."
+	       (car keyword-arg))))
+	keyword-args)
+  (walk (lambda (keyword)
+	  (or (memq? keyword (map car keyword-args))
+	      (imps-error
+	       "MODIFIER-AND-KEYWORD-CHECK-FOR-DEF-FORM: The required keyword ~A is missing."
+	       keyword)))
+	required-keywords))
+
+
+(define (def-form-syntax-bind keyword-args sexp)
+  (let ((syntax (cadr (assq 'syntax keyword-args))))
+    (if syntax (list 'with-imps-syntax syntax sexp) sexp)))
+
+;;;    (define (wrap-with-def-form-bind the-name the-kind obarray-bind?
+;;;                keyword-args sexp)
+;;;            (def-form-syntax-bind keyword-args sexp))
+
+
+
+(define-syntax (def-compound-macete the-name form . args)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form args)
+             (def-form-syntax-bind
+                 keyword-args
+                 (list 'build-and-install-macete-from-sexp
+                       (list 'quote form) (list 'quote the-name)))))
+
+(define-syntax (def-schematic-macete the-name formula . args)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form args)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args '(null transportable) '(theory)
+                 '(theory))
+             (let* ((theory-or-language-name
+                        (cadr (assq 'theory keyword-args))))
+               (if (subset? '(null transportable) modifiers)
+                   (def-form-syntax-bind keyword-args
+                       (list 'add-unsafe-transportable-macete
+                             (list 'quote the-name)
+                             (list 'qr formula
+                                   (list 'theory-language
+                                    (list 'name->theory
+                                     (list 'quote
+                                      theory-or-language-name))))
+                             (list 'name->theory
+                                   (list 'quote
+                                    theory-or-language-name))))
+                   (let ((proc-name
+                             (if (subset? '(transportable) modifiers)
+                                 'install-transportable-macete
+                                 (if (subset? '(null) modifiers)
+                                     'add-unsafe-elementary-macete
+                                     'add-elementary-macete))))
+                     (def-form-syntax-bind keyword-args
+                         (list proc-name (list 'quote the-name)
+                               (list 'qr formula
+                                     (list 'or
+                                      (list 'name->language
+                                       (list 'quote
+                                        theory-or-language-name))
+                                      (list 'theory-language
+                                       (list 'name->theory
+                                        (list 'quote
+                                         theory-or-language-name))))))))))))
+
+(define-syntax (def-language the-name . language-definition-forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 language-definition-forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args nil
+                 '(extensible sorts base-types embedded-language
+                      embedded-languages constants)
+                 nil)
+             (def-form-syntax-bind 
+                 keyword-args
+                 (list 'language-from-definition
+                       (list 'quote
+                             (list* the-name language-definition-forms))))))
+
+(define-syntax
+    (def-sublanguage the-name . sublanguage-definition-forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 sublanguage-definition-forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args nil
+                 '(superlanguage languages sorts constants)
+                 '(superlanguage))
+             (let ((superlanguage-name
+                       (cadr (assq 'superlanguage keyword-args)))
+                   (language-names
+                       (cdr (assq 'languages keyword-args)))
+                   (sort-names (cdr (assq 'sorts keyword-args)))
+                   (constant-names
+                       (cdr (assq 'constants keyword-args))))
+               (def-form-syntax-bind
+                   keyword-args
+                   (list 'make-sublanguage (list 'quote the-name)
+                         (list 'quote superlanguage-name)
+                         (list 'quote language-names)
+                         (list 'quote sort-names)
+                         (list 'quote constant-names))))))
+
+(define-syntax (def-theory the-name . theory-definition-forms)
+  (receive (modifiers keyword-args)
+    (collect-modifier-and-keyword-arguments-for-def-form
+     theory-definition-forms)
+    (modifier-and-keyword-check-for-def-form modifiers
+					     keyword-args nil
+					     '(language component-theories axioms
+							distinct-constants)
+					     nil)
+    (let ((axioms (copy-list (assq 'axioms theory-definition-forms))))
+      (if axioms
+	  (set (cdr axioms)
+	       (map (lambda (axiom-spec)
+		      (if (string? (car axiom-spec))
+			  (list nil (car axiom-spec)
+				(cdr axiom-spec))
+			  (list (car axiom-spec)
+				(cadr axiom-spec)
+				(cddr axiom-spec))))
+		    (cdr axioms))))
+      (let ((theory-definition-forms 
+	     (list axioms
+		   (assq 'language  theory-definition-forms)
+		   (assq 'component-theories theory-definition-forms)
+		   (assq 'distinct-constants theory-definition-forms))))
+					       
+	(def-form-syntax-bind
+	  keyword-args
+	  (list 'theory-from-definition
+		(list 'quote
+		      (list* the-name theory-definition-forms))))))))
+
+(define-syntax
+    (def-atomic-sort the-name quasi-sort-string
+        . sort-definition-forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 sort-definition-forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args nil '(theory usages witness) '(theory))
+             (let ((theory-name (cadr (assq 'theory keyword-args)))
+                   (usage-list (cdr (assq 'usages keyword-args)))
+                   (witness-string (cadr (assq 'witness keyword-args))))
+               (if (not witness-string)
+                   (def-form-syntax-bind keyword-args
+                       (list 'apply 'theory-build-sort-definition
+                             (list 'name->theory
+                                   (list 'quote theory-name))
+                             (list 'quote the-name)
+                             (list 'qr quasi-sort-string
+                                   (list 'theory-language
+                                    (list 'name->theory
+                                     (list 'quote theory-name))))
+                             (list 'quote usage-list)))
+                   (def-form-syntax-bind keyword-args
+                       (list 'apply
+                             'theory-build-sort-definition-with-witness
+                             (list 'name->theory
+                                   (list 'quote theory-name))
+                             (list 'quote the-name)
+                             (list 'qr quasi-sort-string
+                                   (list 'theory-language
+                                    (list 'name->theory
+                                     (list 'quote theory-name))))
+                             (list 'qr witness-string
+                                   (list 'theory-language
+                                    (list 'name->theory
+                                     (list 'quote theory-name))))
+                             (list 'quote usage-list)))))))
+
+(define-syntax
+    (def-constant the-name defining-expr-string
+        . direct-definition-forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 direct-definition-forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args nil '(theory sort usages) '(theory))
+             (let ((theory-name (cadr (assq 'theory keyword-args)))
+                   (sort-string (cadr (assq 'sort keyword-args)))
+                   (usage-list (cdr (assq 'usages keyword-args))))
+               (if sort-string
+                   (def-form-syntax-bind keyword-args
+                       (list 'let
+                             (list (list 'theory
+                                    (list 'name->theory
+                                     (list 'quote theory-name))))
+                             (list 'theory-build-definition 'theory
+                                   (list 'quote the-name)
+                                   (list 'qr defining-expr-string
+                                    '(theory-language theory))
+                                   (list 'string->sort
+                                    '(theory-language theory)
+                                    sort-string)
+                                   (list 'quote usage-list))))
+                   (def-form-syntax-bind
+                       keyword-args
+                       (list 'let
+                             (list (list 'theory
+                                    (list 'name->theory
+                                     (list 'quote theory-name))))
+                             (list 'theory-build-definition 'theory
+                                   (list 'quote the-name)
+                                   (list 'qr defining-expr-string
+                                    '(theory-language theory))
+                                   (list 'expression-sorting
+                                    (list 'qr defining-expr-string
+                                     '(theory-language theory)))
+                                   (list 'quote usage-list))))))))
+
+(define-syntax
+    (def-recursive-constant the-names defining-func-strings
+        . rec-def-forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 rec-def-forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args nil '(theory definition-name usages)
+                 '(theory))
+             (let ((theory-name (cadr (assq 'theory keyword-args)))
+                   (constant-name-list
+                       (if (list? the-names) the-names
+                           (list the-names)))
+                   (functional-string-list
+                       (if (list? defining-func-strings)
+                           defining-func-strings
+                           (list defining-func-strings)))
+                   (definition-name
+                       (cadr (assq 'definition-name keyword-args)))
+                   (usage-list (cdr (assq 'usages keyword-args))))
+               (def-form-syntax-bind
+		keyword-args
+                   (list 'apply 'theory-build-recursive-definition
+                         (list 'name->theory (list 'quote theory-name))
+                         (list 'quote constant-name-list)
+                         (list 'map
+                               (list 'lambda '(fs)
+                                     (list 'qr 'fs
+                                      (list 'theory-language
+                                       (list 'name->theory
+                                        (list 'quote theory-name)))))
+                               (list 'quote functional-string-list))
+                         (list 'quote definition-name)
+                         (list 'quote usage-list))))))
+
+(define-syntax (def-renamer the-name . renamer-forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 renamer-forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args nil '(pairs) '(pairs))
+             (let ((pairs (cdr (assq 'pairs keyword-args))))
+               (def-form-syntax-bind
+                   keyword-args
+                   (list 'define the-name
+                         (list 'lambda '(x)
+                               (list 'let
+                                     (list
+                                      (list 'pair
+                                       (list 'assq 'x
+                                        (list 'quote pairs))))
+                                     '(if pair (cadr pair) x))))))))
+
+(define-syntax
+    (def-quasi-constructor the-name lambda-expr-string
+        . quasi-constructor-forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 quasi-constructor-forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args nil '(language fixed-theories)
+                 '(language))
+             (let ((language-or-theory-name
+                       (cadr (assq 'language keyword-args)))
+                   (fixed-theories-name-list
+                       (cdr (assq 'fixed-theories keyword-args))))
+               (def-form-syntax-bind keyword-args
+                   (list 'build-quasi-constructor-from-lambda-expression
+                         (list 'quote the-name)
+                         (list 'let
+                               (list (list 'language
+                                      (list 'or
+                                       (list 'name->language
+                                        (list 'quote
+                                         language-or-theory-name))
+                                       (list 'theory-language
+                                        (list 'name->theory
+                                         (list 'quote
+                                          language-or-theory-name))))))
+                               (list 'qr lambda-expr-string 'language))
+                         (list 'map 'name->theory
+                               (list 'quote fixed-theories-name-list)))))))
+
+(define (theory-verify-etc lemma? . rest)
+        (if (not lemma?)
+            (block0 (apply theory-verify-modify-and-add-theorem-aux
+                           rest)
+                    (clear-em))
+            value-false))
+
+(define-syntax (def-theorem the-name formula-spec . theorems-forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 theorems-forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args '(reverse lemma)
+                 '(theory usages translation macete home-theory proof)
+                 '(theory))
+             (let* ((lemma (memq? 'lemma modifiers))
+                    (reverse (car (memq 'reverse modifiers)))
+                    (theory-name (cadr (assq 'theory keyword-args)))
+                    (translation-name
+                        (cadr (assq 'translation keyword-args)))
+                    (macete-name (cadr (assq 'macete keyword-args)))
+                    (usage-list (cdr (assq 'usages keyword-args)))
+                    (home-theory-name
+                        (cond
+                          ((cadr (assq 'home-theory keyword-args)))
+                          (translation-name
+                              (name (translation-source-theory
+                                     (name->translation
+                                      translation-name))))
+                          (else theory-name)))
+                    (proof-spec (cadr (assq 'proof keyword-args))))
+               (if reverse
+                   (def-form-syntax-bind
+                       keyword-args
+                       (list 'list
+                             (list 'theory-verify-etc
+                                   (list 'and (list 'quote lemma)
+                                    '(quick-load?))
+                                   (list 'quote theory-name)
+                                   (list 'quote formula-spec)
+                                   (list 'quote the-name)
+                                   (list 'quote usage-list)
+                                   (list 'quote translation-name)
+                                   (list 'quote macete-name)
+                                   (list 'quote home-theory-name)
+                                   (list 'quote proof-spec))
+                             (list 'theory-verify-etc
+                                   (list 'and (list 'quote lemma)
+                                    '(quick-load?))
+                                   (list 'quote theory-name)
+                                   (list 'quote formula-spec)
+                                   (list 'quote the-name)
+                                   (list 'quote usage-list)
+                                   (list 'quote translation-name)
+                                   (list 'quote macete-name)
+                                   (list 'quote home-theory-name)
+                                   (list 'quote proof-spec) 'value-true)))
+                   (def-form-syntax-bind
+                       keyword-args
+                       (list 'theory-verify-etc
+                             (list 'and (list 'quote lemma)
+                                   '(quick-load?))
+                             (list 'quote theory-name)
+                             (list 'quote formula-spec)
+                             (list 'quote the-name)
+                             (list 'quote usage-list)
+                             (list 'quote translation-name)
+                             (list 'quote macete-name)
+                             (list 'quote home-theory-name)
+                             (list 'quote proof-spec)))))))
+
+(define-syntax
+    (def-inductor the-name induction-principle
+        . inductor-definition-forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 inductor-definition-forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args nil
+                 '(theory dont-unfold translation base-case-hook
+                          induction-step-hook)
+                 '(theory))
+             (let* ((theory-name (cadr (assq 'theory keyword-args)))
+                    (dont-unfold-names
+                        (cdr (assq 'dont-unfold keyword-args)))
+                    (base-case-name
+                        (cadr (assq 'base-case-hook keyword-args)))
+                    (induction-step-name
+                        (cadr (assq 'induction-step-hook keyword-args)))
+                    (base-case-hook
+                        (or (name->macete base-case-name)
+                            (name->command base-case-name)))
+                    (induction-step-hook
+                        (or (name->macete induction-step-name)
+                            (name->command induction-step-name)))
+                    (translation-name
+                        (cadr (assq 'translation keyword-args))))
+               (if (and induction-step-name
+                        (null? induction-step-hook))
+                   (imps-error
+                       "DEF-INDUCTOR: No macete or command with name ~A."
+                       induction-step-name))
+               (if (and base-case-name (null? base-case-hook))
+                   (imps-error
+                       "DEF-INDUCTOR: No macete or command with name ~A."
+                       base-case-name))
+               (def-form-syntax-bind
+                   keyword-args
+                   (list 'let*
+                         (list (list 'theory
+                                     (list 'name->theory
+                                      (list 'quote theory-name)))
+                               (list 'target-theory
+                                     (if translation-name
+                                      (list 'translation-target-theory
+                                       (list 'name->translation
+                                        (list 'quote translation-name)))
+                                      'theory)))
+                         (list 'reset-dont-unfold
+                               (if translation-name
+                                   (list
+                                    'build-translated-inductor-from-induction-principle
+                                    (list 'name->translation
+                                     (list 'quote translation-name))
+                                    (if (string? induction-principle)
+                                     (list 'qr induction-principle
+                                      '(theory-language theory))
+                                     (list 'name->theorem
+                                      (list 'quote induction-principle)))
+                                    (list 'quote the-name)
+                                    (list 'or
+                                     (list 'name->macete
+                                      (list 'quote base-case-name))
+                                     (list 'name->command
+                                      (list 'quote base-case-name)))
+                                    (list 'or
+                                     (list 'name->macete
+                                      (list 'quote induction-step-name))
+                                     (list 'name->command
+                                      (list 'quote induction-step-name))))
+                                   (list
+                                    'build-inductor-from-induction-principle
+                                    (if (string? induction-principle)
+                                     (list 'qr induction-principle
+                                      '(theory-language theory))
+                                     (list 'name->theorem
+                                      (list 'quote induction-principle)))
+                                    (list 'quote the-name)
+                                    (list 'or
+                                     (list 'name->macete
+                                      (list 'quote base-case-name))
+                                     (list 'name->command
+                                      (list 'quote base-case-name)))
+                                    (list 'or
+                                     (list 'name->macete
+                                      (list 'quote induction-step-name))
+                                     (list 'name->command
+                                      (list 'quote induction-step-name)))))
+                               (list 'quote dont-unfold-names)
+                               'target-theory))))))
+
+(define (reset-dont-unfold inductor dont-unfold-names theory)
+        (set (inductor-dont-unfold inductor)
+             (if (memq? value-true dont-unfold-names) value-true
+                 (map (lambda (symb)
+                        (find-constant (theory-language theory) symb))
+                      dont-unfold-names)))
+        inductor)
+
+(define-syntax (def-theory-ensemble the-name . theory-ensemble-forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 theory-ensemble-forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args nil
+                 '(replica-renamer fixed-theories base-theory) nil)
+             (let ((renamer (cadr (assq 'replica-renamer keyword-args)))
+                   (fixed-theories
+                       (cdr (assq 'fixed-theories keyword-args)))
+                   (theory-name
+                       (or (cadr (assq 'base-theory keyword-args))
+                           the-name))
+                   (ensemble-name the-name))
+               (or (null? renamer) (symbol? renamer)
+                   (imps-error
+                       "DEF-THEORY-ENSEMBLE: renamer must be a symbol."))
+               (def-form-syntax-bind keyword-args
+                   (list 'build-theory-ensemble
+                         (list 'name->theory (list 'quote theory-name))
+                         (if fixed-theories
+                             (list* 'list
+                                    (map
+                                     (lambda (x)
+                                       (list 'name->theory
+                                        (list 'quote x)))
+                                     fixed-theories))
+                             '(fixed-theories-set))
+                         (if renamer renamer 'subscripting-renamer)
+                         (list 'quote ensemble-name))))))
+
+(define (digest-processor-specs type forms)
+        (if (symbol? forms) (list (list type forms))
+            (if (null? forms) forms
+                (receive (modifiers keyword-args)
+                         (collect-modifier-and-keyword-arguments-for-def-form
+                             forms)
+                         (modifier-and-keyword-check-for-def-form
+                             modifiers keyword-args
+                             '(commutes use-numerals-for-ground-terms)
+                             '(scalars operations) '(operations))
+                         (if (memq? 'commutes modifiers)
+                             (push keyword-args '(commutes value-true)))
+                         (if (memq? 'use-numerals-for-ground-terms
+                                    modifiers)
+                             (push keyword-args
+                                   '(numerals-for-ground-terms? value-true)))
+                         (list (list type keyword-args))))))
+
+(define-syntax (def-algebraic-processor the-name . processor-forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 processor-forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args '(cancellative)
+                 '(language base exponent coefficient) '(language))
+             (let ((cancellative (memq? 'cancellative modifiers))
+                   (language-name (cadr (assq 'language keyword-args)))
+                   (base-forms (cadr (assq 'base keyword-args)))
+                   (exponent-forms
+                       (cadr (assq 'exponent keyword-args)))
+                   (coefficient-forms
+                       (cadr (assq 'coefficient keyword-args))))
+               (def-form-syntax-bind keyword-args
+                   (list 'let
+                         (list (list 'processor
+                                     (list
+                                      'algebraic-processor-from-definition
+                                      (list 'quote
+                                       (list* the-name
+                                        (list 'language language-name)
+                                        (append
+                                         (digest-processor-specs 'base
+                                          base-forms)
+                                         (digest-processor-specs
+                                          'exponent exponent-forms)
+                                         (digest-processor-specs
+                                          'coefficient
+                                          coefficient-forms)))))))
+                         (list 'set
+                               '(algebraic-processor-cancellation-valid?
+                                    processor)
+                               (list 'or (list 'quote cancellative)
+                                     '(algebraic-processor-cancellation-valid?
+                                       processor)))
+                         'processor)))))
+
+(define-syntax (def-order-processor the-name . processor-forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 processor-forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args nil
+                 '(algebraic-processor operations discrete-sorts)
+                 '(algebraic-processor operations))
+             (let ((algebraic-processor-name
+                       (cadr (assq 'algebraic-processor keyword-args)))
+                   (operations (cdr (assq 'operations keyword-args)))
+                   (discrete-sorts
+                       (cdr (assq 'discrete-sorts keyword-args))))
+               (def-form-syntax-bind keyword-args
+                   (list 'order-processor-from-definition
+                         (list 'quote
+                               (list the-name
+                                     (list 'algebraic-processor
+                                      algebraic-processor-name)
+                                     (list* 'operations operations)
+                                     (list* 'discrete-sorts
+                                      discrete-sorts))))))))
+
+(define (fixed-theories-from-keywords args)
+        (cond
+          ((assq 'fixed-theories args) =>
+           (lambda (x)
+             (list* 'list
+                    (map (lambda (x)
+                           (list 'name->theory (list 'quote x)))
+                         (cdr x)))))
+          (else value-false)))
+
+(define-syntax
+    (def-theory-ensemble-multiple ensemble-name multiple . args)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form args)
+             (let ((fixed-theories (fixed-theories-from-keywords args)))
+               (def-form-syntax-bind
+                   keyword-args
+                   (list 'let
+                         (list (list 'ensemble
+                                     (if fixed-theories
+                                      (list 'find-theory-ensemble
+                                       (list 'name->theory
+                                        (list 'quote ensemble-name))
+                                       fixed-theories)
+                                      (list 'name->theory-ensemble
+                                       (list 'quote ensemble-name)))))
+                         (list 'theory-ensemble-find-theory-multiple
+                               'ensemble multiple))))))
+
+(define-syntax
+    (def-theory-ensemble-overloadings ensemble-name multiples . args)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form args)
+             (let ((fixed-theories (fixed-theories-from-keywords args)))
+               (def-form-syntax-bind
+                   keyword-args
+                   (list 'let
+                         (list (list 'ensemble
+                                     (if fixed-theories
+                                      (list 'find-theory-ensemble
+                                       (list 'name->theory
+                                        (list 'quote ensemble-name))
+                                       fixed-theories)
+                                      (list 'name->theory-ensemble
+                                       (list 'quote ensemble-name)))))
+                         (list 'walk
+                               '(lambda (x)
+                                  (theory-ensemble-install-overloadings-for-defined-constants
+                                      ensemble x))
+                               (list 'quote multiples))
+                         'value-true)))))
+
+(define-syntax (def-theory-ensemble-instances ensemble-name . args)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form args)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args '(force force-under-quick-load)
+                 '(sorts constants target-theories target-multiple
+                         multiples permutations
+                         theory-interpretation-check fixed-theories
+                         special-renamings)
+                 nil)
+             (let* ((force (car (memq 'force modifiers)))
+                    (force-under-quick-load
+                        (car (memq 'force-under-quick-load modifiers)))
+                    (sort-name-associations
+                        (cdr (assq 'sorts keyword-args)))
+                    (fixed-theories
+                        (fixed-theories-from-keywords keyword-args))
+                    (multiples (cdr (assq 'multiples keyword-args)))
+                    (target-multiple
+                        (cadr (assq 'target-multiple keyword-args)))
+                    (target-theory-names
+                        (cdr (assq 'target-theories keyword-args)))
+                    (permutations
+                        (cdr (assq 'permutations keyword-args)))
+                    (constant-name-associations
+                        (cdr (assq 'constants keyword-args)))
+                    (check-methods
+                        (list force force-under-quick-load
+                              (cadr (assq 'theory-interpretation-check
+                                     keyword-args))))
+                    (special-renamings
+                        (cdr (assq 'special-renamings keyword-args))))
+               (or permutations multiples
+                   (imps-error
+                       "DEF-THEORY-ENSEMBLE-INSTANCES: missing keyword ~A or ~A."
+                       'permutations 'multiples))
+               (or target-multiple target-theory-names
+                   (imps-error
+                       "DEF-THEORY-ENSEMBLE-INSTANCES: missing keyword ~A or ~A."
+                       'target-multiple 'target-theories))
+               (and target-multiple target-theory-names
+                    (imps-error
+                        "DEF-THEORY-ENSEMBLE-INSTANCES: exclusive keywords ~A or ~A."
+                        'target-multiple 'target-theories))
+               (if (and (or constant-name-associations
+                            sort-name-associations)
+                        (not target-theory-names))
+                   (imps-error
+                       "DEF-THEORY-ENSEMBLE-INSTANCES: missing keyword argument ~A or ~A."
+                       'sorts 'constants))
+               (build-def-theory-ensemble-instances-form ensemble-name
+                   fixed-theories sort-name-associations multiples
+                   target-multiple target-theory-names permutations
+                   constant-name-associations check-methods
+                   special-renamings keyword-args))))
+
+(define (build-def-theory-ensemble-instances-form ensemble-name
+            fixed-theories sort-name-associations multiples
+            target-multiple target-theory-names permutations
+            constant-name-associations check-methods special-renamings
+            keyword-args)
+        (def-form-syntax-bind keyword-args
+            (list* 'let
+                   (list (list 'ensemble
+                               (if fixed-theories
+                                   (list 'find-theory-ensemble
+                                    (list 'name->theory
+                                     (list 'quote ensemble-name))
+                                    fixed-theories)
+                                   (list 'name->theory-ensemble
+                                    (list 'quote ensemble-name)))))
+                   (list 'if '(null? ensemble)
+                         (list 'imps-error
+                               "DEF-THEORY-ENSEMBLE-INSTANCES: No ensemble with name ~A."
+                               (list 'quote ensemble-name)))
+                   (append (if target-theory-names
+                               (list (list 'let
+                                      (list
+                                       (list 'target-theories
+                                        (list 'map 'name->theory
+                                         (list 'quote
+                                          target-theory-names))))
+                                      (list 'walk
+                                       '(lambda (theory-name theory)
+                                          (if (null? theory)
+                                           (imps-error
+                                            "DEF-THEORY-ENSEMBLE-INSTANCES: No theory with name ~A."
+                                            theory-name)))
+                                       (list 'quote
+                                        target-theory-names)
+                                       'target-theories)
+                                      (list 'map
+                                       (list 'lambda '(x)
+                                        (list
+                                         'theory-interpretation-check-using-method
+                                         'x (list 'quote check-methods)
+                                         'value-true))
+                                       (list 'set-union
+                                        (list
+                                         'transport-definitions-from-theory-multiples
+                                         'ensemble
+                                         (list 'quote multiples)
+                                         'target-theories
+                                         (list 'quote
+                                          sort-name-associations)
+                                         (list 'quote
+                                          constant-name-associations)
+                                         (list 'quote
+                                          special-renamings))
+                                        (list
+                                         'theory-ensemble-transport-definitions-from-theory-multiples-using-multiple-permutations
+                                         'ensemble 'target-theories
+                                         (list 'quote permutations)
+                                         (list 'quote
+                                          sort-name-associations)
+                                         (list 'quote
+                                          constant-name-associations)
+                                         (list 'quote
+                                          special-renamings))))))
+                               nil)
+                           (if target-multiple
+                               (list (list
+                                      'transport-defined-sorts-and-constants-to-theory-multiple
+                                      'ensemble (list 'quote multiples)
+                                      target-multiple)
+                                     (list
+                                      'transport-defined-sorts-and-constants-to-theory-multiple-using-permutations
+                                      'ensemble
+                                      (list 'quote permutations)
+                                      target-multiple))
+                               nil)))))
+
+(define-syntax (def-theory-instance the-name . th-instance-forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 th-instance-forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args nil
+                 '(source target translation fixed-theories renamer
+                          new-translation-name theorem-prefix)
+                 '(source target translation))
+             (let* ((source-theory-name
+                        (cadr (assq 'source keyword-args)))
+                    (target-theory-name
+                        (cadr (assq 'target keyword-args)))
+                    (trans-name
+                        (cadr (assq 'translation keyword-args)))
+                    (fixed-theories-name-list
+                        (cdr (assq 'fixed-theories keyword-args)))
+                    (renamer (cadr (assq 'renamer keyword-args)))
+                    (new-trans-name
+                        (cadr (assq 'new-translation-name keyword-args)))
+                    (nickname
+                        (cadr (assq 'theorem-prefix keyword-args))))
+               (def-form-syntax-bind
+                   keyword-args
+                   (list 'transport-theory
+                         (list 'name->translation
+                               (list 'quote trans-name))
+                         (list 'name->theory
+                               (list 'quote source-theory-name))
+                         (list 'name->theory
+                               (list 'quote target-theory-name))
+                         (list 'map 'name->theory
+                               (list 'quote fixed-theories-name-list))
+                         (or renamer
+                             '(lambda (x) (concatenate-symbol x '%)))
+                         (list 'quote new-trans-name)
+                         (list 'quote nickname) (list 'quote the-name))))))
+
+(define-syntax (def-translation the-name . translation-forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 translation-forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args
+                 '(force force-under-quick-load dont-enrich)
+                 '(source target assumptions fixed-theories sort-pairs
+                          constant-pairs core-translation
+                          theory-interpretation-check)
+                 '(source target))
+             (let* ((force (car (memq 'force modifiers)))
+                    (force-under-quick-load
+                        (car (memq 'force-under-quick-load modifiers)))
+                    (dont-enrich (car (memq 'dont-enrich modifiers)))
+                    (source-theory-name
+                        (cadr (assq 'source keyword-args)))
+                    (target-theory-name
+                        (cadr (assq 'target keyword-args)))
+                    (assumptions-string-list
+                        (cdr (assq 'assumptions keyword-args)))
+                    (fixed-theories-name-list
+                        (cdr (assq 'fixed-theories keyword-args)))
+                    (sort-pair-list
+                        (cdr (assq 'sort-pairs keyword-args)))
+                    (constant-pair-list
+                        (cdr (assq 'constant-pairs keyword-args)))
+                    (check-methods
+                        (list force force-under-quick-load
+                              (cadr (assq 'theory-interpretation-check
+                                     keyword-args))))
+                    (core-translation-name
+                        (cadr (assq 'core-translation keyword-args)))
+                    (enrich-trans? (if dont-enrich value-false value-true))
+                    (translation
+                        (def-form-syntax-bind keyword-args
+                            (list 'translation-from-definition
+                                  (list 'quote
+                                        (list the-name
+                                         (list 'source
+                                          source-theory-name)
+                                         (list 'target
+                                          target-theory-name)
+                                         (list* 'assumptions
+                                          assumptions-string-list)
+                                         (list* 'fixed-theories
+                                          fixed-theories-name-list)
+                                         (list* 'sort-pairs
+                                          sort-pair-list)
+                                         (list* 'constant-pairs
+                                          constant-pair-list)
+                                         (list 'core-translation
+                                          core-translation-name)
+                                         (list 'enrich? enrich-trans?)))))))
+               (list 'theory-interpretation-check-using-method
+                     translation (list 'quote check-methods) 'value-true))))
+
+(define-syntax (def-theory-processors theory-name . keyword-arguments)
+  (receive (modifiers keyword-args)
+	   (collect-modifier-and-keyword-arguments-for-def-form
+	    keyword-arguments)
+	   (modifier-and-keyword-check-for-def-form modifiers
+						    keyword-args nil
+						    '(algebraic-simplifier algebraic-order-simplifier
+									   algebraic-term-comparator)
+						    nil)
+             
+	   (let ((alg-simp
+		  (map (lambda (x) (list (car x) (cdr x)))
+		       (cdr (assq 'algebraic-simplifier
+				  keyword-arguments))))
+		 (order-simp
+		  (map (lambda (x) (list (car x) (cdr x)))
+		       (cdr (assq 'algebraic-order-simplifier
+				  keyword-arguments))))
+		 (term-comp
+		  (cdr (assq 'algebraic-term-comparator
+			     keyword-arguments))))
+	     (def-form-syntax-bind keyword-args
+				      (list 'term-simplifier-from-definition
+					    (list 'quote
+						  (list (list 'theory theory-name)
+							(list* 'algebraic-simplifier
+							       alg-simp)
+							(list*
+							 'algebraic-order-simplifier
+							 order-simp)
+							(list*
+							 'algebraic-term-comparator
+							 term-comp))))))))
+
+(define-syntax (def-parse-syntax constant-name . keywords)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 keywords)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args nil
+                 '(binding token left-method null-method table)
+                 '(binding))
+             (let ((left-method
+                       (cadr (assq 'left-method keyword-args)))
+                   (null-method
+                       (cadr (assq 'null-method keyword-args)))
+                   (binding (cadr (assq 'binding keyword-args)))
+                   (token (cadr (assq 'token keyword-args)))
+                   (table (cadr (assq 'table keyword-args))))
+               (or left-method null-method
+                   (imps-error
+                       "DEF-PARSE-SYNTAX: no parsing method provided for constant ~A"
+                       constant-name))
+               (def-form-syntax-bind
+                   keyword-args
+                   (list 'let
+                         (list (list 'table (if table table '*parse*))
+                               (list 'token
+                                     (list 'quote
+                                      (if token token constant-name))))
+                         '(coerce-symbol-to-token
+                              (parser-tokenizer table) token)
+                         (list 'make-operator 'table 'token
+                               (list 'quote constant-name)
+                               (if null-method null-method 'value-false)
+                               (if left-method left-method 'value-false)
+                               (list 'quote binding)))))))
+
+(define-syntax (def-print-syntax constant-name . keywords)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 keywords)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args '(tex) '(binding method token table)
+                 '(binding method))
+             (let ((method (cadr (assq 'method keyword-args)))
+                   (binding (cadr (assq 'binding keyword-args)))
+                   (token (cadr (assq 'token keyword-args)))
+                   (table (if (memq? 'tex modifiers) '*tex-form*
+                              (cadr (assq 'table keyword-args)))))
+               (def-form-syntax-bind
+                   keyword-args
+                   (list 'make-presentation-format
+                         (if table table '*form*)
+                         (list 'quote constant-name)
+                         (list 'quote (if token token constant-name))
+                         method (list 'quote binding))))))
+
+(define-syntax (def-record-theory theory-name . args)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form args)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args nil '(type accessors) '(type accessors)))
+    (let ((type (cadr (assq 'type args)))
+          (accessors (cdr (assq 'accessors args))))
+      (def-form-syntax-bind keyword-args
+          (list 'make-record-theory-with-sortnames
+                (list 'name->theory (list 'quote theory-name))
+                (list 'quote type) (list 'quote accessors)))))
+
+(define-syntax (def-transported-symbols the-names . ts-def-forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 ts-def-forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args nil '(translation renamer)
+                 '(translation))
+             (let ((translation-name
+                       (cadr (assq 'translation keyword-args)))
+                   (renamer (cadr (assq 'renamer keyword-args))))
+               (def-form-syntax-bind keyword-args
+                   (list 'let*
+                         (list (list 'translation
+                                     (list 'name->translation
+                                      (list 'quote translation-name)))
+                               '(source-language
+                                    (theory-language
+                                     (translation-source-theory
+                                      translation))))
+                         (list 'transport-defined-sorts-and-constants
+                               'translation
+                               (list 'map
+                                     '(lambda (sym)
+                                        (or
+                                         (find-constant source-language
+                                          sym)
+                                         (name->sort source-language
+                                          sym)))
+                                     (list 'if
+                                      (list 'list?
+                                       (list 'quote the-names))
+                                      (list 'quote the-names)
+                                      (list 'list
+                                       (list 'quote the-names))))
+                               (or renamer '(lambda (x) x))))))))
+
+(define-syntax
+    (def-cartesian-product product-sort-name component-sort-names
+        . args)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form args)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args nil '(constructor accessors theory)
+                 '(theory))
+             (let ((builder-name (cadr (assq 'constructor args)))
+                   (accessor-names (cdr (assq 'accessors args)))
+                   (theory (cadr (assq 'theory args))))
+               (def-form-syntax-bind keyword-args
+                   (list 'let
+                         (list (list 'theory
+                                     (list 'name->theory
+                                      (list 'quote theory))))
+                         (list 'block0
+                               (list 'cartesian-product 'theory
+                                     (list 'quote product-sort-name)
+                                     (list 'quote component-sort-names))
+                               (list 'cartesian-product-builder-and-selectors-build-definitions
+                                     'theory
+                                     (list 'quote product-sort-name)
+                                     (list 'quote component-sort-names)
+                                     (list 'quote builder-name)
+                                     (list 'quote accessor-names))))))))
+
+(define-syntax (def-imported-rewrite-rules theory . args)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form args)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args nil '(source-theories source-theory) nil)
+             (let ((source-theory-names
+                       (set-union (cdr (assq 'source-theories args))
+                           (cdr (assq 'source-theory args)))))
+               (def-form-syntax-bind
+                   keyword-args
+                   (list 'import-rewrite-rules (list 'quote theory)
+                         (list 'quote source-theory-names))))))
+
+(define (import-rewrite-rules theory-name source-theory-names)
+        (theory-import-transportable-rewrite-rules
+            (name->theory theory-name)
+            (map name->theory source-theory-names)))
+
+(define-syntax (def-overloading symbol . theory-name-pairs)
+    (list 'install-overloaded-name-for-symbol-names
+          (list 'quote symbol) (list 'quote theory-name-pairs)))
+
+(define-syntax (def-bnf theory-name . form-alist)
+  (receive (modifiers keyword-args)
+	   (collect-modifier-and-keyword-arguments-for-def-form
+	    form-alist)
+	   (def-form-syntax-bind keyword-args
+				    (list 'bnf-build-theory (list 'quote theory-name)
+					  (list 'quote form-alist)))))
+
+(define-syntax
+    (def-primitive-recursive-constant constant-name bnf . clauses)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 clauses)
+             (let ((target-theory-form (assq 'theory clauses))
+                   (range-sort-form (assq 'range-sort clauses)))
+               (cond
+                 ((not target-theory-form)
+                  (imps-error "def-primitive-recursive-constant:~%~A"
+                      "Target theory form missing; must look like (theory <theory-name>)."))
+                 ((not (theory? (name->theory
+                                    (cadr target-theory-form))))
+                  (imps-error
+                      "DEF-PRIMITIVE-RECURSIVE-CONSTANT:~%    ~A ~A"
+                      (cadr target-theory-form)
+                      "does not name a theory currently known to IMPS"))
+                 ((not (bnf? (name->bnf bnf)))
+                  (imps-error
+                      "DEF-PRIMITIVE-RECURSIVE-CONSTANT:~%    ~A ~A"
+                      bnf
+                      "does not name a BNF theory currently known to IMPS"))
+                 ((not range-sort-form)
+                  (imps-error
+                      "DEF-PRIMITIVE-RECURSIVE-CONSTANT:~%~A ~A"
+                      "Target range form missing;"
+                      "must look like (range-sort <sorting>)."))
+                 (else (let ((sort (string-or-list->sort
+                                    (theory-language
+                                     (name->theory
+                                      (cadr target-theory-form)))
+                                    (cadr range-sort-form))))
+                         (if (not sort)
+                             (imps-error
+                                 "DEF-PRIMITIVE-RECURSIVE-CONSTANT:~%~A ~S ~A ~A."
+                                 "Target range form"
+                                 (cadr range-sort-form)
+                                 "does not evaluate to a sort in language"
+                                 (theory-language
+                                     (name->theory
+                                      (cadr target-theory-form))))
+                             (def-form-syntax-bind
+                                 keyword-args
+                                 (list 'bnf-build-pr-constant
+                                       (list 'quote constant-name)
+                                       (list 'quote (name->bnf bnf))
+                                       (list 'quote
+                                        (name->theory
+                                         (cadr target-theory-form)))
+                                       (list 'quote sort)
+                                       (list 'quote clauses))))))))))
+
+(define-syntax (def-script the-name arg-count script . forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args nil
+                 '(retrieval-protocol applicability-recognizer) nil)
+             (let ((protocol
+                       (or (cadr (assq 'retrieval-protocol forms))
+                           'general-argument-retrieval-protocol))
+                   (recognizer
+                       (cadr (assq 'applicability-recognizer forms))))
+               (def-form-syntax-bind
+                   keyword-args
+                   (list 'block0
+                         (list 'build-script arg-count
+                               (list 'quote script)
+                               (list 'quote protocol)
+                               (list 'quote recognizer)
+                               (list 'quote the-name))
+                         (list 'emacs-eval
+                               (list 'string-downcase
+                                     (list 'format nil
+                                      "(add-imps-command \"~A\" '~A)"
+                                      (list 'quote the-name)
+                                      (list 'quote protocol)))))))))
+
+(eval-always
+ (define-syntax (def-section the-name . renamer-forms)
+    (receive (modifiers keyword-args)
+             (collect-modifier-and-keyword-arguments-for-def-form
+                 renamer-forms)
+             (modifier-and-keyword-check-for-def-form modifiers
+                 keyword-args nil
+                 '(component-sections files) nil)
+             (let ((components
+                       (cdr (assq 'component-sections keyword-args)))
+                   (filespecs (cdr (assq 'files keyword-args))))
+               (def-form-syntax-bind
+                   keyword-args
+                   (list 'build-section (list 'quote the-name)
+                         (list 'quote components)
+                         (list 'quote filespecs)))))))
+
+)

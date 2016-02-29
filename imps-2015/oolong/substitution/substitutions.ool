@@ -1,0 +1,260 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment substitutions)
+
+(define *substitution-component-count* 0)
+
+(define (make-subst-component targ repl)
+        (increment *substitution-component-count*) (cons targ repl))
+
+(define-constant substitution-target car)
+
+(define-constant substitution-replacement cdr)
+
+(define-integrable (subst-component? candidate)
+    (and (pair? candidate) (variable? (substitution-target candidate))
+         (expression? (substitution-replacement candidate))))
+
+(define-constant subst-components-equal? equal?)
+
+(define-constant the-empty-substitution the-empty-set)
+
+(define-constant empty-substitution? empty-set?)
+
+(define (substitution-find-component sub target)
+        (cond
+          ((fail? sub) value-false)
+          ((assq target sub))
+          (else value-false)))
+
+(define (substitution-find-replacement sub target)
+        (let ((sub-comp (substitution-find-component sub target)))
+          (if sub-comp (substitution-replacement sub-comp) value-false)))
+
+(define (add-subst-component sub-comp sub)
+        (if (sorting-skeletons-match?
+                (expression-sorting (substitution-replacement sub-comp))
+                (expression-sorting (substitution-target sub-comp)))
+            (let ((component
+                      (substitution-find-component sub
+                          (substitution-target sub-comp))))
+              (cond
+                ((false? component) (cons sub-comp sub))
+                ((alpha-equivalent? (substitution-replacement sub-comp)
+                     (substitution-replacement component))
+                 sub)
+                (else (fail))))
+            (fail)))
+
+(define-constant add-substitution-component add-subst-component)
+
+(define (identity-substitution vars)
+        (let ((vars (imps-enforce
+                        (object (lambda (vars)
+                                  (every? variable? vars))
+                                ((print self port)
+                                 (format port
+                                         "#{(lambda (vars) (every? variable? vars))}")))
+                        (make-set vars))))
+          (map (lambda (v) (make-subst-component v v)) vars)))
+
+(define (identity-substitution? subst)
+        (every-subst-component?
+            (lambda (comp) (eq? (substitution-target comp) (substitution-replacement comp)))
+            subst))
+
+(define (substitution-extend main-subst default-subst)
+        (if (or (fail? main-subst) (fail? default-subst)) (fail)
+            (iterate iter
+                     ((main-subst main-subst)
+                      (default-subst default-subst))
+                     (if (null? default-subst) main-subst
+                         (let ((new (add-subst-component
+                                     (first-subst-component
+                                      default-subst)
+                                     main-subst)))
+                           (iter (if (fail? new) main-subst new)
+                                 (rest-of-subst default-subst)))))))
+
+(define (substitution-extend-with-identity main-subst identity-vars)
+        (substitution-extend main-subst
+            (identity-substitution identity-vars)))
+
+(define (targets-and-replacements->subst targets replacements)
+        (iterate iter
+                 ((subst the-empty-substitution) (tars targets)
+                  (replaces replacements))
+                 (cond
+                   ((fail? subst) (fail))
+                   ((and (null? replaces) (null? tars)) subst)
+                   ((null? replaces)
+                    (imps-error
+                        "targets-and-replacements->subst: too many targets ~S~%~S"
+                        targets replacements))
+                   ((null? tars)
+                    (imps-error
+                        "targets-and-replacements->subst: too many replacements ~S~%~S"
+                        replacements targets))
+                   (else (iter (add-subst-component
+                                   (make-subst-component (car tars)
+                                    (car replaces))
+                                   subst)
+                               (cdr tars) (cdr replaces))))))
+
+(define-integrable (first-subst-component sub)
+    (if (fail? sub)
+        (imps-error "FIRST-SUBST-COMPONENT: failing substitution.")
+        (car sub)))
+
+(define (rest-of-subst sub)
+        (if (fail? sub)
+            (imps-error "REST-OF-SUBST: failing substitution.")
+            (cdr sub)))
+
+(define (subst-domain sub) (if (fail? sub) nil (map substitution-target sub)))
+
+(define (subst-range sub) (if (fail? sub) nil (map substitution-replacement sub)))
+
+(define (component-of-subst? sub-comp sub)
+        (let ((component
+                  (substitution-find-component sub (substitution-target sub-comp))))
+          (and component
+               (eq? (substitution-replacement component) (substitution-replacement sub-comp)))))
+
+(define (delete-subst-component sub-comp sub)
+        (del equal? sub-comp sub))
+
+(define (substitution? candidate)
+        (or (empty-substitution? candidate)
+            (let ((first (first-subst-component candidate))
+                  (rest (rest-of-subst candidate)))
+              (and (subst-component? first)
+                   (not (substitution-find-replacement rest
+                            (substitution-target first)))
+                   (substitution? rest)))))
+
+(define (sub-substitution? sub1 sub2)
+        (every-subst-component?
+            (lambda (sub-comp)
+              (let ((the-target (substitution-target sub-comp))
+                    (the-replacement (substitution-replacement sub-comp)))
+                (eq? the-replacement
+                     (substitution-find-replacement sub2 the-target))))
+            sub1))
+
+(define (substitutions-equal? sub1 sub2)
+        (and (sub-substitution? sub1 sub2)
+             (sub-substitution? sub2 sub1)))
+
+(define (substitution-component-compatible? sub-comp sub)
+        (let ((the-target (substitution-target sub-comp))
+              (the-replacement (substitution-replacement sub-comp)))
+          (let ((the-existing-replacement
+                    (substitution-find-replacement sub the-target)))
+            (or (false? the-existing-replacement)
+                (eq? the-replacement the-existing-replacement)))))
+
+(define (one-component-subst target replacement)
+        (add-subst-component (make-subst-component target replacement)
+            the-empty-substitution))
+
+(define (join-substitutions . subs)
+        (cond
+          ((null? subs) the-empty-substitution)
+          ((null? (cdr subs)) (car subs))
+          (else (iterate iter
+                         ((so-far (join-two-substitutions (car subs)
+                                      (cadr subs)))
+                          (rest (cddr subs)))
+                         (cond
+                           ((null? rest) so-far)
+                           ((fail? so-far) (fail))
+                           (else (iter (join-two-substitutions
+                                        (car rest) so-far)
+                                       (cdr rest))))))))
+
+(define (join-two-substitutions sub1 sub2)
+        (if (empty-substitution? sub2) sub1
+            (iterate iter ((sub1 sub1) (sub2 sub2))
+                     (cond
+                       ((or (fail? sub1) (fail? sub2)) (fail))
+                       ((empty-substitution? sub1) sub2)
+                       (else (iter (rest-of-subst sub1)
+                                   (add-substitution-component
+                                    (first-subst-component sub1) sub2)))))))
+
+(define (joinable? sub1 sub2)
+        (every-subst-component?
+            (lambda (x) (substitution-component-compatible? x sub2))
+            sub1))
+
+(define (every-subst-component? fn subst)
+  (every? fn subst))
+
+(define (map-substitution fn subst)
+  (map fn subst))
+
+(define subst-inclusion? sub-substitution?)
+
+(define subst-equal? substitutions-equal?)
+
+(define (substitution-preserves-sorts? substitution)
+        (every? (lambda (x)
+                  (or (not (variable? (substitution-replacement x)))
+                      (eq? (expression-sorting (substitution-target x))
+                           (expression-sorting (substitution-replacement x)))))
+                substitution))
+
+(define (substitution-preserves-sort-inclusions? substitution)
+        (every? (lambda (x)
+                  (sorting-leq (expression-sorting (substitution-replacement x))
+                      (expression-sorting (substitution-target x))))
+                substitution))

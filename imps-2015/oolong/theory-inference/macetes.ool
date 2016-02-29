@@ -1,0 +1,276 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment macetes)
+
+(define-predicate macete?)
+
+(define-settable-operation (macete-name soi))
+
+(define *macete-table* (make-table '*macete-table*))
+
+(define (count-macetes)
+        (let ((count 0))
+          (walk-table (lambda (key entry)
+                        (ignore key entry)
+                        (increment count))
+                      *macete-table*)
+          count))
+
+(define (name->macete the-name)
+        (if (raise-name-error?)
+            (or (table-entry *macete-table* the-name)
+                (imps-error
+                    "NAME->MACETE: ~A is not the name of a macete."
+                    the-name))
+            (table-entry *macete-table* the-name)))
+
+(define (name->macete-raise-no-error the-name)
+        (table-entry *macete-table* the-name))
+
+(define-operation (apply-macete soi context expr . dont-print?)
+    (imps-enforce macete? soi) (return context expr))
+
+(define-settable-operation (macete-documentation-string soi))
+
+(define-operation (bidirectional-macete? macete)
+    (imps-enforce macete? macete) value-true)
+
+(define-operation (macete-sound-in-theory? macete theory)
+    (imps-enforce macete? macete) value-false)
+
+(define (interactive-macete? soi) (imps-enforce macete? soi)
+        (true? (macete-name soi)))
+
+(define (macete-normal-begin-message mac context expr)
+        (if (not (composite-macete? mac))
+            (format t
+                    "~&Context#: ~D ~15TExpression#: ~D ~35TMacete: ~A ... "
+                    (object-hash context) (object-hash expr)
+                    (name mac))))
+
+(define (macete-normal-end-message mac)
+        (if (not (composite-macete? mac)) (format t "done.")))
+
+(define *message-begin* macete-normal-begin-message)
+
+(define *message-end* macete-normal-end-message)
+
+(define (build-macete proc bidirectional? the-name)
+        (or (null? the-name) (symbol? the-name)
+            (imps-error "Invalid name: ~a" the-name))
+        (let ((doc-str "Not documented") (name-list (list the-name)))
+          (object nil
+                  ((apply-macete soi context expr)
+		   (funcall proc context expr))
+                  ((name soi) (car name-list))
+                  ((macete-name soi) (car name-list))
+                  ((bidirectional-macete? soi) bidirectional?)
+                  (((setter macete-name) soi new-name)
+                   (if (symbol? new-name)
+                       (or (eq? new-name (car name-list))
+                           (set name-list (cons new-name name-list)))))
+                  ((macete? soi) value-true)
+                  ((macete-documentation-string soi) doc-str)
+                  (((setter macete-documentation-string) soi str)
+                   (set doc-str str))
+                  ((print soi port)
+                   (format port "#{Macete ~A: ~A}" (object-hash soi)
+                           (macete-name soi))))))
+
+(define (macete->sexp macete)
+        (cond
+          ((elementary-macete? macete)
+           (list (name macete)
+                 (qp (elementary-macete->formula macete))))
+          ((composite-macete? macete)
+           (cons (macete-constructor-name macete)
+                 (map macete->sexp (macete-components macete))))
+          (else (list (name macete)
+                      (macete-documentation-string macete)))))
+
+(define (macete-at-paths-rule-generator macete paths)
+        (let ((rule (make-object)))
+          (labels (((fun-104 r) value-true)
+                   ((fun-105 self)
+                    (lambda (theory)
+                      (macete-sound-in-theory? macete theory)))
+                   ((fun-106 r) macete) ((fun-107 r) (name macete))
+                   ((fun-108 soi port)
+                    (format port "#{Macete at path ~a}" (name macete)))
+                   ((obj-fun-109 sequents)
+                    (let* ((major-premise
+                               (if (null? (cdr sequents)) nil
+                                   (car sequents)))
+                           (conclusion (last sequents))
+                           (assertion (sequent-assertion conclusion))
+                           (context (sequent-context conclusion)))
+                      (if (not (null? (cddr sequents)))
+                          (imps-error
+                              "MACETE-AT-PATHS-RULE-GENERATOR: too many hypotheses ~S"
+                              (reverse (cdr (reverse sequents)))))
+                      (let ((hypothesis-assertion
+                                (apply-procedure-at-paths
+                                    (lambda (theory context expr)
+                                      (ignore theory)
+                                      (return
+                                        (apply-macete macete context
+                                         expr)
+                                        nil))
+                                    context assertion paths
+                                    (bidirectional-macete? macete))))
+                        (cond
+                          ((eq? hypothesis-assertion assertion) (fail))
+                          ((truth? hypothesis-assertion)
+                           (build-inference rule nil conclusion))
+                          ((and (not (null? major-premise))
+                                (sequent-entails-sequent? major-premise
+                                    (build-sequent context
+                                     hypothesis-assertion)))
+                           (build-inference rule (list major-premise)
+                               conclusion))
+                          ((not (null? major-premise)) (fail))
+                          (else (build-inference rule
+                                    (list
+                                     (build-sequent context
+                                      hypothesis-assertion))
+                                    conclusion)))))))
+            (refurnish-object rule obj-fun-109 (rule? fun-104)
+                (rule-soundness-predicate fun-105)
+                (rule-generator fun-106) (name fun-107)
+                (print fun-108))
+            rule)))
+
+(define (macete-at-paths-with-minor-premises-rule-generator macete
+            paths)
+        (let ((rule (make-object)))
+          (labels (((fun-110 r) value-true)
+                   ((fun-111 self)
+                    (lambda (theory)
+                      (macete-sound-in-theory? macete theory)))
+                   ((fun-112 r) macete) ((fun-113 r) (name macete))
+                   ((fun-114 soi port)
+                    (format port "#{Macete at path ~a}" (name macete)))
+                   ((obj-fun-115 sequents)
+                    (let* ((major-premise
+                               (if (null? (cdr sequents)) nil
+                                   (car sequents)))
+                           (conclusion (last sequents))
+                           (assertion (sequent-assertion conclusion))
+                           (context (sequent-context conclusion)))
+                      (if (not (null? (cddr sequents)))
+                          (imps-error
+                              "MACETE-AT-PATHS-WITH-MINOR-PREMISES-RULE-GENERATOR: too many hypotheses ~S"
+                              (reverse (cdr (reverse sequents)))))
+                      (receive (hypothesis-assertion minors)
+                               (run-proc-with-minor-premises
+;				context
+                                   (lambda ()
+                                     (apply-procedure-at-paths
+                                      (lambda (theory context expr)
+                                        (ignore theory)
+                                        (return
+                                          (apply-macete macete context
+                                           expr)
+                                          nil))
+                                      context assertion paths
+                                      (bidirectional-macete? macete))))
+                               (cond
+                                 ((eq? hypothesis-assertion assertion)
+                                  (fail))
+                                 ((truth? hypothesis-assertion)
+                                  (build-inference rule minors
+                                      conclusion))
+                                 ((and (not (null? major-premise))
+                                       (sequent-entails-sequent?
+                                        major-premise
+                                        (build-sequent context
+                                         hypothesis-assertion)))
+                                  (build-inference rule
+                                      (cons major-premise minors)
+                                      conclusion))
+                                 ((not (null? major-premise)) (fail))
+                                 (else (build-inference rule
+                                        (cons
+                                         (build-sequent context
+                                          hypothesis-assertion)
+                                         minors)
+                                        conclusion)))))))
+            (refurnish-object rule obj-fun-115 (rule? fun-110)
+                (rule-soundness-predicate fun-111)
+                (rule-generator fun-112) (name fun-113)
+                (print fun-114))
+            rule)))
+
+(define (compound-or-oddball-macete? macete)
+        (and (macete? macete) (not (safe-elementary-macete? macete))))
+
+(define (add-macete macete) (imps-enforce macete? macete)
+        (if (macete-name macete)
+            (block (if (not (table-entry *macete-table*
+                                (macete-name macete)))
+                       (insert-macete-key macete))
+              (set (table-entry *macete-table* (macete-name macete))
+                   macete)))
+        macete)
+
+(define (apply-macete-without-minor-premises macete context expr)
+        (bind (((accumulate-undischarged-minor-premises?) value-false)
+               ((undischarged-minor-premises) value-false))
+              (apply-macete macete context expr)))
+
+(define (theory-nonsimple-interactive-macetes theory)
+        (iterate loop ((all (table->set *macete-table*)) (sound nil))
+                 (cond
+                   ((null? all) sound)
+                   ((and (macete-sound-in-theory? (car all) theory)
+                         (interactive-macete? (car all)))
+                    (loop (cdr all) (cons (car all) sound)))
+                   (else (loop (cdr all) sound)))))

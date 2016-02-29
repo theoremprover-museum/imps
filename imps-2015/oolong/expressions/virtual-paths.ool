@@ -1,0 +1,225 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment virtual-paths)
+
+(define (components-for-virtual-occurences expr)
+        (or (expression-quasi-components-if-enabled expr)
+            (if (binding-expression? expr) (list (binding-body expr))
+                (expression-components expr))))
+
+(define (virtual-paths-to-occurrences expr subexp depth-bound)
+        (cond
+          ((=0? depth-bound) nil)
+          ((alpha-equivalent? subexp expr) (list nil))
+          ((> (expression-height subexp) (expression-height expr)) nil)
+          (else (do ((components
+                         (components-for-virtual-occurences expr)
+                         (cdr components))
+                     (index 0 (1+ index))
+                     (paths nil
+                            (append! (map!
+                                      (lambda (path)
+                                        (cons index path))
+                                      (virtual-paths-to-occurrences
+                                       (car components) subexp
+                                       (-1+ depth-bound)))
+                                     paths)))
+                    ((null? components) paths)))))
+
+(define (follow-virtual-path expr path)
+        (if (null? path) expr
+            (follow-virtual-path
+                (nth (expression-quasi-components-if-enabled-or-components
+                         expr)
+                     (car path))
+                (cdr path))))
+
+(define (follow-virtual-path-safely expr path)
+        (if (null? path) expr
+            (let ((comps (expression-quasi-components-if-enabled-or-components
+                             expr)))
+              (if (< (car path) (length comps))
+                  (follow-virtual-path-safely (nth comps (car path))
+                      (cdr path))
+                  value-false))))
+
+(define (expand-virtual-path expr path)
+        (iterate loop ((expr expr) (path path))
+                 (catch 'tag
+                   (if (null? path) (list nil)
+                       (let* ((qc-or-c (expression-quasi-constructor-if-enabled-or-constructor
+                                        expr))
+                              (qc-paths
+                                  (if (quasi-constructor? qc-or-c)
+                                      (quasi-constructor-paths-to-quasi-components
+                                       qc-or-c)
+                                      nil))
+                              (index (car path))
+                              (incremental
+                                  (if (quasi-constructor? qc-or-c)
+                                      (if (< index (length qc-paths))
+                                       (nth qc-paths index)
+                                       (throw 'tag nil))
+                                      (list (list index))))
+                              (vpaths (loop
+                                        (nth
+                                         (expression-quasi-components-if-enabled-or-components
+                                          expr)
+                                         index)
+                                        (cdr path))))
+                         (apply append
+                                (map (lambda (y)
+                                       (map (lambda (x) (append x y))
+                                        incremental))
+                                     vpaths)))))))
+
+(define (sorted-virtual-paths-to-occurrences expr subexp depth-bound)
+        (sort-paths!
+            (virtual-paths-to-occurrences expr subexp depth-bound)))
+
+(define (substitution-at-virtual-path host replacement path)
+        (iterate loop
+                 ((paths (expand-virtual-path host path)) (host host))
+                 (if (null? paths) host
+                     (loop
+                       (cdr paths)
+                       (substitution-at-path host replacement
+                           (car paths))))))
+
+(define (paths-to-satisfying-virtual-occurrences expr pred depth-bound)
+        (cond
+          ((=0? depth-bound) nil)
+          (else (do ((components
+                         (components-for-virtual-occurences expr)
+                         (cdr components))
+                     (index 0 (1+ index))
+                     (paths (if (funcall pred expr) (list nil) nil)
+                            (append! (map!
+                                      (lambda (path)
+                                        (cons index path))
+                                      (paths-to-satisfying-virtual-occurrences
+                                       (car components) pred
+                                       (-1+ depth-bound)))
+                                     paths)))
+                    ((null? components) paths)))))
+
+(define (paths-and-values-to-succeeding-virtual-occurrences expr proc
+            depth-bound)
+        (if (=0? depth-bound) (return nil nil)
+            (let ((val (funcall proc expr)))
+              (receive (paths values)
+                       (if (succeed? val)
+                           (return (list nil) (list val))
+                           (return nil nil))
+                       (iterate iter
+                                ((components
+                                     (components-for-virtual-occurences
+                                      expr))
+                                 (index 0) (paths paths)
+                                 (values values))
+                                (if (null? components)
+                                    (return paths values)
+                                    (receive (new-paths new-values)
+                                     (paths-and-values-to-succeeding-virtual-occurrences
+                                      (car components) proc
+                                      (-1+ depth-bound))
+                                     (iter (cdr components) (1+ index)
+                                      (append!
+                                       (map!
+                                        (lambda (path)
+                                          (cons index path))
+                                        new-paths)
+                                       paths)
+                                      (append! new-values values)))))))))
+
+(define virtual-paths-to-satisfying-occurrences
+        paths-to-satisfying-virtual-occurrences)
+
+(define (virtual-paths-to-good-matches expr pattern exoscopes)
+        (sort-paths!
+            (paths-to-satisfying-virtual-occurrences expr
+                (lambda (subexpr)
+                  (let ((subst (match-under-exoscopes subexpr pattern
+                                   exoscopes)))
+                    (and (succeed? subst))))
+                -1)))
+
+(define (paths-and-substs-to-matching-virtual-occurrences expr pattern
+            exoscopes)
+        (if (match-check-within-host? expr pattern exoscopes)
+            (let ((subst (match-under-exoscopes expr pattern exoscopes)))
+              (if (succeed? subst) (return (list nil) (list subst))
+                  (iterate iter
+                           ((components
+                                (components-for-virtual-occurences
+                                    expr))
+                            (index 0) (paths nil) (substs nil)
+                            (exoscopes
+                                (set-union
+                                    (expression-newly-bound-variables
+                                     expr)
+                                    exoscopes)))
+                           (if (null? components) (return paths substs)
+                               (receive (new-paths new-substs)
+                                        (paths-and-substs-to-matching-virtual-occurrences
+                                         (car components) pattern
+                                         exoscopes)
+                                        (iter (cdr components)
+                                         (1+ index)
+                                         (append!
+                                          (map!
+                                           (lambda (path)
+                                             (cons index path))
+                                           new-paths)
+                                          paths)
+                                         (append! new-substs substs)
+                                         exoscopes))))))
+            (return nil nil)))

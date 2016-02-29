@@ -1,0 +1,1329 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment bnf)
+
+(define bnf-table (make-table 'bnf-table))
+
+(define (name->bnf symbol) (table-entry bnf-table symbol))
+
+(define-structure-type bnf name language component-theory theory
+    primary-type sorts atoms constructors selector-lists
+    semantic-inclusions constructor-definedness-axioms induction-axiom
+    disjointness-axioms selector-constructor-axioms
+    selector-undefinedness-axioms sort-inclusion-axioms
+    sort-case-axioms auxiliary-theorems inductor
+    primitive-recursive-iota-theorem
+    primitive-recursive-unfolding-theorem
+    primitive-recursive-definition-type generic-type generic-theory
+    (((print self port)
+      (format port "#{bnf ~A ~D}" (bnf-name self) (object-hash self)))
+     ((name self) (bnf-name self))))
+
+(define (bnf-build-theory bnf-name form-alist)
+        (let ((bnf-record (bnf-build-language-etc bnf-name form-alist)))
+          (let ((constructor-definedness-axioms
+                    (bnf-install-constructor-definedness-axioms
+                        bnf-record))
+                (induction-axiom
+                    (bnf-install-induction-axiom bnf-record))
+                (disjointness-axioms
+                    (bnf-install-disjointness-principles bnf-record))
+                (constructor-selector-axioms
+                    (bnf-install-constructor-selectors bnf-record))
+                (sort-inclusion-axioms
+                    (bnf-install-sort-inclusion-axioms bnf-record))
+                (sort-case-axioms
+                    (bnf-install-sort-case-axioms bnf-record)))
+            (set (bnf-theory bnf-record)
+                 (build-theory (list (bnf-component-theory bnf-record))
+                     (bnf-language bnf-record)
+                     (cons induction-axiom
+                           (append constructor-definedness-axioms
+                                   disjointness-axioms
+                                   constructor-selector-axioms
+                                   sort-inclusion-axioms
+                                   sort-case-axioms))
+                     (list (bnf-atoms bnf-record)) (name bnf-record)))
+            (set (bnf-inductor bnf-record)
+                 (build-inductor-from-induction-principle
+                     induction-axiom
+                     (concatenate-symbol
+                         (name (bnf-primary-type bnf-record)) '-
+                         bnf-name '-inductor)
+                     (name->command 'simplify) value-false))
+            (bnf-install-primitive-recursion bnf-record)
+            (bnf-selector-constructor-undefinedness-theorems
+                bnf-record)
+            (bnf-add-auxiliary-theorems bnf-record)
+            (build-and-install-macete-from-sexp
+                (cons 'repeat
+                      (map name
+                           (bnf-selector-constructor-axioms bnf-record)))
+                (concatenate-symbol bnf-name
+                    '-selector-constructor-macetes))
+            (set (table-entry bnf-table bnf-name) bnf-record)
+            (bnf-theory bnf-record))))
+
+(define (bnf-build-language-etc the-name form)
+        (let* ((component-theory
+                   (cond
+                     ((assq-val 'theory form) =>
+                      (lambda (theory-names)
+                        (name->theory (car theory-names))))
+                     (t the-kernel-theory)))
+               (embedded-language (theory-language component-theory)))
+          (receive (resolver new-type generic-type)
+                   (bnf-sort-resolver-from-definition embedded-language
+                       form)
+                   (let ((atoms (bnf-build-atoms resolver new-type
+                                    (assq-val 'atoms form))))
+                     (receive (constructors selector-lists)
+                              (bnf-build-constructors-and-selectors
+                                  embedded-language resolver new-type
+                                  (assq-val 'constructors form))
+                              (let ((bnf-record (make-bnf)))
+                                (set (bnf-name bnf-record) the-name)
+                                (set (bnf-language bnf-record)
+                                     (extend-language embedded-language
+                                      (append atoms
+                                       (append constructors
+                                        (apply append selector-lists)))
+                                      resolver
+                                      (concatenate-symbol the-name
+                                       '-language)))
+                                (set (bnf-component-theory bnf-record)
+                                     component-theory)
+                                (set (bnf-primary-type bnf-record)
+                                     new-type)
+                                (set (bnf-sorts bnf-record)
+                                     (set-separate
+                                      (lambda (s)
+                                        (equal-sortings?
+                                         (type-of-sort s) new-type))
+                                      (map
+                                       (lambda (n)
+                                         (name->sort resolver n))
+                                       (set-difference
+                                        (sort-names-resolved resolver)
+                                        (sort-names-resolved
+                                         embedded-language)))))
+                                (set (bnf-atoms bnf-record) atoms)
+                                (set (bnf-constructors bnf-record)
+                                     constructors)
+                                (set (bnf-selector-lists bnf-record)
+                                     selector-lists)
+                                (set (bnf-semantic-inclusions
+                                      bnf-record)
+                                     (bnf-sort-inclusion-lists resolver
+                                      (assq-val 'sort-inclusions form)))
+                                (let ((uninhabited-sorts
+                                       (bnf-seek-uninhabited
+                                        (bnf-sorts bnf-record)
+                                        (bnf-atoms bnf-record)
+                                        (bnf-constructors bnf-record)
+                                        (bnf-semantic-inclusions
+                                         bnf-record)
+                                        (bnf-primary-type bnf-record))))
+                                  (and uninhabited-sorts
+                                       (imps-error
+                                        "BNF: Uninhabited sorts ~S"
+                                        uninhabited-sorts)))
+                                (set (bnf-generic-type bnf-record)
+                                     generic-type)
+                                (set (bnf-generic-theory bnf-record)
+                                     (name->theory
+                                      (concatenate-symbol
+                                       'generic-theory-
+                                       (car
+                                        (read-objects-from-string
+                                         (nthchdr
+                                          (symbol->string
+                                           (name generic-type))
+                                          4))))))
+                                bnf-record))))))
+
+(define (bnf-sort-resolver-from-definition embedded-language form)
+        (let* ((new-type-name
+                   (cond
+                     ((or (cdr (assq 'base-type form))
+                          (cdr (assq 'base-types form)))
+                      =>
+                      (lambda (types)
+                        (if (null? (cdr types)) (car types)
+                            (imps-error
+                                "bnf-sort-resolver-from-definition: ~A ~S~%"
+                                "Too many new types (1 expected) ~S"
+                                types))))
+                     (else (imps-error
+                               "bnf-sort-resolver-from-definition: ~A ~%"
+                               "No new type (1 expected)"))))
+               (generic-type-name
+                   (find-generic-type-name embedded-language
+                       new-type-name)))
+          (iterate iter
+                   ((resolver
+                        (join-sort-resolvers
+                            (list (make-type-resolver
+                                      (list new-type-name
+                                       generic-type-name)
+                                      nil)
+                                  embedded-language)))
+                    (sorting-specs (cdr (assq 'sorts form))))
+                   (if (null? sorting-specs)
+                       (return
+                         resolver
+                         (name->sort resolver new-type-name)
+                         (name->sort resolver generic-type-name))
+                       (iter (sort-resolver-from-definition-process-spec
+                                 resolver (car sorting-specs))
+                             (cdr sorting-specs))))))
+
+(define (find-generic-type-name resolver . new-type-names)
+        (do ((i 1 (1+ i)))
+            ((let ((candidate-name (concatenate-symbol 'ind_ i)))
+               (and (not (name->sort resolver candidate-name))
+                    (not (memq? candidate-name new-type-names))))
+             (concatenate-symbol 'ind_ i))))
+
+(define (bnf-build-atoms resolver new-type atom-specs)
+        (map (lambda (spec)
+               (destructure (((name sorting-spec) spec))
+                   (let ((sorting (string-or-list->sort resolver
+                                      sorting-spec)))
+                     (or (possible-symbol-form? name)
+                         (imps-error
+                             "bnf-build-atoms: formal symbol may not be named ~A"
+                             name))
+                     (or sorting
+                         (imps-error
+                             "bnf-build-atoms: sort ~A unreadable in language being defined."
+                             sorting-spec))
+                     (or (eq? (type-of-sort sorting) new-type)
+                         (imps-error
+                             "bnf-build-atoms: atom ~A specified with wrong type ~S."
+                             name (type-of-sort sorting)))
+                     (make-formal-symbol constant? sorting name))))
+             atom-specs))
+
+(define (bnf-build-constructors-and-selectors embedded-language
+            resolver new-type constructor-specs)
+        (iterate iter
+                 ((constructor-specs constructor-specs)
+                  (constructors nil) (selector-lists nil))
+                 (if (null? constructor-specs)
+                     (return
+                       (reverse! constructors)
+                       (reverse! selector-lists))
+                     (receive (new-constructor new-selectors)
+                              (bnf-build-one-constructor-and-its-selectors
+                                  embedded-language resolver new-type
+                                  (car constructor-specs))
+                              (iter (cdr constructor-specs)
+                                    (cons new-constructor constructors)
+                                    (cons new-selectors selector-lists))))))
+
+(define (bnf-build-one-constructor-and-its-selectors embedded-language
+            resolver new-type constructor-spec)
+        (destructure
+            (((constructor-name sorting-spec . rest) constructor-spec))
+            (let ((sorting (string-or-list->sort resolver sorting-spec)))
+              (or (possible-symbol-form? constructor-name)
+                  (imps-error
+                      "bnf-build-constructor: formal symbol may not be named ~A"
+                      constructor-name))
+              (or sorting
+                  (imps-error "bnf-build-constructor: sort ~A ~A."
+                      sorting-spec
+                      "unreadable in language being defined"))
+              (or (and (eq? (type-of-sort (higher-sort-range sorting))
+                            new-type)
+                       (every? (lambda (domain)
+                                 (or (eq? (type-of-sort domain)
+                                      new-type)
+                                     (language-contains-sorting?
+                                      embedded-language domain)))
+                               (higher-sort-domains sorting)))
+                  (imps-error
+                      "bnf-build-constructor: constructor ~A specified with wrong type ~S."
+                      constructor-name (type-of-sort sorting)))
+              (return
+                (make-formal-symbol constant? sorting constructor-name)
+                (if rest
+                    (destructure ((((keyword . selector-names)) rest))
+                        (or (eq? keyword 'selectors)
+                            (imps-error
+                                "bnf-build-constructor: bogus keyword ~S, selectors expected."
+                                keyword))
+                        (if (< (length selector-names)
+                               (length (higher-sort-domains sorting)))
+                            (imps-error
+                                "bnf-build-constructor: too few selectors. ~&~S~&"
+                                constructor-spec))
+                        (if (> (length selector-names)
+                               (length (higher-sort-domains sorting)))
+                            (imps-error
+                                "bnf-build-constructor: too many selectors. ~&~S~&"
+                                constructor-spec))
+                        (map (lambda (selector-name constructor-domain)
+                               (make-formal-symbol constant?
+                                   (build-maximal-higher-sort
+                                    (list (higher-sort-range sorting))
+                                    constructor-domain)
+                                   selector-name))
+                             selector-names
+                             (higher-sort-domains sorting)))
+                    (do ((constructor-domains
+                             (higher-sort-domains sorting)
+                             (cdr constructor-domains))
+                         (i 0 (1+ i))
+                         (selectors nil
+                             (cons (make-formal-symbol constant?
+                                    (build-maximal-higher-sort
+                                     (list (higher-sort-range sorting))
+                                     (car constructor-domains))
+                                    (concatenate-symbol 'sel%
+                                     constructor-name '_ i))
+                                   selectors)))
+                        ((null? constructor-domains) selectors)))))))
+
+(define (bnf-check-inhabitation-get-more constructors
+            semantic-inclusions inhabited primary-type)
+        (labels (((already-inhabited? s)
+                  (if (eq? (type-of-sort s) primary-type)
+                      (memq? s inhabited) value-true))
+                 ((examine-constructors constructors new-inhabitants)
+                  (if (null? constructors) new-inhabitants
+                      (let ((c (car constructors))
+                            (rest (cdr constructors)))
+                        (cond
+                          ((already-inhabited? (expression-range c))
+                           (examine-constructors rest new-inhabitants))
+                          ((every? #'already-inhabited?
+                                   (expression-domains c))
+                           (examine-constructors rest
+                               (cons (expression-range c)
+                                     new-inhabitants)))
+                          (else (examine-constructors rest
+                                    new-inhabitants))))))
+                 ((examine-inclusions inclusions new-inhabitants)
+                  (if (null? inclusions) new-inhabitants
+                      (let ((i (car inclusions))
+                            (rest (cdr inclusions)))
+                        (destructure (((subsort supersort) i))
+                            (cond
+                              ((already-inhabited? supersort)
+                               (examine-inclusions rest
+                                   new-inhabitants))
+                              ((already-inhabited? subsort)
+                               (examine-inclusions rest
+                                   (cons supersort new-inhabitants)))
+                              (else (examine-inclusions rest
+                                     new-inhabitants))))))))
+          (examine-inclusions semantic-inclusions
+              (examine-constructors constructors
+                  (set-difference (map enclosing-sort inhabited)
+                      inhabited)))))
+
+(define (bnf-seek-uninhabited sorts atoms constructors
+            semantic-inclusions primary-type)
+        (iterate iter
+                 ((inhabited
+                      (set-separate
+                          (lambda (s)
+                            (any? (lambda (a)
+                                    (eq? (expression-sorting a) s))
+                                  atoms))
+                          sorts)))
+                 (let ((new-inhabited
+                           (bnf-check-inhabitation-get-more
+                               constructors semantic-inclusions
+                               inhabited primary-type)))
+                   (if (null? new-inhabited)
+                       (set-difference sorts inhabited)
+                       (iter (set-union new-inhabited inhabited))))))
+
+(comment (define (bnf-checker bnf)
+                 (bnf-seek-uninhabited (bnf-sorts bnf) (bnf-atoms bnf)
+                     (bnf-constructors bnf)
+                     (bnf-semantic-inclusions bnf)
+                     (bnf-primary-type bnf))))
+
+(define (bnf-install-constructor-definedness-axioms bnf-record)
+        (let ((axioms (bnf-build-constructor-definedness-axioms
+                          (bnf-constructors bnf-record)
+                          (bnf-name bnf-record))))
+          (set (bnf-constructor-definedness-axioms bnf-record) axioms)
+          axioms))
+
+(define (bnf-build-constructor-definedness-axioms constructors
+            bnf-name)
+        (map (lambda (c)
+               (let ((vars (sorts->new-variables (domain-sorts c)
+                               (concatenate-symbol 'y% (name c)) nil)))
+                 (build-theorem nil
+                     (apply forall
+                            (is-defined (apply apply-operator c vars))
+                            vars)
+                     (concatenate-symbol (name c) '-definedness_
+                         bnf-name)
+                     (list 'd-r-convergence))))
+             constructors))
+
+(define (bnf-install-induction-axiom bnf-record)
+        (let ((induction (bnf-build-induction-axiom
+                             (bnf-primary-type bnf-record)
+                             (bnf-constructors bnf-record)
+                             (bnf-atoms bnf-record)
+                             (bnf-name bnf-record))))
+          (set (bnf-induction-axiom bnf-record) induction)
+          induction))
+
+(define (bnf-build-induction-axiom type constructors atoms bnf-name)
+        (let ((phi (find-variable 'phi
+                       (build-maximal-higher-sort (list type) prop)))
+              (x_0 (find-variable 'x_0 type)))
+          (let ((antecedent (forall (apply-operator phi x_0) x_0))
+                (base-case
+                    (if (null? atoms) truth
+                        (apply conjunction
+                               (map (lambda (atom)
+                                      (apply-operator phi atom))
+                                    atoms))))
+                (induction-step
+                    (universal-closure
+                        (apply conjunction
+                               (map (lambda (c)
+                                      (let
+                                       ((vars
+                                         (sorts->new-variables
+                                          (domain-sorts c)
+                                          (concatenate-symbol 'y%
+                                           (name c))
+                                          (list phi x_0))))
+                                        (implication
+                                         (conjunction-simplifier
+                                          (map
+                                           (lambda (v)
+                                             (if
+                                              (eq? type
+                                               (expression-type v))
+                                              (apply-operator phi v)
+                                              truth))
+                                           vars))
+                                         (apply-operator phi
+                                          (apply apply-operator c vars)))))
+                                    constructors))
+                        (list phi))))
+            (build-theorem nil
+                (forall (biconditional antecedent
+                            (conjunction base-case induction-step))
+                        phi)
+                (concatenate-symbol (name type) '-induction_ bnf-name)
+                nil))))
+
+(define (bnf-install-disjointness-principles bnf-record)
+        (let ((axioms (bnf-build-disjointness-principles
+                          (bnf-constructors bnf-record)
+                          (bnf-atoms bnf-record) (bnf-name bnf-record))))
+          (set (bnf-disjointness-axioms bnf-record) axioms)
+          axioms))
+
+(define (bnf-build-disjointness-principles constructors atoms bnf-name)
+        (let ((constructor-atom-principles
+                  (iterate iter
+                           ((constructors constructors)
+                            (principles nil))
+                           (if (null? constructors)
+                               (reverse! principles)
+                               (let ((c (car constructors)))
+                                 (iterate sub-iter
+                                          ((atoms atoms)
+                                           (principles principles))
+                                          (if (null? atoms)
+                                           (iter (cdr constructors)
+                                            principles)
+                                           (sub-iter (cdr atoms)
+                                            (cons
+                                             (bnf-constructor-atom-disjointness
+                                              c (car atoms) bnf-name)
+                                             principles))))))))
+              (constructor-constructor-principles
+                  (iterate iter
+                           ((constructors constructors)
+                            (principles nil))
+                           (if (null? constructors)
+                               (reverse! principles)
+                               (let ((c (car constructors))
+                                     (rest (cdr constructors)))
+                                 (iterate sub-iter
+                                          ((rest rest)
+                                           (principles principles))
+                                          (if (null? rest)
+                                           (iter (cdr constructors)
+                                            principles)
+                                           (sub-iter (cdr rest)
+                                            (cons
+                                             (bnf-constructor-disjointness
+                                              c (car rest) bnf-name)
+                                             principles)))))))))
+          (append constructor-atom-principles
+                  constructor-constructor-principles)))
+
+(define (bnf-constructor-disjointness constructor1 constructor2
+            bnf-name)
+        (let ((vars1 (sorts->new-variables (domain-sorts constructor1)
+                         'y nil))
+              (vars2 (sorts->new-variables (domain-sorts constructor2)
+                         'z nil)))
+          (build-theorem nil
+              (apply forall
+                     (negation
+                         (equality
+                             (apply apply-operator constructor1 vars1)
+                             (apply apply-operator constructor2 vars2)))
+                     (append vars1 vars2))
+              (concatenate-symbol (name constructor1) '-
+                  (name constructor2) '-disjointness_ bnf-name)
+              '(rewrite))))
+
+(define (bnf-additional-constructor-disjointness-theorems bnf)
+        (let ((constructors (bnf-constructors bnf))
+              (the-name (bnf-name bnf)))
+          (iterate iter ((constructors constructors) (formulas nil))
+                   (if (null? (cdr constructors)) (reverse! formulas)
+                       (let ((first (car constructors))
+                             (second (cadr constructors)))
+                         (iter (cdr constructors)
+                               (cons (bnf-constructor-disjointness
+                                      second first the-name)
+                                     formulas)))))))
+
+(define (bnf-constructor-atom-disjointness constructor1 atom bnf-name)
+        (let ((vars1 (sorts->new-variables (domain-sorts constructor1)
+                         'y nil)))
+          (build-theorem nil
+              (apply forall
+                     (negation
+                         (equality
+                             (apply apply-operator constructor1 vars1)
+                             atom))
+                     vars1)
+              (concatenate-symbol (name constructor1) '- (name atom)
+                  '-distinctness_ bnf-name)
+              '(rewrite))))
+
+(define (bnf-install-constructor-selectors bnf-record)
+        (receive (selector-constructor-axioms
+                     selector-undefinedness-axioms)
+                 (bnf-constructor-selectors
+                     (bnf-constructors bnf-record)
+                     (bnf-selector-lists bnf-record)
+                     (bnf-name bnf-record))
+                 (set (bnf-selector-constructor-axioms bnf-record)
+                      selector-constructor-axioms)
+                 (set (bnf-selector-undefinedness-axioms bnf-record)
+                      selector-undefinedness-axioms)
+                 (append selector-constructor-axioms
+                         selector-undefinedness-axioms)))
+
+(define (bnf-constructor-selectors constructors selector-lists
+            bnf-name)
+        (iterate iter
+                 ((constructors constructors)
+                  (selector-lists selector-lists)
+                  (selector-constructor-axioms nil)
+                  (selector-undefinedness-axioms nil))
+                 (if (null? constructors)
+                     (return
+                       (reverse! selector-constructor-axioms)
+                       (reverse! selector-undefinedness-axioms))
+                     (receive (new-selector-constructor-axioms
+                                  new-selector-undefinedness-axioms)
+                              (bnf-one-constructor-and-selectors
+                                  (car constructors)
+                                  (car selector-lists) bnf-name)
+                              (iter (cdr constructors)
+                                    (cdr selector-lists)
+                                    (append!
+                                     new-selector-constructor-axioms
+                                     selector-constructor-axioms)
+                                    (append!
+                                     new-selector-undefinedness-axioms
+                                     selector-undefinedness-axioms))))))
+
+(define (bnf-one-constructor-and-selectors constructor selectors
+            bnf-name)
+        (cond
+          ((null? selectors) (return nil nil))
+          ((= (length selectors) (length (domain-sorts constructor)))
+           (let* ((vars (sorts->new-variables
+                            (domain-sorts constructor) 'y nil))
+                  (compound (apply apply-operator constructor vars))
+                  (range-var
+                      (find-variable 'x (range-sort constructor))))
+             (iterate iter
+                      ((selectors selectors) (main-variables vars)
+                       (selector-constructor-axioms nil)
+                       (selector-undefinedness-axioms nil))
+                      (if (null? selectors)
+                          (return
+                            selector-constructor-axioms
+                            selector-undefinedness-axioms)
+                          (let ((selector (car selectors))
+                                (main-variable (car main-variables)))
+                            (iter (cdr selectors) (cdr main-variables)
+                                  (cons (build-theorem nil
+                                         (apply forall
+                                          (equality
+                                           (apply-operator selector
+                                            compound)
+                                           main-variable)
+                                          vars)
+                                         (concatenate-symbol
+                                          (name constructor) '-
+                                          (name selector) '_ bnf-name)
+                                         '(rewrite))
+                                        selector-constructor-axioms)
+                                  (cons (build-theorem nil
+                                         (forall
+                                          (implication
+                                           (is-defined
+                                            (apply-operator selector
+                                             range-var))
+                                           (apply forsome
+                                            (equality
+                                             (apply apply-operator
+                                              constructor vars)
+                                             range-var)
+                                            vars))
+                                          range-var)
+                                         (concatenate-symbol
+                                          (name selector)
+                                          '-definedness_ bnf-name)
+                                         '(rewrite))
+                                        selector-undefinedness-axioms)))))))
+          (t (imps-error
+                 "bnf-one-constructor-and-selectors: ~A~&~S~&~S."
+                 "Wrong number of selectors for constructor"
+                 constructor selectors))))
+
+(define (bnf-all-constructor-injectiveness-theorems bnf)
+        (collect-set
+            (lambda (c)
+              (bnf-constructor-injectiveness-theorems bnf c))
+            (bnf-constructors bnf)))
+
+(define (bnf-constructor-injectiveness-theorems bnf constructor)
+        (let* ((the-name (bnf-name bnf))
+               (vars1 (sorts->new-variables (domain-sorts constructor)
+                          'y nil))
+               (vars2 (sorts->new-variables (domain-sorts constructor)
+                          'z nil))
+               (all-vars (append vars1 vars2)))
+          (iterate iter
+                   ((major-vars1 vars1) (major-vars2 vars2) (i 0)
+                    (formulas nil))
+                   (if (null? major-vars1) (reverse! formulas)
+                       (let ((formula (apply forall
+                                       (implication
+                                        (equality
+                                         (apply apply-operator
+                                          constructor vars1)
+                                         (apply apply-operator
+                                          constructor vars2))
+                                        (equality (car major-vars1)
+                                         (car major-vars2)))
+                                       all-vars)))
+                         (set (theorem-name formula)
+                              (concatenate-symbol (name constructor) '-
+                                  i '-injectiveness_ the-name))
+                         (iter (cdr major-vars1) (cdr major-vars2)
+                               (1+ i) (cons formula formulas)))))))
+
+(define (bnf-theorems-when-selectors-defined bnf)
+        (let ((constructors (bnf-constructors bnf))
+              (selector-lists (bnf-selector-lists bnf)))
+          (map (lambda (constructor selectors)
+                 (bnf-constructor-selector-when-selectors-defined-theorem
+                     bnf constructor selectors))
+               constructors selector-lists)))
+
+(define (bnf-constructor-selector-when-selectors-defined-theorem bnf
+            constructor selectors)
+        (let ((the-name (bnf-name bnf))
+              (var (find-variable 'v (bnf-primary-type bnf))))
+          (let ((formula (forall (implication
+                                     (disjunction-simplifier
+                                      (map
+                                       (lambda (s)
+                                         (is-defined
+                                          (apply-operator s var)))
+                                       selectors))
+                                     (equality
+                                      (apply apply-operator constructor
+                                       (map
+                                        (lambda (s)
+                                          (apply-operator s var))
+                                        selectors))
+                                      var))
+                                 var)))
+            (set (theorem-name formula)
+                 (concatenate-symbol (name constructor)
+                     '-selectors-when-defined_ the-name))
+            formula)))
+
+(define (bnf-install-sort-inclusion-axioms bnf-record)
+        (let ((axioms (bnf-build-sort-inclusion-axioms
+                          (bnf-semantic-inclusions bnf-record)
+                          (bnf-name bnf-record))))
+          (set (bnf-sort-inclusion-axioms bnf-record) axioms)
+          axioms))
+
+(define (bnf-build-sort-inclusion-axioms inclusion-lists bnf-name)
+        (map (lambda (inclusion)
+               (destructure (((sub super) inclusion))
+                   (let ((var (find-variable 'x sub)))
+                     (build-theorem nil
+                         (forall (defined-in var super) var)
+                         (concatenate-symbol (name sub) '- (name super)
+                             '-inclusion_ bnf-name)
+                         '(rewrite)))))
+             inclusion-lists))
+
+(define (bnf-sort-inclusion-lists language unread-inclusion-lists)
+        (map (lambda (inclusion)
+               (map (lambda (sort-name)
+                      (name->sort language sort-name))
+                    inclusion))
+             unread-inclusion-lists))
+
+(define (bnf-immediate-sort-inclusion? inclusions sub super)
+        (or (eq? (enclosing-sort sub) super)
+            (mem? equal? (list sub super) inclusions)))
+
+(define (bnf-install-sort-case-axioms bnf-record)
+        (let ((axioms (bnf-build-sort-case-axioms
+                          (bnf-atoms bnf-record)
+                          (bnf-constructors bnf-record)
+                          (bnf-sorts bnf-record)
+                          (bnf-semantic-inclusions bnf-record)
+                          bnf-record)))
+          (set (bnf-sort-case-axioms bnf-record) axioms)
+          axioms))
+
+(define (bnf-build-sort-case-axioms atoms constructors new-sorts
+            inclusions bnf-record)
+        (let ((sort-atom-lists (bnf-sort-atom-lists new-sorts atoms))
+              (sort-constructor-lists
+                  (bnf-sort-constructor-lists new-sorts constructors))
+              (immediate-subsort-lists
+                  (bnf-sort-immediate-subsorts new-sorts inclusions)))
+          (map (lambda (new-sort)
+                 (let ((axiom (bnf-sort-case-build-axiom bnf-record
+                                  new-sort
+                                  (assq-val new-sort sort-atom-lists)
+                                  (assq-val new-sort
+                                      sort-constructor-lists)
+                                  (assq-val new-sort
+                                      immediate-subsort-lists))))
+                   (build-theorem nil axiom
+                       (concatenate-symbol (name new-sort) '-cases_
+                           (bnf-name bnf-record))
+                       (if (disjunction? (binding-body axiom)) nil
+                           '(rewrite)))))
+               new-sorts)))
+
+(define (bnf-sort-case-build-axiom bnf-record new-sort sort-atoms
+            sort-constructors immediate-subsorts)
+        (let* ((var (find-variable 'e new-sort))
+               (body (disjunction-simplifier
+                         (append (map (lambda (atom)
+                                        (equality var atom))
+                                      sort-atoms)
+                                 (map (lambda (constructor)
+                                        (let
+                                         ((selectors
+                                           (bnf-constructor->selectors
+                                            bnf-record constructor)))
+                                          (equality
+                                           (apply apply-operator
+                                            constructor
+                                            (map
+                                             (lambda (selector)
+                                               (apply-operator selector
+                                                var))
+                                             selectors))
+                                           var)))
+                                      sort-constructors)
+                                 (map (lambda (subsort)
+                                        (defined-in var subsort))
+                                      immediate-subsorts)))))
+          (if (falsehood? body)
+              (imps-error "bnf-sort-case-build-axiom: ~A ~S"
+                  "Vacuous newly introduced sort:" new-sort)
+              (forall body var))))
+
+(define (bnf-sort-atom-lists new-sorts atoms)
+        (map (lambda (new-sort)
+               (iterate iter ((atoms atoms) (selected nil))
+                        (cond
+                          ((null? atoms)
+                           (cons new-sort (reverse! selected)))
+                          ((equal-sortings?
+                               (expression-sorting (car atoms))
+                               new-sort)
+                           (iter (cdr atoms)
+                                 (cons (car atoms) selected)))
+                          (else (iter (cdr atoms) selected)))))
+             new-sorts))
+
+(define (bnf-sort-constructor-lists new-sorts constructors)
+        (map (lambda (new-sort)
+               (iterate iter
+                        ((constructors constructors) (selected nil))
+                        (cond
+                          ((null? constructors)
+                           (cons new-sort (reverse! selected)))
+                          ((equal-sortings?
+                               (expression-range (car constructors))
+                               new-sort)
+                           (iter (cdr constructors)
+                                 (cons (car constructors) selected)))
+                          (else (iter (cdr constructors) selected)))))
+             new-sorts))
+
+(define (bnf-sort-immediate-subsorts new-sorts inclusions)
+        (map (lambda (new-sort)
+               (iterate iter ((other-sorts new-sorts) (selected nil))
+                        (cond
+                          ((null? other-sorts)
+                           (cons new-sort (reverse! selected)))
+                          ((equal-sortings? new-sort (car other-sorts))
+                           (iter (cdr other-sorts) selected))
+                          ((bnf-immediate-sort-inclusion? inclusions
+                               (car other-sorts) new-sort)
+                           (iter (cdr other-sorts)
+                                 (cons (car other-sorts) selected)))
+                          (else (iter (cdr other-sorts) selected)))))
+             new-sorts))
+
+(define (bnf-selector-constructor-undefinedness-theorems bnf-record)
+        (let ((selector-lists (bnf-selector-lists bnf-record)))
+          (walk (lambda (constructor avoid-selectors)
+                  (walk (lambda (selectors)
+                          (or (eq? selectors avoid-selectors)
+                              (bnf-build-selector-constructor-undefinedness-theorems
+                                  bnf-record constructor selectors)))
+                        selector-lists))
+                (bnf-constructors bnf-record) selector-lists)))
+
+(define (bnf-build-selector-constructor-undefinedness-theorems
+            bnf-record constructor selectors)
+        (let ((theory (bnf-theory bnf-record))
+              (variables
+                  (sorts->new-variables (domain-sorts constructor) 'v
+                      nil)))
+          (walk (lambda (selector)
+                  (theory-add-theorem theory
+                      (apply forall
+                             (negation
+                                 (is-defined
+                                     (apply-operator selector
+                                      (apply apply-operator constructor
+                                       variables))))
+                             variables)
+                      (concatenate-symbol (name selector) '-
+                          (name constructor) '-undefinedness_
+                          (name theory))
+                      'rewrite))
+                selectors)))
+
+(define (bnf-constructor->selectors bnf-record constructor)
+        (do ((constructors (bnf-constructors bnf-record)
+                 (cdr constructors))
+             (selector-lists (bnf-selector-lists bnf-record)
+                 (cdr selector-lists)))
+            ((or (null? constructors)
+                 (eq? (car constructors) constructor))
+             (if (null? constructors)
+                 (imps-error "bnf-constructor->selectors ~A ~S ~A ~S."
+                     "Requested constructor " constructor
+                     "not found in BNF " bnf-record)
+                 (car selector-lists)))))
+
+(define (bnf-install-primitive-recursion bnf-record)
+        (let ((theory (bnf-theory bnf-record)))
+          (receive (iota-theorem unfolding-theorem)
+                   (bnf-pr-theorems bnf-record)
+                   (set (bnf-primitive-recursive-iota-theorem
+                            bnf-record)
+                        (theory-add-theorem theory iota-theorem
+                            (concatenate-symbol (name bnf-record)
+                                '-pr-iota-theorem)))
+                   (set (bnf-primitive-recursive-unfolding-theorem
+                            bnf-record)
+                        (theory-add-theorem theory unfolding-theorem
+                            (concatenate-symbol (name bnf-record)
+                                '-pr-unfolding-theorem)))
+                   (set (bnf-primitive-recursive-definition-type
+                            bnf-record)
+                        (make-implicit-definition-type theory
+                            iota-theorem unfolding-theorem)))))
+
+(define (bnf-pr-theorems bnf-record)
+        (let ((recursive-fun-var
+                  (bnf-pr-recursive-fun-var bnf-record
+                      (bnf-generic-type bnf-record)))
+              (lambda-bound-var
+                  (find-variable 'x (bnf-primary-type bnf-record))))
+          (let ((atom-cond-exprs
+                    (bnf-pr-atom-cond-exprs bnf-record
+                        lambda-bound-var))
+                (constructor-cond-exprs
+                    (bnf-pr-constructor-cond-exprs bnf-record
+                        lambda-bound-var recursive-fun-var))
+                (generic-type (bnf-generic-type bnf-record)))
+            (let ((lambda-expression
+                      (imps-lambda
+                          (iterate iter
+                                   ((atom-cond-exprs atom-cond-exprs)
+                                    (constructor-cond-exprs
+                                     constructor-cond-exprs))
+                                   (cond
+                                     ((and (null? atom-cond-exprs)
+                                       (null? constructor-cond-exprs))
+                                      (undefined generic-type))
+                                     ((null? atom-cond-exprs)
+                                      (if-term
+                                       (car constructor-cond-exprs)
+                                       (cadr constructor-cond-exprs)
+                                       (iter nil
+                                        (cddr constructor-cond-exprs))))
+                                     (t
+                                      (if-term (car atom-cond-exprs)
+                                       (cadr atom-cond-exprs)
+                                       (iter (cddr atom-cond-exprs)
+                                        constructor-cond-exprs)))))
+                          lambda-bound-var)))
+              (let ((iota-expr
+                        (iota (equality recursive-fun-var
+                                  lambda-expression)
+                              recursive-fun-var)))
+                (return
+                  (apply forall (is-defined iota-expr)
+                         (append (bnf-pr-atom-args bnf-record)
+                                 (bnf-pr-constructor-fun-args
+                                     bnf-record)))
+                  (apply forall
+                         (implication
+                             (equality recursive-fun-var iota-expr)
+                             (equality recursive-fun-var
+                                 lambda-expression))
+                         (append (bnf-pr-atom-args bnf-record)
+                                 (bnf-pr-constructor-fun-args
+                                     bnf-record)
+                                 (list recursive-fun-var)))))))))
+
+(define (bnf-pr-atom-cond-exprs bnf-record lambda-bound-var)
+        (iterate iter
+                 ((atoms (bnf-atoms bnf-record))
+                  (atom-val-args (bnf-pr-atom-args bnf-record))
+                  (cond-exprs nil))
+                 (if (null? atoms) (reverse! cond-exprs)
+                     (iter (cdr atoms) (cdr atom-val-args)
+                           (cons (car atom-val-args)
+                                 (cons (equality lambda-bound-var
+                                        (car atoms))
+                                       cond-exprs))))))
+
+(define (bnf-pr-constructor-cond-exprs bnf-record lambda-bound-var
+            recursive-fun-var)
+        (let ((primary-type (bnf-primary-type bnf-record)))
+          (iterate iter
+                   ((constructors (bnf-constructors bnf-record))
+                    (selector-lists (bnf-selector-lists bnf-record))
+                    (constructor-fun-args
+                        (bnf-pr-constructor-fun-args bnf-record))
+                    (cond-exprs nil))
+                   (if (null? constructors) (reverse! cond-exprs)
+                       (let ((selectors (car selector-lists))
+                             (fun (car constructor-fun-args)))
+                         (iter (cdr constructors) (cdr selector-lists)
+                               (cdr constructor-fun-args)
+                               (cons (apply apply-operator fun
+                                      (map
+                                       (lambda (selector)
+                                         (if
+                                          (sortings-equal?
+                                           (range-type selector)
+                                           primary-type)
+                                          (apply-operator
+                                           recursive-fun-var
+                                           (apply-operator selector
+                                            lambda-bound-var))
+                                          (apply-operator selector
+                                           lambda-bound-var)))
+                                       selectors))
+                                     (cons
+                                      (is-defined
+                                       (apply-operator (car selectors)
+                                        lambda-bound-var))
+                                      cond-exprs))))))))
+
+'(define (bnf-pr-argument-lists bnf-record)
+         (iterate iter
+                  ((constructors (bnf-constructors bnf-record)) (i 0)
+                   (var-lists 'value-false))
+                  (if (null? constructors) (reverse! var-lists)
+                      (iter (cdr constructors) (1+ i)
+                            (cons (sorts->new-variables
+                                      (expression-domains
+                                       (car constructors))
+                                      (concatenate-symbol 'y% i) 'value-false)
+                                  var-lists)))))
+
+(define (bnf-pr-atom-args bnf-record)
+        (let ((generic-type (bnf-generic-type bnf-record)))
+          (map (lambda (atom)
+                 (find-variable (concatenate-symbol 'val_ (name atom))
+                     generic-type))
+               (bnf-atoms bnf-record))))
+
+(define (bnf-pr-constructor-fun-args bnf-record)
+        (let ((generic-type (bnf-generic-type bnf-record))
+              (primary-type (bnf-primary-type bnf-record)))
+          (map (lambda (constructor)
+                 (find-variable
+                     (concatenate-symbol 'fn_ (name constructor))
+                     (build-maximal-higher-sort
+                         (map (lambda (sort)
+                                (if (equal-sortings?
+                                     (type-of-sort sort) primary-type)
+                                    generic-type sort))
+                              (expression-domains constructor))
+                         generic-type)))
+               (bnf-constructors bnf-record))))
+
+(define (bnf-pr-recursive-fun-var bnf-record range-sort)
+        (find-variable
+            (let ((language (bnf-language bnf-record)))
+              (do ((i 0 (1+ i)) (sym 'f (concatenate-symbol 'f_ i)))
+                  ((not (find-constant language sym)) sym)))
+            (build-maximal-higher-sort
+                (list (bnf-primary-type bnf-record)) range-sort)))
+
+(define (bnf-build-pr-constant constant-name bnf-record target-theory
+            range-sort clauses)
+        (let ((atom-values
+                  (bnf-pr-read-atoms bnf-record target-theory clauses))
+              (constructor-values
+                  (bnf-pr-read-constructors constant-name bnf-record
+                      target-theory range-sort clauses)))
+          (let ((constant
+                    (definition-constant
+                        (funcall (bnf-primitive-recursive-definition-type
+                                     bnf-record)
+                                 target-theory constant-name
+                                 (append atom-values
+                                         constructor-values)))))
+            (bnf-pr-build-base-rewrites target-theory constant
+                (bnf-atoms bnf-record) atom-values)
+            (bnf-pr-build-inductive-step-rewrites target-theory
+                constant (bnf-constructors bnf-record)
+                constructor-values)
+            constant)))
+
+(define (bnf-pr-build-base-rewrites theory constant atoms values)
+        (walk (lambda (atom value)
+                (print (theory-add-theorem-without-event theory
+                           (equality (apply-operator constant atom)
+                               value)
+                           (concatenate-symbol (name constant) '-
+                               (name atom) '-rewrite)
+                           'rewrite)
+                       (standard-output)))
+              atoms values))
+
+(define (bnf-pr-build-inductive-step-rewrites theory constant
+            constructors values)
+        (labels (((apply-operator-with-beta op args)
+                  (let ((applic (apply apply-operator op args)))
+                    (if (and (lambda-expression? op)
+                             (every? (lambda (req)
+                                       (context-trivially-entails?
+                                        (theory-null-context theory)
+                                        req))
+                                     (restricted-substitution-definedness-conditions
+                                      (targets-and-replacements->subst
+                                       (binding-variables op) args)
+                                      (exposed-variables
+                                       (binding-body op)))))
+                        (beta-reduce-recklessly applic) applic))))
+          (walk (lambda (constructor value)
+                  (print (theory-add-theorem-without-event theory
+                             (let ((variables
+                                    (sorts->new-variables
+                                     (domain-sorts constructor) 'y nil)))
+                               (apply forall
+                                      (quasi-equality
+                                       (apply-operator constant
+                                        (apply apply-operator
+                                         constructor variables))
+                                       (apply-operator-with-beta value
+                                        (map
+                                         (lambda (var)
+                                           (bnf-pr-maybe-coerce-argument
+                                            constant var))
+                                         variables)))
+                                      variables))
+                             (concatenate-symbol (name constant) '-
+                                 (name constructor) '-rewrite)
+                             'rewrite)
+                         (standard-output)))
+                constructors values)))
+
+(define (bnf-pr-maybe-coerce-argument pr-constant arg)
+        (if (sortings-equal? (car (domain-types pr-constant))
+                (expression-type arg))
+            (apply-operator pr-constant arg) arg))
+
+(define (bnf-pr-read-atoms bnf-record target-theory clauses)
+        (map (lambda (atom)
+               (let ((probe (assq (name atom) clauses)))
+                 (or probe
+                     (imps-error
+                         "bnf-pr-read-atoms: missing clause for ~A"
+                         (name atom)))
+                 (let ((input (cadr probe)))
+                   (qr (if (string? input) input
+                           (format nil "~A" input))
+                       (theory-language target-theory)))))
+             (bnf-atoms bnf-record)))
+
+(define (bnf-pr-read-constructors constant-name bnf-record
+            target-theory range-sort clauses)
+        (map (lambda (constructor)
+               (let ((probe (assq (name constructor) clauses)))
+                 (or probe
+                     (imps-error
+                         "bnf-pr-read-constructors: missing clause for ~A"
+                         (name constructor)))
+                 (if (= (length probe) 2)
+                     (let ((input (cadr probe)))
+                       (qr (if (string? input) input
+                               (format nil "~A" input))
+                           (theory-language target-theory)))
+                     (destructure
+                         (((() variable-name-list body-string) probe))
+                         (cond
+                           ((not (and (list? variable-name-list)
+                                      (every? symbol?
+                                       variable-name-list)))
+                            (imps-error
+                                "bnf-pr-read-constructors:~% ~A ~S"
+                                "bad variable list" variable-name-list))
+                           ((not (string? body-string))
+                            (imps-error
+                                "bnf-pr-read-constructors:~% ~A ~S"
+                                "bad body string" body-string))
+                           (else (bnf-pr-read-lambda constant-name
+                                     bnf-record target-theory
+                                     range-sort constructor
+                                     variable-name-list body-string)))))))
+             (bnf-constructors bnf-record)))
+
+(define (bnf-pr-read-lambda constant-name bnf-record target-theory
+            range-sort constructor variable-name-list body-string)
+        (let ((variables
+                  (sorts-and-names->new-variables
+                      (map (lambda (sort)
+                             (if (equal-sortings? (type-of-sort sort)
+                                     (bnf-primary-type bnf-record))
+                                 range-sort sort))
+                           (expression-domains constructor))
+                      variable-name-list nil))
+              (rec-variable
+                  (find-variable constant-name
+                      (build-maximal-higher-sort
+                          (list (bnf-primary-type bnf-record))
+                          range-sort))))
+          (let ((varname-sort-list
+                    (map (lambda (variable)
+                           (cons (name variable)
+                                 (expression-sorting variable)))
+                         variables))
+                (rec-varname+sort
+                    (cons (name rec-variable)
+                          (expression-sorting rec-variable)))
+                (language (theory-language target-theory)))
+            (apply-substitution
+                (one-component-subst rec-variable
+                    (bnf-pr-recursive-fun-var bnf-record range-sort))
+                (apply imps-lambda
+                       (bind (((language-default-sortings language)
+                               (append varname-sort-list
+                                       (list rec-varname+sort)
+                                       (language-default-sortings
+                                        language))))
+                             (qr body-string language))
+                       variables)))))
+
+(define (bnf-add-auxiliary-theorems bnf)
+        (let ((theory (bnf-theory bnf)))
+          (set (bnf-auxiliary-theorems bnf)
+               (append (map (lambda (thm)
+                              (theory-add-theorem-without-event theory
+                                  thm (theorem-name thm)))
+                            (bnf-theorems-when-selectors-defined bnf))
+                       (map (lambda (thm)
+                              (theory-add-theorem-without-event theory
+                                  thm (theorem-name thm)))
+                            (bnf-all-constructor-injectiveness-theorems
+                                bnf))
+                       (map (lambda (thm)
+                              (apply theory-add-theorem-without-event
+                                     theory thm (theorem-name thm)
+                                     (theorem-usage-list thm)))
+                            (bnf-additional-constructor-disjointness-theorems
+                                bnf))
+                       (bnf-single-constructor-thms bnf)))))
+
+(define (bnf-single-constructor-sorts bnf)
+        (let ((sorts (bnf-sorts bnf)))
+          (iterate iter ((remaining-sorts sorts) (singles nil))
+                   (if (null? remaining-sorts) singles
+                       (let ((s (car remaining-sorts))
+                             (rest (cdr remaining-sorts)))
+                         (if (bnf-sort-has-single-constructor? bnf s
+                                 sorts)
+                             (iter rest (cons s singles))
+                             (iter rest singles)))))))
+
+(define (bnf-sort-has-single-constructor? bnf s sorts)
+        (let ((atoms (assq-val s
+                         (bnf-sort-atom-lists (list s) (bnf-atoms bnf))))
+              (constrs (assq-val s
+                           (bnf-sort-constructor-lists (list s)
+                               (bnf-constructors bnf))))
+              (inclusions (bnf-semantic-inclusions bnf)))
+          (and (null? atoms) constrs (null? (cdr constrs))
+               (not (any? (lambda (sort)
+                            (and (eq? s (enclosing-sort sort))
+                                 (not (eq? s sort))))
+                          sorts))
+               (not (any? (lambda (sub-super)
+                            (destructure (((() super-sort) sub-super))
+                                (eq? s super-sort)))
+                          inclusions)))))
+
+(define (bnf-single-constructor-thms bnf)
+        (let ((sorts (bnf-sorts bnf))
+              (constructors (bnf-constructors bnf)))
+          (let ((sort-constructor-lists
+                    (bnf-sort-constructor-lists sorts constructors)))
+            (iterate iter ((sorts sorts) (formula-lists nil))
+                     (if (null? sorts) (big-u formula-lists)
+                         (let ((s (car sorts)) (rest (cdr sorts)))
+                           (if (bnf-sort-has-single-constructor? bnf s
+                                   sorts)
+                               (iter rest
+                                     (cons
+                                      (bnf-single-constructor-selector-definedness-formulas
+                                       bnf s
+                                       (car
+                                        (assq-val s
+                                         sort-constructor-lists)))
+                                      formula-lists))
+                               (iter rest formula-lists))))))))
+
+(define (bnf-single-constructor-selector-definedness-formulas bnf sort
+            c)
+        (let ((theory (bnf-theory bnf))
+              (selectors (bnf-constructor->selectors bnf c))
+              (var (find-variable 'xx_0 sort)))
+          (iterate iter ((selectors selectors) (theorems nil))
+                   (cond
+                     ((null? selectors) (reverse! theorems))
+                     ((expression-of-category-prop? (car selectors))
+                      (iter (cdr selectors) theorems))
+                     (else (iter (cdr selectors)
+                                 (cons (let ((sel (car selectors)))
+                                         (theory-add-theorem-without-event
+                                          theory
+                                          (forall
+                                           (is-defined
+                                            (apply-operator sel var))
+                                           var)
+                                          (concatenate-symbol
+                                           (name sel) '-totality_
+                                           (name bnf))
+                                          'd-r-convergence))
+                                       theorems)))))))
+
+(define (bnf-sort->case-axiom bnf sort)
+        (let ((case-axioms (bnf-sort-case-axioms bnf)))
+          (and (memq? sort (bnf-sorts bnf))
+               (any-such-that
+                   (lambda (ax)
+                     (let ((bvs (binding-variables ax)))
+                       (and bvs
+                            (eq? sort (expression-sorting (car bvs))))))
+                   case-axioms))))
+
+(define (bnf-sortname->case-axiom-name bnfname sortname)
+        (let* ((bnf (name->bnf bnfname))
+               (sort (list->sort (bnf-language bnf) sortname)))
+          (let ((ax (bnf-sort->case-axiom bnf sort)))
+            (and ax
+                 (string-downcase (symbol->string (theorem-name ax)))))))
+
+(build-universal-command instantiate-theorem-strategy 'bnf-take-cases
+    (always value-true) 'bnf-take-cases-protocol)

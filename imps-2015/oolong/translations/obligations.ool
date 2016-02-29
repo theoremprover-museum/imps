@@ -1,0 +1,534 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment obligations)
+
+(define (build-and-check-translation-obligations translation)
+        (if (dont-build-obligations?)
+            (set-to-theory-interpretation translation)
+            (block (set (translation-obligations translation)
+                        (make-translation-obligations translation))
+              (theory-interpretation-check translation))))
+
+(define dont-build-obligations?
+        (make-simple-switch 'dont-build-obligations? boolean? value-false))
+
+(define dont-check-obligations?
+        (make-simple-switch 'dont-check-obligations? boolean? value-false))
+
+(define (make-translation-obligations translation)
+        (append (make-nonemptyness-obligations translation)
+                (make-enclosure-obligations translation)
+                (make-sorting-obligations translation)
+                (make-axiom-obligations translation)
+                (make-directly-defined-constant-obligations
+                    translation)
+                (make-recursively-defined-constant-obligations
+                    translation)
+                (make-defined-sort-obligations translation)
+                (make-distinct-constant-obligations translation)))
+
+(define (make-nonemptyness-obligations translation)
+        (let ((target-theory (translation-target-theory translation))
+              (sort-alist (translation-sort-alist translation)))
+          (iterate iter ((s-alist sort-alist) (obligations nil))
+                   (if (null? s-alist) (reverse obligations)
+                       (let ((arg (cdar s-alist)))
+                         (if (sort? arg)
+                             (iter (cdr s-alist) obligations)
+                             (iter (cdr s-alist)
+                                   (cons
+                                    (make-obligation target-theory
+                                     (make-nonemptyness-formula arg)
+                                     (name (caar s-alist)) translation
+                                     'sort-nonemptyness-obligation)
+                                    obligations))))))))
+
+(define (make-enclosure-obligations translation)
+        (let ((source-theory (translation-source-theory translation))
+              (target-theory (translation-target-theory translation))
+              (sorts (map car (translation-sort-alist translation))))
+          (iterate iter ((sorts sorts) (obligations nil))
+                   (cond
+                     ((null? sorts) (reverse obligations))
+                     ((let ((sort (first-set-element sorts)))
+                        (or (theory-defined-sort? source-theory sort)
+                            (sort-is-type? sort)))
+                      (iter (rest-of-set sorts) obligations))
+                     (else (let* ((alpha (first-set-element sorts))
+                                  (alpha-trans
+                                      (translate-sort translation
+                                       alpha))
+                                  (beta (enclosing-sort alpha))
+                                  (beta-trans
+                                      (translate-sort translation beta)))
+                             (if (and (sort? beta-trans)
+                                      (sort-necessarily-included?
+                                       (sort-or-quasi-sort-domain
+                                        alpha-trans)
+                                       beta-trans))
+                                 (iter (rest-of-set sorts) obligations)
+                                 (iter (rest-of-set sorts)
+                                       (cons
+                                        (make-obligation target-theory
+                                         (make-enclosure-formula
+                                          alpha-trans beta-trans)
+                                         (name alpha) translation
+                                         'sort-inclusion-obligation)
+                                        obligations)))))))))
+
+(define (make-sorting-obligations translation)
+        (let ((source-theory (translation-source-theory translation))
+              (target-theory (translation-target-theory translation))
+              (the-constants
+                  (map car (translation-constant-alist translation))))
+          (iterate iter ((the-constants the-constants) (obligations nil))
+                   (cond
+                     ((null? the-constants) (reverse obligations))
+                     ((theory-defined-constant? source-theory
+                          (first-set-element the-constants))
+                      (iter (rest-of-set the-constants) obligations))
+                     (else (let* ((constant
+                                      (first-set-element the-constants))
+                                  (constant-trans
+                                      (translate-constant translation
+                                       constant))
+                                  (alpha (expression-sorting constant))
+                                  (alpha-trans
+                                      (translate-sort translation
+                                       alpha)))
+                             (if (and (sort? alpha-trans)
+                                      (necessarily-defined?
+                                       constant-trans)
+                                      (sort-necessarily-included?
+                                       (expression-sorting
+                                        constant-trans)
+                                       alpha-trans))
+                                 (iter (rest-of-set the-constants)
+                                       obligations)
+                                 (iter (rest-of-set the-constants)
+                                       (cons
+                                        (make-obligation target-theory
+                                         (make-sorting-formula
+                                          constant-trans alpha-trans)
+                                         (name constant) translation
+                                         'constant-sort-obligation)
+                                        obligations)))))))))
+
+(define (make-sorting-formula expr arg)
+        (if (sort? arg) (defined-in expr arg)
+            (beta-reduce (apply-operator arg expr))))
+
+(define (make-axiom-obligations translation)
+        (let ((source-theory (translation-source-theory translation))
+              (target-theory (translation-target-theory translation))
+              (fixed-axioms
+                  (big-u (map theory-axioms
+                              (translation-fixed-theories translation)))))
+          (set-map (lambda (axiom)
+                     (make-obligation target-theory
+                         (translate-sentence translation
+                             (theorem-formula axiom))
+                         (name axiom) translation 'axiom-obligation))
+                   (set-diff (theory-axioms source-theory)
+                       fixed-axioms))))
+
+(define (make-directly-defined-constant-obligations translation)
+        (let ((source-theory (translation-source-theory translation))
+              (target-theory (translation-target-theory translation))
+              (the-constants
+                  (map car (translation-constant-alist translation))))
+          (iterate iter ((the-constants the-constants) (obligations nil))
+                   (if (null? the-constants) (reverse obligations)
+                       (let* ((const (car the-constants))
+                              (def (theory-get-definition source-theory
+                                    (name const))))
+                         (if (not def)
+                             (iter (cdr the-constants) obligations)
+                             (let ((axiom (definition-axiom def)))
+                               (iter (cdr the-constants)
+                                     (cons
+                                      (make-obligation target-theory
+                                       (translate-sentence-and-beta-reduce
+                                        translation
+                                        (theorem-formula axiom))
+                                       (name const) translation
+                                       'directly-defined-constant-obligation)
+                                      obligations)))))))))
+
+(define (make-recursively-defined-constant-obligations translation)
+        (let ((source-theory (translation-source-theory translation))
+              (target-theory (translation-target-theory translation))
+              (the-constants
+                  (map car (translation-constant-alist translation))))
+          (iterate iter ((the-constants the-constants) (obligations nil))
+                   (if (null? the-constants) (reverse obligations)
+                       (let* ((const (car the-constants))
+                              (def (theory-get-recursive-definition
+                                    source-theory (name const))))
+                         (if (not def)
+                             (iter (cdr the-constants) obligations)
+                             (let* ((const-list
+                                     (recursive-definition-constant-list
+                                      def))
+                                    (equation-obligations
+                                     (iterate loop
+                                      ((const-list const-list)
+                                       (e-axioms
+                                        (recursive-definition-equation-axioms
+                                         def))
+                                       (e-obligations nil))
+                                      (if (null? const-list)
+                                       (reverse e-obligations)
+                                       (let
+                                        ((thm
+                                          (make-obligation
+                                           target-theory
+                                           (translate-sentence-and-beta-reduce
+                                            translation
+                                            (theorem-formula
+                                             (car e-axioms)))
+                                           (name (car const-list))
+                                           translation
+                                           'recursively-defined-constant-equation-obligation)))
+                                         (loop
+                                           (cdr const-list)
+                                           (cdr e-axioms)
+                                           (cons thm e-obligations))))))
+                                    (minimality-obligation
+                                     (let
+                                      ((minimality-axiom
+                                        (recursive-definition-minimality-axiom
+                                         def))
+                                       (def-name
+                                        (recursive-definition-name def)))
+                                       (make-obligation target-theory
+                                        (translate-sentence-and-beta-reduce
+                                         translation
+                                         (theorem-formula
+                                          minimality-axiom))
+                                        def-name translation
+                                        'recursively-defined-constant-minimality-obligation))))
+                               (iter (set-diff the-constants const-list)
+                                     (cons minimality-obligation
+                                      (append equation-obligations
+                                       obligations))))))))))
+
+(define (make-defined-sort-obligations translation)
+        (let ((source-theory (translation-source-theory translation))
+              (target-theory (translation-target-theory translation))
+              (sorts (map car (translation-sort-alist translation))))
+          (iterate iter ((sorts sorts) (obligations nil))
+                   (if (null? sorts) (reverse obligations)
+                       (let* ((sort (car sorts))
+                              (sort-def
+                                  (theory-get-sort-definition
+                                      source-theory (name sort))))
+                         (if (not sort-def)
+                             (iter (cdr sorts) obligations)
+                             (let ((axiom
+                                    (sort-definition-axiom sort-def)))
+                               (iter (cdr sorts)
+                                     (cons
+                                      (make-obligation target-theory
+                                       (translate-sentence-and-beta-reduce
+                                        translation
+                                        (theorem-formula axiom))
+                                       (name sort) translation
+                                       'defined-sort-obligation)
+                                      obligations)))))))))
+
+(define (make-dc-obligations-outer-loop list-of-lists pairs)
+  (if (null? list-of-lists) pairs
+      (iterate loop
+	  ((single-list (car list-of-lists))
+	   (new-pairs nil))
+	(if (null? single-list)
+	    (make-dc-obligations-outer-loop (cdr list-of-lists) (append new-pairs pairs))
+	    (loop (cdr single-list)
+		    (append
+		     (map
+		      (lambda (c)
+			(cons (car single-list) c))
+		      (cdr single-list))
+		     new-pairs))))))
+
+(define (make-distinct-constant-obligations translation)
+        (let* ((source-theory (translation-source-theory translation))
+               (target-theory (translation-target-theory translation))
+               (fixed-distinct-constants
+                   (big-u (map theory-distinct-constant-list
+                               (translation-fixed-theories translation))))
+               (distinct-constants
+                   (set-diff
+                       (theory-distinct-constant-list source-theory)
+                       fixed-distinct-constants))
+               (dis-const-pairs (make-dc-obligations-outer-loop distinct-constants nil)))
+          (iterate iter
+                   ((dis-const-pairs dis-const-pairs)
+                    (obligations nil))
+                   (if (null? dis-const-pairs) (reverse obligations)
+                       (let* ((c1 (caar dis-const-pairs))
+                              (c2 (cdar dis-const-pairs))
+                              (formula (negation (equality c1 c2))))
+                         (iter (cdr dis-const-pairs)
+                               (cons (make-obligation target-theory
+                                      (translate-sentence-and-beta-reduce
+                                       translation formula)
+                                      (list (name c1) (name c2))
+                                      translation
+                                      'distinct-constants-obligation)
+                                     obligations)))))))
+
+(define *translation-obligation-table*
+        (make-table '*translation-obligation-table*))
+
+(define (formula->obligation-information formula)
+        (table-entry *translation-obligation-table* formula))
+
+(define (enter-obligation-in-table formula obligation-list
+            . simplified?)
+        (set (table-entry *translation-obligation-table* formula)
+             (if (car simplified?)
+                 (append obligation-list '(simplified))
+                 obligation-list)))
+
+(define (make-obligation target-theory formula symbol-name translation
+            kind)
+        (enter-obligation-in-table formula
+            (list symbol-name translation kind))
+        (build-theorem target-theory formula value-false nil))
+
+(define (translation-print-initial-obligations translation)
+        (translation-print-obligations-aux
+            (make-translation-obligations translation)
+            (translation-assumptions translation)))
+
+(define (translation-print-obligations translation)
+        (translation-print-obligations-aux
+            (translation-obligations translation)
+            (translation-assumptions translation)))
+
+(define (translation-print-obligations-aux obligations assumptions)
+        (map (lambda (form)
+               (let ((info (formula->obligation-information form))
+                     (full-form
+                         (build-sentence-from-assumptions-and-formula
+                             assumptions form)))
+                 (format value-true "~%   ~S~%   ~S~%   ~S~%" (car info)
+                         (caddr info) full-form)))
+             obligations)
+        (format value-true "~%") (return))
+
+(define (quick-theory-interpretation-check translation)
+        (or (translation? translation)
+            (imps-error
+                "QUICK-THEORY-INTERPRETATION-CHECK: ~S is not a translation."
+                translation))
+        (or (translation-theory-interpretation? translation)
+            (imps-error "QUICK-THEORY-INTERPRETATION-CHECK: ~S ~A."
+                translation
+                "is not known to be a theory interpretation")))
+
+;; Change note: The following procedure was changed so that any outstanding
+;; obligations would printed out.
+;; W. Farmer Mon May 12 10:14:10 EDT 1997
+
+(define (theory-interpretation-check-using-method translation
+            check-methods . warning?)
+        (if (and (not (cond
+                        ((memq 'force check-methods)
+                         (bind (((dont-check-obligations?) value-true))
+                               (theory-interpretation-check
+                                   translation)))
+                        ((and (memq 'force-under-quick-load
+                                    check-methods)
+                              (quick-load?))
+                         (bind (((dont-check-obligations?) value-true))
+                               (theory-interpretation-check
+                                   translation)))
+                        ((memq 'using-simplification check-methods)
+                         (theory-interpretation-check-using-simplification
+                             translation))
+                        (else (theory-interpretation-check translation))))
+                 (car warning?))
+	    (block
+	      (imps-warning
+	       "~%;; THEORY-INTERPRETATION-CHECK-USING-METHOD failed on ~S.~%~A"
+	       (name translation) ";; Outstanding obligations:")
+	      (print (map (lambda (obl)
+			    (build-sentence-from-assumptions-and-formula
+			     (translation-assumptions translation) obl))
+			  (translation-obligations translation))
+		     (standard-output))))
+        translation)
+
+(define (theory-interpretation-check translation . instructions)
+        (or (translation? translation)
+            (imps-error
+                "THEORY-INTERPRETATION-CHECK: ~S is not a translation."
+                translation))
+        (cond
+          ((translation-theory-interpretation? translation))
+          ((dont-check-obligations?)
+           (block (set-to-theory-interpretation translation) value-true))
+          (else (let ((obligations
+                          (outstanding-obligations translation
+                              instructions)))
+                  (if (null? obligations)
+                      (block (set-to-theory-interpretation translation)
+                        value-true)
+                      (block (set (translation-obligations translation)
+                                  obligations)
+                        value-false))))))
+
+(define (outstanding-obligations translation instructions)
+        (let* ((target-theory (translation-target-theory translation))
+               (assumptions (translation-assumptions translation))
+               (context (build-context target-theory assumptions))
+               (obligations (translation-obligations translation)))
+          (if (memq 'use-simplification instructions)
+              (bind (((simplify-quasi-constructors-messily?)
+                      (true? (memq 'simplify-quasi-constructors-messily
+                                   instructions))))
+                    (simplify-outstanding-obligations target-theory
+                        assumptions context obligations
+                        (memq 'simplify-obligations instructions)))
+              (set-separate
+                  (lambda (obligation)
+                    (let* ((conditional-formula
+                               (build-sentence-from-assumptions-and-formula
+                                   assumptions obligation)))
+                      (not (or (theory-theorem? target-theory
+                                   obligation)
+                               (and (not (empty-set? assumptions))
+                                    (theory-theorem? target-theory
+                                     conditional-formula))))))
+                  obligations))))
+
+(define (test-obligation-with-assumptions target-theory assumptions ob)
+  (and (not (empty-set? assumptions))
+       (theory-theorem? target-theory
+			(build-sentence-from-assumptions-and-formula
+			 assumptions ob))))
+
+(define (simplify-outstanding-obligations target-theory assumptions
+					  context obligations simplify-obligations?)
+  (iterate loop
+	   ((obligations obligations) (new-obligations nil))
+	   (cond
+	    ((null? obligations)
+	     (make-set (reverse new-obligations)))
+	    ((theory-theorem? target-theory (car obligations))
+	     (loop (cdr obligations) new-obligations))
+	    ((test-obligation-with-assumptions target-theory assumptions
+	      (car obligations))
+	     (loop (cdr obligations) new-obligations))
+	    (else (let ((new-obligation
+			 (syllogistic-inference-simplify
+			  context (car obligations))))
+		    (cond
+		     ((truth? new-obligation)
+		      (loop
+		       (cdr obligations)
+		       new-obligations))
+		     ((theory-theorem? target-theory
+				       new-obligation)
+		      (loop
+		       (cdr obligations)
+		       new-obligations))
+		     ((test-obligation-with-assumptions
+		       target-theory 
+		       assumptions
+		       new-obligation)
+		      (loop
+		       (cdr obligations)
+		       new-obligations))
+		     (else (loop
+			    (cdr obligations)
+			    (cons
+			     (if simplify-obligations?
+				 (and
+				  (enter-obligation-in-table
+				   new-obligation
+				   (formula->obligation-information
+				    (car obligations))
+				   value-true)
+				  new-obligation)
+			       (car obligations))
+			     new-obligations)))))))))
+
+(define (theory-interpretation-check-using-simplification translation)
+        (theory-interpretation-check translation 'use-simplification
+            'simplify-obligations 'simplify-quasi-constructors-messily))
+
+(define (build-sentence-from-context-and-formula context formula)
+        (build-sentence-from-assumptions-and-formula
+            (context-assumptions context) formula))
+
+(define (build-sentence-from-assumptions-and-formula assumptions
+            formula)
+        (universal-closure
+            (if (empty-set? assumptions) formula
+                (implication-simplifier
+                    (list (conjunction-simplifier assumptions) formula)))))
+
+(define (force-theory-interpretation-check translation)
+        (let ((obligations (translation-obligations translation))
+              (target-theory (translation-target-theory translation)))
+          (walk (lambda (obl)
+                  (theory-add-theorem target-theory obl value-false))
+                obligations)
+          (theory-interpretation-check translation)))
+
+(define (set-to-theory-interpretation translation)
+        (set (translation-obligations translation) nil)
+        (set (translation-theory-interpretation? translation) value-true)
+        (enter-theory-interp-in-pair-table translation))

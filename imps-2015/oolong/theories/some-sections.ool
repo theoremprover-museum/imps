@@ -1,0 +1,325 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+(in-package "TEA")
+
+(comment some-sections)
+
+;; Mathematics
+
+(def-section pre-reals
+    (files (imps theories/reals/reals) 
+           (imps theories/reals/pre-reals)
+           (imps theories/reals/mutual-interp)))
+
+(def-section reals
+    (files (imps theories/reals/reals)
+           (imps theories/reals/some-elementary-macetes)
+           (imps theories/reals/arithmetic-strategies)))
+
+(def-section basic-real-arithmetic
+    (component-sections reals)
+    (files (imps theories/reals/some-lemmas)
+           (imps theories/reals/arithmetic-macetes)
+           (imps theories/reals/number-theory)))
+
+(def-section pure-generic-theories
+    (files (imps theories/generic-theories/pure-generic-theories)
+           (imps theories/generic-theories/iota)))
+
+(def-section generic-theories
+    (component-sections basic-real-arithmetic pure-generic-theories)
+    (files (imps theories/generic-theories/generic-theories)))
+
+(def-section indicators
+    (files (imps theories/generic-theories/indicators)
+           (imps theories/generic-theories/indicator-lemmas)))
+
+(def-section mappings
+    (component-sections indicators pure-generic-theories)
+    (files (imps theories/generic-theories/mappings)
+           (imps theories/generic-theories/mapping-lemmas)
+           (imps theories/generic-theories/inverse-lemmas)))
+
+(def-section foundation
+    (component-sections generic-theories mappings)
+    (files (imps theories/generic-theories/pure-generic-theories-with-subsorts)
+           (imps theories/reals/reals-supplements)
+           (imps theories/reals/some-obligations)))
+
+(def-section foundation-supplements
+    (component-sections foundation)
+    (files (imps theories/generic-theories/indicator-supplements)
+           (imps theories/generic-theories/family-indicator-supplements)))
+
+(def-section number-theory (component-sections foundation)
+    (files (imps theories/reals/primes)
+           (imps theories/reals/modular-arithmetic)
+           (imps theories/reals/modular-arithmetic-examples)))
+
+(def-section calculus-over-the-reals
+    (component-sections foundation)
+    (files (imps theories/reals/limits) 
+           (imps theories/reals/examples)))
+
+(def-section pairs
+    (component-sections foundation)
+    (files (imps theories/generic-theories/pairs)))
+
+(def-section sequences
+    (component-sections foundation)
+    (files (imps theories/generic-theories/sequences)
+           (imps theories/generic-theories/sequences-supplements)))
+
+(def-section binary-relations
+    (component-sections foundation)
+    (files (imps theories/generic-theories/binary-relations)
+           (imps theories/generic-theories/quotients)))
+
+(def-section iterate
+    (component-sections foundation)
+    (files (imps theories/generic-theories/iterate)
+           (imps theories/generic-theories/iterate-supplements)))
+
+(def-section basic-cardinality
+    (component-sections foundation)
+    (files (imps theories/cardinality/cardinality)
+           (imps theories/cardinality/finite-cardinality)
+           (imps theories/cardinality/partition-lemmas)))
+
+(def-section advanced-cardinality
+    (component-sections basic-cardinality)
+    (files (imps theories/cardinality/omega-embedding-supplements)
+           (imps theories/cardinality/cardinality-supplements)
+           (imps theories/cardinality/combinatorics)))
+
+(def-section schroeder-bernstein-theorem-1
+    (component-sections foundation)
+    (files (imps theories/cardinality/cardinality)
+           (imps theories/cardinality/schroeder-bernstein-theorem)))
+
+(def-section basic-group-theory
+    (component-sections foundation)
+    (files (imps theories/groups/groups)
+           (imps theories/groups/subgroups)
+           (imps theories/groups/group-actions)
+           (imps theories/groups/group-lemmas)
+           (imps theories/groups/cosets)
+           (imps theories/groups/normal-subgroups)))
+
+(def-section fundamental-counting-theorem
+    (component-sections basic-cardinality basic-group-theory)
+    (files (imps theories/groups/group-cardinality)
+           (imps theories/groups/counting-theorem)))
+
+(def-section counting-theorems-for-groups
+    (component-sections fundamental-counting-theorem)
+    (files (imps theories/groups/little-counting-theorem)))
+
+(def-section group-interpretations
+    (component-sections basic-group-theory)
+    (files (imps theories/groups/group-to-field-interpretations)))
+
+(def-section partial-orders
+    (component-sections foundation)
+    (files (imps theories/partial-orders/partial-order)
+           (imps theories/partial-orders/real-order-properties)
+           (imps theories/partial-orders/convergence-and-order)
+           (imps theories/partial-orders/misc-convergence-and-order)))
+
+(def-section knaster-fixed-point-theorem
+    (component-sections partial-orders)
+    (files (imps theories/partial-orders/knaster-fixed-point-theorem)
+           (imps theories/partial-orders/applications)
+           (imps theories/partial-orders/schroeder-bernstein)))
+
+(def-section schroeder-bernstein-theorem-2
+    (component-sections partial-orders)
+    (files (imps theories/partial-orders/schroeder-bernstein)
+           (imps theories/cardinality/cardinality)
+           (imps theories/partial-orders/schroeder-bernstein-supplements)))
+
+(def-section real-arithmetic-exponentiation
+    (component-sections knaster-fixed-point-theorem)
+    (files (imps theories/reals/exponentiation)
+           (imps theories/reals/polynomials)))
+
+(def-section basic-monoids
+    (component-sections foundation)
+    (files (imps theories/algebra/monoids)
+           (imps theories/algebra/monoids-supplements)))
+
+(def-section auxiliary-monoids
+    (component-sections basic-monoids)
+    (files (imps theories/algebra/monoids-and-cardinality)
+           (imps theories/algebra/monoids-examples)))
+
+(def-section groups-as-monoids
+    (component-sections basic-monoids basic-group-theory)
+    (files (imps theories/algebra/groups-as-monoids)
+           (imps theories/reals/telescoping)))
+
+(def-section basic-fields
+    (component-sections foundation)
+    (files (imps theories/algebra/fields)
+           (imps theories/algebra/fields-supplements)))
+
+(def-section binomial-theorem
+    (component-sections basic-fields)
+    (files (imps theories/reals/comb-ident)
+           (imps theories/algebra/recursive-formulas)))
+
+(def-section counting-theorems-for-subsets
+    (component-sections basic-cardinality)
+    (files (imps theories/reals/comb-ident)
+           (imps theories/cardinality/combinatorics)))
+
+(def-section metric-spaces
+    (component-sections foundation)
+    (files (imps theories/metric-spaces/metric-spaces)
+           (imps theories/metric-spaces/metric-space-supplements)))
+
+(def-section metric-space-convergence
+    (component-sections partial-orders metric-spaces)
+    (files (imps theories/metric-spaces/criteria-for-convergence)))
+
+(def-section metric-space-pairs
+    (component-sections metric-spaces)
+    (files (imps theories/metric-spaces/metric-space-pairs)
+           (imps theories/metric-spaces/metric-space-pairs-supplements)
+           (imps theories/metric-spaces/metric-space-self-mappings)))
+
+(def-section metric-space-subspaces
+    (component-sections metric-space-pairs)
+    (files (imps theories/metric-spaces/subspaces)))
+
+(def-section metric-space-continuity
+    (component-sections metric-space-pairs)
+    (files (imps theories/metric-spaces/metric-space-triples)
+           (imps theories/metric-spaces/examples-of-continuity)
+           (imps theories/metric-spaces/examples-of-uniform-continuity)
+           (imps theories/metric-spaces/mappings-from-an-interval)
+           (imps theories/metric-spaces/inequalities-and-continuity)))
+
+(def-section mapping-spaces
+    (component-sections partial-orders metric-space-pairs)
+    (files (imps theories/metric-spaces/pointed-metric-spaces)
+           (imps theories/metric-spaces/mappings-into-pointed-metric-spaces)
+           (imps theories/metric-spaces/continuous-mapping-spaces)
+           (imps theories/metric-spaces/ptwise-continuous-mapping-spaces)
+           (imps theories/metric-spaces/uniformly-continuous-mapping-spaces)))
+
+(def-section banach-fixed-point-theorem
+    (component-sections partial-orders metric-spaces)
+    (files (imps theories/metric-spaces/fixed-point-theorem)))
+
+(def-section abstract-calculus
+    (component-sections banach-fixed-point-theorem basic-fields)
+    (files (imps theories/normed-spaces/normed-spaces)
+           (imps theories/normed-spaces/derivatives)
+           (imps theories/normed-spaces/integrals)
+           (imps theories/normed-spaces/open-mapping)
+           (imps theories/normed-spaces/derivatives-supplements)))
+
+(def-section machine-arithmetic
+    (files (imps theories/machine-arithmetic/machine-arithmetic)
+           (imps theories/machine-arithmetic/gcd)
+           (imps theories/reals/octets)))
+
+(def-section imps-math-library
+    (component-sections 
+        pre-reals
+        foundation
+        foundation-supplements
+        number-theory
+        machine-arithmetic
+        calculus-over-the-reals
+        pairs
+        sequences
+        binary-relations
+        iterate
+        advanced-cardinality
+        schroeder-bernstein-theorem-1
+        counting-theorems-for-groups
+        group-interpretations
+        real-arithmetic-exponentiation
+        auxiliary-monoids
+        groups-as-monoids
+        metric-space-subspaces
+        metric-space-continuity
+        abstract-calculus
+        binomial-theorem
+        schroeder-bernstein-theorem-2)
+    (files  
+        (imps theories/algebra/quotient-structures)
+	(imps theories/metric-spaces/ptwise-continuous-mapping-spaces)
+	(imps theories/normed-spaces/normed-groups)
+	(imps theories/normed-spaces/real-derivatives)
+	(imps theories/partial-orders/intermediate-value-thm)
+	(imps theories/partial-orders/more-convergence-and-order)
+	(imps theories/partial-orders/linear-order)
+	(imps theories/reals/more-applications)
+	(imps theories/reals/additional-arithmetic-macetes)))
+
+
+;; Applications
+
+(def-section bird
+    (files (imps theories/geometry/bird)))
+
+(def-section computation
+    (files (imps computation/evaluation)
+           (imps computation/sexp)))
+
+(def-section csp
+    (files (imps theories/state-machines/failures)))
+
+(def-section geometry
+    (files (imps theories/geometry/sylvestor)))
+
+(def-section networks
+    (files (imps theories/networks/filters)
+           (imps theories/networks/stevens)))
+
+(def-section vmach
+    (files (imps theories/vmach/refinement-theorems)))
+

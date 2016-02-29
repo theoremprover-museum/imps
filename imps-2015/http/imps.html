@@ -1,0 +1,125 @@
+>IMPS</TITLE>
+<h1> <IMG SRC="landscape.gif"> </h1>
+<h1> An Interactive Mathematical Proof System </h1>
+
+<hr>
+
+<h2> Copyright (c) 1990-1998 The MITRE Corporation </h2>
+<h2> Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer </h2>
+
+<hr>
+
+<h2> Contents: </h2>
+
+<ul>
+  <li> <a href = "#intro"> Introduction </a>
+  <li> <a href = "ftp://math.harvard.edu/imps/doc"> <i> IMPS </i> papers </a>
+  <li> <a href = "#mlist"> Mailing list </a>
+   <li> <a href = "#getting"> How to Get <I> IMPS </I> </a>
+   <li> <a href = "#acknowledge"> Acknowledgments </a>
+   <li> <a href="file://math.harvard.edu/imps/imps_html/theory-library.html">Main Theory Library </a>. This is a hypertext presentation of a body of mathematics. 
+      <li> <a href = "file://math.harvard.edu/imps/imps_html/geometry-theory-library.html">Geometry Theory Library </a>.  A similar hypertext presentation. 
+</ul>
+
+<h2> <a name="intro"> Introduction </a> </h2>
+
+<I> IMPS </I> is an Interactive Mathematical Proof System intended to
+provide organizational and computational support for the traditional
+techniques of mathematical reasoning.  In particular, the logic of <I>
+IMPS </I> allows functions to be partial and terms to be undefined.
+The system consists of a database of mathematics (represented as a
+network of axiomatic theories linked by theory interpretations) and a
+collection of tools for exploring, applying, extending, and
+communicating the mathematics in the database.  To get a feel for the
+kinds of mathematics that it is possible to do in <i> IMPS </i>, see
+the description of the <a href="http://www.tiac.net/users/thayer/theory-library.html">main
+theory library. </a> One of the chief tools of <i> IMPS </i> is a
+facility for developing formal proofs.  In contrast to the formal
+proofs described in logic textbooks, <I> IMPS </I> proofs are a blend
+of computation and high-level inference.  Consequently, they resemble
+intelligible informal proofs, but unlike informal proofs, all details
+of an <I> IMPS </I> proof are machine checked.  <p>
+
+<h2> <a name = "mlist"> Mailing List </a> </h2>
+
+
+To subscribe to the <i> IMPS </i> Mailing List, send your name and
+e-mail address to <br>
+<A HREF="mailto:imps-request@linus.mitre.org">imps-request@linus.mitre.org</A><br>
+We strongly urge that all users of <i> IMPS </i> subscribe to the <i>
+IMPS </i> Mailing List.
+
+<h2> <a name="getting">How to Get <I> IMPS </I> </a> </h2>
+
+The <I> IMPS </I> system is available via ftp under the terms of a <a
+href = "ftp://math.harvard.edu/imps/public-license"> public license. </a> 
+ 
+<I> IMPS 2.0, </I> which is written in Common Lisp, runs on Linux and Solaris
+platforms with at least 24 MB of physical memory, though 32 of MB
+physical memory is recommended. IMPS 2.0 should work with most
+versions of Common Lisp; we support Allegro CL, CLISP, CMU Common
+Lisp, and GCL.  We prefer CLISP, because it produces the smallest
+executables and seems well supported.  CLISP (clisp-1997-12-06) for <a
+href = "http://SAL.KachinaTech.COM/A/0/IMPS.html"> Linux </a> can be
+downloaded from <a href ="http://sunsite.unc.edu/pub/Linux/devel/lang/lisp/">
+sunsite.unc.edu/pub/Linux/devel/lang/lisp/</a>. IMPS 2.0 runs under the
+X Window System and has an Emacs-based interface; we support primarily
+XEmacs versions 19 and 20.
+
+<p>
+
+You can get the following <i> IMPS </i> files:
+<ol>
+
+<li> <a href = "ftp://math.harvard.edu/imps/imps-2.0.tar.gz"> <I> IMPS
+2.0 </I> </a>. This tarfile contains the Common Lisp sources and GNU
+Emacs sources. This file is about 1500K.
+
+<li> The <I> IMPS </I>  <a href = "ftp://math.harvard.edu/imps/imps-manual.ps.gz"> manual </a>
+
+ <li> The <I> IMPS </I> <a href = "ftp://math.harvard.edu/imps/public-license">  public license. </a>
+
+<li>  <I> IMPS </I> <a href = "ftp://math.harvard.edu/imps/doc">papers </a>
+<li>  <i> IMPS </i> <a href = "ftp://math.harvard.edu/imps/doc/imps-bibliography.ps.gz">bibliography </a>
+<li>  <i> IMPS </i> <a href = "ftp://math.harvard.edu/imps/doc/imps-bibliography.bib">
+bibliography in BibTeX format</a>
+ <li> A <a href = "ftp://math.harvard.edu/imps/README"> README </a>
+file .  This file explains how to download <i> IMPS </i> by anonymous
+ftp and how to build the <i> IMPS </i> system if you like doing these
+things yourself.
+</ol>
+
+
+<h2> <a name="acknowledge">Acknowledgments </a> </h2>
+
+<I> IMPS </I> was designed and developed at The MITRE Corporation under the
+MITRE-Sponsored Research program.  Ronald D. Haggarty, Senior Vice President
+of Research and Technology, deserves special thanks for his strong,
+unwavering support of the <I> IMPS </I> project.
+
+<p>
+
+Several of the key ideas behind <I> IMPS </I> were originally developed by
+Dr. Leonard Monk on the Heuristics Research Project, also funded by
+MITRE-Sponsored Research, during 1984-1987. 
+
+<p>
+
+We would like to thank the Harvard Mathematics Department and
+professor David Mumford (now at Brown) in particular, for providing an
+ftp site for <I> IMPS </I>. We would also like to thank the
+Mathematics Department's computer system administrator, Leonid Fridman
+for his valuable cooperation.
+
+<p>
+
+The <I> IMPS </I> core and support machinery were originally written
+in the T programming language, developed at Yale by N. Adams, R.
+Kelsey, D. Kranz, J.  Philbin, and J. Rees.  IMPS 2.0 was created by
+F. J. Thayer by producing a macro/emulation of the T programming language
+in Common Lisp.  The <I> IMPS </I> user interface is written in the
+GNU Emacs programming language, developed by R. Stallman.  <p>
+_______________________________________________________<p> <address>
+This page designed and maintained by F. Javier Thayer
+F&aacute;brega<br> jt@mitre.org </address>
+

@@ -1,0 +1,278 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment theory-transform-interface)
+
+(define *processor-table* (make-table '*processor-table*))
+
+(define *rewrite-rules-list* nil)
+
+(define (install-transform-as-rewrite-rule transform)
+        (push *rewrite-rules-list* transform))
+
+(define (theory-install-transform-in-algebraic-processors theory
+            transform)
+        (if (and (rewrite-rule? transform)
+                 (application? (rewrite-rule-lhs transform)))
+            (let ((op (operator (rewrite-rule-lhs transform))))
+              (walk-table
+                  (lambda (k v)
+                    (ignore k)
+                    (if (and (algebraic-processor? v)
+                             (memq? v (theory-valid-processors theory))
+                             (memq? op
+                                    (algebraic-processor-handled-operators
+                                     v)))
+                        (set (algebraic-processor-rewrite-rules v)
+                             (add-set-element transform
+                                 (algebraic-processor-rewrite-rules v)))))
+                  *processor-table*)))
+        (return))
+
+(define (algebraic-processor-install-existing-rewrite-rules-from-theory
+            processor theory)
+        (if (algebraic-processor? processor)
+            (walk (lambda (r)
+                    (if (and (rewrite-rule? r)
+                             (application? (rewrite-rule-lhs r))
+                             (memq? (operator (rewrite-rule-lhs r))
+                                    (algebraic-processor-handled-operators
+                                     processor))
+                             (theory-theorem? theory
+                                 (rewrite-rule-formula r)))
+                        (set (algebraic-processor-rewrite-rules
+                                 processor)
+                             (add-set-element r
+                                 (algebraic-processor-rewrite-rules
+                                     processor)))))
+                  *rewrite-rules-list*))
+        (return))
+
+(define (theory-install-existing-rewrite-rules-in-algebraic-processors
+            theory)
+        (walk-table
+            (lambda (k v)
+              (ignore k)
+              (algebraic-processor-install-existing-rewrite-rules-from-theory
+                  v theory))
+            *processor-table*))
+
+(define (tabulate-processor-name name proc)
+        (set (table-entry *processor-table* name) proc))
+
+(define (name->processor name) (table-entry *processor-table* name))
+
+(define (clear-processors)
+        (walk-table
+            (lambda (k v)
+              (ignore k)
+              (clear-table (processor-reduced-terms v)))
+            *processor-table*))
+
+(define (clear-table table)
+        (walk-table
+            (lambda (k v)
+              (ignore v)
+              (set (table-entry table k) value-false))
+            table))
+
+(define (algebraic-processor-from-definition form)
+        (let* ((language
+                   (or (name->language
+                           (cadr (assq 'language (cdr form))))
+                       (theory-language
+                           (name->theory
+                               (cadr (assq 'language (cdr form)))))))
+               (base-proc
+                   (make-processor-from-form language
+                       (cadr (assq 'base (cdr form)))))
+               (exponent-proc
+                   (let ((entry (cadr (assq 'exponent (cdr form)))))
+                     (if entry
+                         (if (symbol? entry) (name->processor entry)
+                             (make-processor-from-form language entry))
+                         value-false)))
+               (scalar-proc
+                   (let ((entry (cadr (assq 'coefficient (cdr form)))))
+                     (if entry
+                         (if (symbol? entry) (name->processor entry)
+                             (make-processor-from-form language entry))
+                         value-false))))
+          (if exponent-proc
+              (set (algebraic-processor-exponent-processor base-proc)
+                   exponent-proc))
+          (if scalar-proc
+              (set (algebraic-processor-coefficient-processor
+                       base-proc)
+                   scalar-proc))
+          (if (car form)
+              (tabulate-processor-name (car form) base-proc))
+          base-proc))
+
+(define (make-processor-from-form language form)
+        (let ((scalars (if (assq 'scalars form)
+                           (eval (cadr (assq 'scalars form)))
+                           *integer-type*))
+              (coertion
+                  (if (assq 'coertions form)
+                      (cadr (assq 'coertion form)) nil))
+              (operations-alist
+                  (map (lambda (x)
+                         (list (car x)
+                               (find-constant language (cadr x))))
+                       (cdr (assq 'operations form))))
+              (numerals-for-ground-terms?
+                  (cadr (assq 'numerals-for-ground-terms? form)))
+              (commutes (cadr (assq 'commutes form))))
+          (ignore coertion)
+          (let ((proc (build-algebraic-processor language scalars
+                          operations-alist commutes)))
+            (if numerals-for-ground-terms?
+                (use-numerals-for-ground-terms proc))
+            proc)))
+
+(define (order-processor-from-definition form)
+        (let* ((algebraic-processor
+                   (name->processor
+                       (cadr (assq 'algebraic-processor (cdr form)))))
+               (language (processor-language algebraic-processor))
+               (operations-alist
+                   (map (lambda (x)
+                          (list (car x)
+                                (find-constant language (cadr x))))
+                        (cdr (assq 'operations (cdr form)))))
+               (discrete-sorts
+                   (map (lambda (discrete)
+                          (list->sort language discrete))
+                        (cdr (assq 'discrete-sorts (cdr form)))))
+               (proc (build-order-processor-from-algebraic-processor
+                         algebraic-processor operations-alist
+                         discrete-sorts)))
+          (if (car form) (tabulate-processor-name (car form) proc))
+          proc))
+
+(define (theory-build-transform-table theory)
+        (set (theory-transform-table theory) (make-table)))
+
+(define (theory-add-algebraic-simplifier theory processor operations)
+        (algebraic-processor-install-existing-rewrite-rules-from-theory
+            processor theory)
+        (labels (((simplifier context expr persist)
+                  (algebraic-processor-simplify-with-requirements
+                      processor context expr persist)))
+          (walk (lambda (x)
+                  (let ((c (find-constant (theory-language theory) x)))
+                    (theory-install-transform theory apply-operator c
+                        #'simplifier)))
+                operations)))
+
+(define (theory-add-order-simplifier theory processor operations)
+        (labels (((order-simplifier context expr persist)
+                  (order-processor-simplify-with-requirements processor
+                      context expr persist)))
+          (walk (lambda (x)
+                  (let ((c (find-constant (theory-language theory) x)))
+                    (theory-install-transform theory apply-operator c
+                        #'order-simplifier)))
+                operations)))
+
+(define (theory-add-equality-comparator theory processor)
+        (theory-install-transform theory equality 'no-lead-constant
+            (lambda (context expr persist)
+              (processor-simplify-equality-with-requirements processor
+                  context expr persist))))
+
+(define (term-simplifier-from-definition form)
+        (let ((theory (name->theory (cadr (assq 'theory form))))
+              (includes (cdr (assq 'include form)))
+              (algebraic-simplifier-forms
+                  (cdr (assq 'algebraic-simplifier form)))
+              (order-simplifier-forms
+                  (cdr (assq 'algebraic-order-simplifier form)))
+              (term-comparator-forms
+                  (cdr (assq 'algebraic-term-comparator form)))
+              (transportable-rewrite-rule-forms
+                  (cdr (assq 'transportable-rewrites form))))
+          (set (theory-transform-table theory)
+               (join-theory-transform-tables
+                   (cons (theory-transform-table theory)
+                         (map (lambda (x)
+                                (let ((th (name->theory x)))
+                                  (enforce (lambda (y)
+                                             (subtheory? y theory))
+                                           th)
+                                  (theory-transform-table th)))
+                              includes))))
+          (or (quick-load?)
+              (if (or algebraic-simplifier-forms
+                      order-simplifier-forms)
+                  (if (not (every? (lambda (x)
+                                     (processor-sound-in-theory?
+                                      (name->processor (car x)) theory))
+                                   (union algebraic-simplifier-forms
+                                    order-simplifier-forms)))
+                      (imps-error
+                          "Algebraic Processor Soundness failed."))))
+          (walk (lambda (x)
+                  (theory-add-algebraic-simplifier theory
+                      (name->processor (car x)) (cadr x)))
+                algebraic-simplifier-forms)
+          (walk (lambda (x)
+                  (theory-add-order-simplifier theory
+                      (name->processor (car x)) (cadr x)))
+                order-simplifier-forms)
+          (if term-comparator-forms
+              (walk (lambda (x)
+                      (theory-add-equality-comparator theory
+                          (name->processor x)))
+                    term-comparator-forms))
+          (theory-import-transportable-rewrite-rules theory
+              (map name->theory transportable-rewrite-rule-forms))
+          (theory-transform-table theory)))

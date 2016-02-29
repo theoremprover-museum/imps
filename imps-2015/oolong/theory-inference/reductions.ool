@@ -1,0 +1,164 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment reductions)
+
+(define (simple-substitution expr var-term-alist)
+        (labels (((make-simple-substitution expr var-term-alist)
+                  (cond
+                    ((variable? expr)
+                     (cond
+                       ((assq expr var-term-alist) => cdr)
+                       (else expr)))
+                    ((any? (lambda (v) (assq v var-term-alist))
+                           (free-variables expr))
+                     (compound-expression (expression-constructor expr)
+                         (map (lambda (c)
+                                (make-simple-substitution c
+                                    var-term-alist))
+                              (expression-components expr))))
+                    (else expr))))
+          (cond
+            ((not (check-simple-substitution var-term-alist))
+             (imps-error "simple-substitution : bogus substitution ~S."
+                 var-term-alist))
+            ((every? (lambda (var-term)
+                       (destructure (((var . term) var-term))
+                           (free-for? term var expr)))
+                     var-term-alist)
+             (make-simple-substitution expr var-term-alist))
+            (else (make-simple-substitution
+                      (change-bound-variables expr
+                          (collect-set free-variables
+                              (map cdr var-term-alist)))
+                      var-term-alist)))))
+
+(define (check-simple-substitution var-term-alist)
+        (is-set? (map car var-term-alist)))
+
+(define (beta-reduce-recklessly expression)
+        (if (lambda-application? expression)
+            (destructure*
+                (((lambda-term . args)
+                  (expression-components expression))
+                 ((body . vars) (expression-components lambda-term))
+                 (substitution (map cons vars args)))
+                (apply-substitution-fastidiously substitution body))
+            expression))
+
+(define (beta-reduce expression)
+        (if (lambda-application? expression)
+            (destructure*
+                (((lambda-term . args)
+                  (expression-components expression))
+                 ((body . vars) (expression-components lambda-term)))
+                (if (every? (lambda (arg var)
+                              (necessarily-defined-in-sort? arg
+                                  (expression-sorting var)))
+                            args vars)
+                    (apply-substitution-fastidiously
+                        (map cons vars args) body)
+                    expression))
+            expression))
+
+(define (recursively-beta-reduce expression)
+        (cond
+          ((not (expression? expression)) expression)
+          ((null? (expression-constructor expression)) expression)
+          ((lambda-application? expression)
+           (destructure*
+               (((lambda-term . args)
+                 (expression-components expression))
+                ((reduced-body . vars)
+                 (map recursively-beta-reduce
+                      (expression-components lambda-term)))
+                (substitution
+                    (map cons vars (map insistent-beta-reduce args))))
+               (simple-substitution reduced-body substitution)))
+          (else (compound-expression
+                    (expression-constructor expression)
+                    (map recursively-beta-reduce
+                         (expression-components expression))))))
+
+(define (insistently-beta-reduce expression)
+        (let ((beta-reduced (recursively-beta-reduce expression)))
+          (cond
+            ((not (expression? beta-reduced)) expression)
+            ((eq? expression beta-reduced) expression)
+            (else (insistently-beta-reduce beta-reduced)))))
+
+(define insistent-beta-reduce insistently-beta-reduce)
+
+(define (eta-reducible? expression)
+        (and (lambda-expression? expression)
+             (application? (binding-body expression))
+             (equal? (binding-variables expression)
+                     (arguments (binding-body expression)))
+             (eq? (expression-sorting expression)
+                  (expression-sorting
+                      (operator (binding-body expression))))
+             (null? (intersection (binding-variables expression)
+                        (free-variables
+                            (operator (binding-body expression)))))))
+
+(define (eta-reduce expression)
+        (if (eta-reducible? expression)
+            (operator (binding-body expression)) expression))
+
+(define (insistently-eta-reduce expression)
+        (if (eta-reducible? expression)
+            (insistently-eta-reduce
+                (operator (binding-body expression)))
+            expression))
+
+(define (insistently-reduce expression)
+        (let ((reduct (beta-reduce-recklessly (eta-reduce expression))))
+          (if (eq? reduct expression) expression
+              (insistently-reduce reduct))))

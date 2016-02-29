@@ -1,0 +1,105 @@
+IMPS=/Users/jt/imps
+
+LispDir=$IMPS/lisp
+
+#LispProg=gcl
+#DUMP=/home/imps/executables/el-gcl-dumpo
+#CL=/usr/bin/gcl
+
+#LispProg=cmu
+#DUMP=/NFS/imps/jt/harvard-tars/el-cmuo-linux
+#CL=/NFS/imps/jt/cmulinux/usr/bin/lisp
+
+#LispProg=allegro
+#DUMP=/home/imps/executables/el-alegre
+#CL=/usr/local/acl/bin/pb_cl
+
+LispProg=clisp
+DUMP=/Users/jt/imps/executables/imps
+CL=/opt/local/bin/clisp
+
+if test $LispProg = clisp
+then 
+  RunImpsCommand="$DUMP -I -i $IMPS/oolong/user/init.ool"
+  SFX=fas
+  DumpCommand="(system::saveinitmem \"$DUMP\")"
+  GCCommand="(system::gc)"
+  QUIT=bye
+elif test $LispProg = gcl 
+then 
+  RunImpsCommand="$DUMP -load $IMPS/oolong/user/init.ool"
+  SFX=o
+  DumpCommand="(si::save-system \"$DUMP\")"
+  GCCommand="(si::gbc 't)"
+  QUIT=bye
+elif test $LispProg = cmu
+then 
+  RunImpsCommand="$CL -core $DUMP -load $IMPS/oolong/user/init.ool"
+  SFX=sparcf
+  DumpCommand="(lisp::save-lisp \"$DUMP\" :purify lisp:nil)"
+  GCCommand="(block  (lisp::gc) (set ext::*objects-pending-finalization* lisp:nil))"
+  QUIT=quit
+elif test $LispProg = cmulinux
+then 
+  RunImpsCommand="$CL -core $DUMP -load $IMPS/oolong/user/init.ool"
+  SFX=x86f
+  DumpCommand="(lisp::save-lisp \"$DUMP\" :purify lisp:nil)"
+  GCCommand="(lisp::gc)"
+  QUIT=quit
+elif test $LispProg = allegro
+then
+  RunImpsCommand=$DUMP
+  SFX=fasl
+  DumpCommand="(block (ff::unload-file \"clx:excldep.so\") (ff::unload-file \"clx:socket.so\")
+(ff::unload-file \"xcw:gc-cursor.so\") (excl::dumplisp :name  \"$DUMP\"))"	
+  GCCommand="(excl::gc)"
+  QUIT=exit
+elif test $LispProg = allegro2
+then
+  RunImpsCommand="$CL -I $DUMP"
+  SFX=fasl
+  DumpCommand="(excl::dumplisp :name  \"$DUMP\")"	
+  GCCommand="(excl::gc)"
+  QUIT=exit
+fi
+
+
+
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    

@@ -1,0 +1,352 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment (inferences domain-range-rules))
+
+(define definedness-rule
+        (object (lambda (sequents)
+                  (let ((conclusion (last sequents)))
+                    (if (not (sequent? conclusion)) (fail)
+                        (let ((computed-premises
+                                  (definedness-rule-premises
+                                      conclusion))
+                              (given-premises (all-but-last sequents)))
+                          (cond
+                            ((fail? computed-premises) (fail))
+                            ((memq? conclusion computed-premises)
+                             (fail))
+                            ((null? given-premises)
+                             (build-inference definedness-rule
+                                 computed-premises conclusion))
+                            ((null? computed-premises)
+                             (build-inference definedness-rule nil
+                                 conclusion))
+                            ((and (= (length computed-premises)
+                                     (length given-premises))
+                                  (every? (lambda (given computed)
+                                            (sequent-entails-sequent?
+                                             given computed))
+                                          given-premises
+                                          computed-premises))
+                             (build-inference definedness-rule
+                                 given-premises conclusion))
+                            (else (fail)))))))
+                ((rule? self) value-true)
+                ((rule-soundness-predicate self) (always value-true))
+                ((name self) 'definedness)))
+
+(define (definedness-rule-premises conclusion)
+        (let ((assertion (sequent-assertion conclusion))
+              (context (sequent-context conclusion)))
+          (if (not (convergence? assertion)) (fail)
+              (let ((term-or-fn
+                        (car (expression-components assertion))))
+                (cond
+                  ((context-entails-defined? context term-or-fn
+                       (1+ (context-simplification-persistence)))
+                   nil)
+                  ((application? term-or-fn)
+                   (definedness-rule-premises-for-application context
+                       term-or-fn))
+                  ((conditional-term? term-or-fn)
+                   (let ((comps (expression-components term-or-fn))
+                         (incr (constructor-lc-incrementer if-term)))
+                     (map (lambda (i)
+                            (build-sequent
+                                (context-add-assumptions context
+                                    (funcall incr comps i))
+                                (is-defined (nth comps i))))
+                          (list 1 2))))
+                  ((eq? (expression-constructor term-or-fn)
+                        undefined-of-sort)
+                   (list (build-sequent context falsehood)))
+                  (else (fail)))))))
+
+(define (definedness-rule-premises-for-application context term-or-fn)
+        (let ((op (operator term-or-fn))
+              (theory (context-theory context)))
+          (let ((major-premise-condition
+                    (cond
+                      ((theory-fn-everywhere-defined? theory op) truth)
+                      ((theory-definedness-condition theory op) =>
+                       (lambda (condition)
+                         (insistently-beta-reduce
+                             (apply apply-operator condition
+                                    (arguments term-or-fn)))))
+                      (else (is-defined term-or-fn)))))
+            (cons (build-sequent
+                      (context-add-assumptions context
+                          (theory-context-neutral-value-info context
+                              term-or-fn))
+                      major-premise-condition)
+                  (map (lambda (sub-term)
+                         (build-sequent context (is-defined sub-term)))
+                       (arguments term-or-fn))))))
+
+(define sort-definedness-rule-old
+        (object (lambda (sequents)
+                  (let* ((conc (last sequents))
+                         (assertion (sequent-assertion conc))
+                         (context (sequent-context conc)))
+                    (if (not (convergence-in-sort? assertion)) (fail)
+                        (let* ((theory (context-theory context))
+                               (coerced-sort
+                                   (expression-sorting
+                                    (cadr
+                                     (expression-components assertion))))
+                               (term (car
+                                      (expression-components assertion)))
+                               (nominal-sort (expression-sorting term))
+                               (sort-coercion-condition
+                                   (cond
+                                     ((theory-coercion-everywhere-defined?
+                                       theory nominal-sort
+                                       coerced-sort)
+                                      (lambda-wrap truth
+                                       (list nominal-sort)))
+                                     ((theory-sort-coercion-condition
+                                       theory nominal-sort
+                                       coerced-sort))
+                                     (else
+                                      (lambda-wrap falsehood
+                                       (list nominal-sort)))))
+                               (fn-coercion-condition
+                                   (and (application? term)
+                                    (theory-sort-definedness-condition
+                                     theory (operator term)
+                                     coerced-sort))))
+                          (cond
+                            ((or (theory-context-entails-defined-in-sort?
+                                     context term coerced-sort
+                                     (context-simplification-persistence))
+                                 (context-syllogistically-entails?
+                                     context assertion))
+                             (build-inference sort-definedness-rule nil
+                                 conc))
+                            (fn-coercion-condition
+                                (let ((hyp-context
+                                       (context-add-assumption
+                                        (context-add-assumptions
+                                         context
+                                         (theory-context-neutral-value-info
+                                          context term))
+                                        (context-simplify context
+                                         (negation
+                                          (apply-operator
+                                           sort-coercion-condition
+                                           term))
+                                         1)))
+                                      (hyp-assertion
+                                       (apply apply-operator
+                                        fn-coercion-condition
+                                        (arguments term))))
+                                  (build-inference
+                                      sort-definedness-rule
+                                      (list
+                                       (build-sequent hyp-context
+                                        (syllogistic-inference-simplify
+                                         hyp-context hyp-assertion)))
+                                      conc)))
+                            (else (fail)))))))
+                ((rule? self) value-true)
+                ((rule-soundness-predicate self) (always value-true))
+                ((name self) 'sort-definedness)))
+
+(define sort-definedness-rule
+        (object (lambda (sequents)
+                  (let* ((conc (last sequents))
+                         (assertion (sequent-assertion conc))
+                         (context (sequent-context conc)))
+                    (if (convergence-in-sort? assertion)
+                        (sort-definedness-rule-aux conc context
+                            assertion)
+                        (fail))))
+                ((rule? self) value-true)
+                ((rule-soundness-predicate self) (always value-true))
+                ((name self) 'sort-definedness)))
+
+(define (sort-definedness-rule-aux conc context assertion)
+        (let ((theory (context-theory context))
+              (desired-sort
+                  (expression-sorting
+                      (cadr (expression-components assertion))))
+              (term (car (expression-components assertion))))
+          (if (conditional-term? term)
+              (build-inference sort-definedness-rule
+                  (list (build-sequent context
+                            (sort-definedness-distribute-through-if-term
+                                term desired-sort)))
+                  conc)
+              (let ((hypotheses
+                        (sort-definedness-rule-collect-hypotheses
+                            theory context
+                            (theory-critical-subterms-and-sorts
+                                (context-theory context) term
+                                desired-sort))))
+                (if (memq? conc hypotheses) (fail)
+                    (build-inference sort-definedness-rule hypotheses
+                        conc))))))
+
+(define (sort-definedness-rule-collect-hypotheses theory context
+            term-sort-pairs)
+        (iterate iter ((term-sort-pairs term-sort-pairs) (hyps nil))
+                 (if (null? term-sort-pairs) (reverse! hyps)
+                     (let ((term (caar term-sort-pairs))
+                           (coerced-sort (cdar term-sort-pairs)))
+                       (cond
+                         ((theory-context-entails-defined-in-sort?
+                              context term coerced-sort
+                              (context-simplification-persistence))
+                          (iter (cdr term-sort-pairs) hyps))
+                         ((and (application? term)
+                               (theory-sort-definedness-condition
+                                   theory (operator term) coerced-sort))
+                          =>
+                          (lambda (fn-coercion-condition)
+                            (iter (cdr term-sort-pairs)
+                                  (cons (sort-definedness-rule-compute-hypothesis
+                                         context term coerced-sort
+                                         fn-coercion-condition)
+                                        hyps))))
+                         ((and (function? term)
+                               (higher-sort-exhausts-domains->range?
+                                   coerced-sort))
+                          (iter (cdr term-sort-pairs)
+                                (cons (sort-definedness-rule-compute-fn-condition
+                                       context term coerced-sort)
+                                      hyps)))
+                         ((predicator? term)
+                          (iter (cdr term-sort-pairs)
+                                (cons (sort-definedness-rule-compute-pred-condition
+                                       context term coerced-sort)
+                                      hyps)))
+                         ((theory-sort-coercion-condition theory
+                              (expression-sorting term) coerced-sort)
+                          =>
+                          (lambda (sort-coercion-condition)
+                            (iter (cdr term-sort-pairs)
+                                  (cons (build-sequent context
+                                         (apply-operator
+                                          sort-coercion-condition term))
+                                        hyps))))
+                         (else (iter (cdr term-sort-pairs)
+                                     (cons
+                                      (build-sequent context
+                                       (defined-in term coerced-sort))
+                                      hyps))))))))
+
+(define (sort-definedness-rule-compute-hypothesis context term
+            coerced-sort fn-coercion-condition)
+        (let ((theory (context-theory context))
+              (nominal-sort (expression-sorting term))
+              (hyp-context
+                  (context-add-assumptions context
+                      (theory-context-neutral-value-info context term))))
+          (build-sequent hyp-context
+              (syllogistic-inference-simplify hyp-context
+                  (let ((sort-coercion-condition
+                            (if (theory-coercion-everywhere-defined?
+                                    theory nominal-sort coerced-sort)
+                                (lambda-wrap truth (list nominal-sort))
+                                (theory-sort-coercion-condition theory
+                                    nominal-sort coerced-sort))))
+                    (if sort-coercion-condition
+                        (disjunction
+                            (apply apply-operator fn-coercion-condition
+                                   (arguments term))
+                            (apply-operator sort-coercion-condition
+                                term))
+                        (apply apply-operator fn-coercion-condition
+                               (arguments term))))))))
+
+(define (sort-definedness-rule-compute-fn-condition context term
+            coerced-sort)
+        (build-sequent context
+            (let* ((vars (sorts->new-variables (domain-types term) 'xx
+                             (variables term)))
+                   (applic (apply apply-operator term vars)))
+              (apply forall
+                     (implication (is-defined applic)
+                         (conjunction
+                             (conjunction-simplifier
+                                 (map (lambda (v s) (defined-in v s))
+                                      vars
+                                      (higher-sort-domains
+                                       coerced-sort)))
+                             (defined-in applic
+                                 (higher-sort-range coerced-sort))))
+                     vars))))
+
+(define (sort-definedness-rule-compute-pred-condition context pred
+            coerced-sort)
+        (build-sequent context
+            (let* ((vars (sorts->new-variables
+                             (hereditary-type-domains
+                                 (expression-sorting pred))
+                             'xx (variables pred)))
+                   (atom (apply apply-operator pred vars)))
+              (apply forall
+                     (implication atom
+                         (apply conjunction
+                                (map (lambda (v s) (defined-in v s))
+                                     vars
+                                     (higher-sort-domains coerced-sort))))
+                     vars))))
+
+(define (sort-definedness-distribute-through-if-term term desired-sort)
+        (if (conditional-term? term)
+            (destructure
+                (((test con alt) (expression-components term)))
+                (if-form test
+                         (sort-definedness-distribute-through-if-term
+                             con desired-sort)
+                         (sort-definedness-distribute-through-if-term
+                             alt desired-sort)))
+            (defined-in term desired-sort)))

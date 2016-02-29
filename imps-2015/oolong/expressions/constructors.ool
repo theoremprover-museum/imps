@@ -1,0 +1,404 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment constructors)
+
+(define *constructors* nil)
+
+(define-predicate constructor?)
+
+(define-predicate binding-constructor?)
+
+(define (non-binding-constructor? constructor)
+        (and (constructor? constructor)
+             (not (binding-constructor? constructor))))
+
+(define (binding-expression? expression)
+        (and (expression? expression)
+             (binding-constructor? (expression-constructor expression))))
+
+(define-structure-type gct-entry sexp-decoder sexp-builder
+    local-context-incrementer simplifier parity direct-inference
+    antecedent-inference syllogistic-inference truth-value-seeker
+    logical-transform)
+
+(at-top-level
+    (block (set (gct-entry-sexp-decoder (stype-master gct-entry-stype))
+                value-false)
+      (set (gct-entry-sexp-builder (stype-master gct-entry-stype))
+           value-false)
+      (set (gct-entry-local-context-incrementer
+               (stype-master gct-entry-stype))
+           (always value-false))
+      (set (gct-entry-simplifier (stype-master gct-entry-stype))
+           value-false)
+      (set (gct-entry-parity (stype-master gct-entry-stype))
+           (always 0))
+      (set (gct-entry-direct-inference (stype-master gct-entry-stype))
+           value-false)
+      (set (gct-entry-antecedent-inference
+               (stype-master gct-entry-stype))
+           (always value-false))
+      (set (gct-entry-syllogistic-inference
+               (stype-master gct-entry-stype))
+           value-false)
+      (set (gct-entry-logical-transform (stype-master gct-entry-stype))
+           value-false)
+      (set (gct-entry-truth-value-seeker
+               (stype-master gct-entry-stype))
+           (always value-false))))
+
+(define-operation (gct-entry-value constructor)
+    (stype-master gct-entry-stype))
+
+(define symbol->constructor
+        (let ((symbol-constructor-alist nil))
+          (operation
+              (lambda (sym)
+                (cond
+                  ((assq sym symbol-constructor-alist) => cdr)
+                  (else nil)))
+              ((setter self)
+               (lambda (sym constr)
+                 (cond
+                   ((assq sym symbol-constructor-alist) =>
+                    (lambda (p) (set (cdr p) constr) constr))
+                   (else (push symbol-constructor-alist
+                               (cons sym constr))
+                         constr)))))))
+
+(define (sexp-builder constructor)
+        (gct-entry-sexp-builder (gct-entry-value constructor)))
+
+(define (set-sexp-builder constructor new-value)
+        (set (gct-entry-sexp-builder (gct-entry-value constructor))
+             new-value))
+
+(define (sexp-decoder constructor)
+        (gct-entry-sexp-decoder (gct-entry-value constructor)))
+
+(define (set-sexp-decoder constructor new-value)
+        (set (gct-entry-sexp-decoder (gct-entry-value constructor))
+             new-value))
+
+(define (constructor-lc-incrementer constructor)
+        (gct-entry-local-context-incrementer
+            (gct-entry-value constructor)))
+
+(define (constructor-simplifier constructor)
+        (gct-entry-simplifier (gct-entry-value constructor)))
+
+(define (constructor-parity constructor)
+        (gct-entry-parity (gct-entry-value constructor)))
+
+(define (constructor-direct-inference constructor)
+        (gct-entry-direct-inference (gct-entry-value constructor)))
+
+(define (constructor-antecedent-inference constructor)
+        (gct-entry-antecedent-inference (gct-entry-value constructor)))
+
+(define (constructor-syllogistic-inference constructor)
+        (gct-entry-syllogistic-inference (gct-entry-value constructor)))
+
+(define (constructor-truth-value-seeker constructor)
+        (gct-entry-truth-value-seeker (gct-entry-value constructor)))
+
+(define (constructor-logical-transform constructor)
+        (gct-entry-logical-transform (gct-entry-value constructor)))
+
+(define (set-constructor-lc-incrementer constructor new-value)
+        (set (gct-entry-local-context-incrementer
+                 (gct-entry-value constructor))
+             new-value))
+
+(define (set-constructor-simplifier constructor new-value)
+        (set (gct-entry-simplifier (gct-entry-value constructor))
+             new-value))
+
+(define (set-constructor-parity constructor new-value)
+        (set (gct-entry-parity (gct-entry-value constructor))
+             new-value))
+
+(define (set-constructor-direct-inference constructor new-value)
+        (set (gct-entry-direct-inference (gct-entry-value constructor))
+             new-value))
+
+(define (set-constructor-antecedent-inference constructor new-value)
+        (set (gct-entry-antecedent-inference
+                 (gct-entry-value constructor))
+             new-value))
+
+(define (set-constructor-truth-value-seeker constructor new-value)
+        (set (gct-entry-truth-value-seeker
+                 (gct-entry-value constructor))
+             new-value))
+
+(define (set-constructor-syllogistic-inference constructor new-value)
+        (set (gct-entry-syllogistic-inference
+                 (gct-entry-value constructor))
+             new-value))
+
+(define (set-constructor-logical-transform constructor new-value)
+        (set (gct-entry-logical-transform
+                 (gct-entry-value constructor))
+             new-value))
+
+(define-operation constructor-hash)
+
+(define (make-constructor binder? component-checker symbol-form)
+        (let ((gct-entry (make-gct-entry))
+              (alpha-hash
+                  (descriptor-hash (cons symbol-form symbol-form)))
+              (session-independent-hash
+                  (string-hash (symbol->string symbol-form)))
+              (constructor (make-object)))
+          (labels (((fun-2 self) value-true) ((fun-3 self) (true? binder?))
+                   ((fun-4 self) gct-entry)
+                   ((fun-5 self) session-independent-hash)
+                   ((fun-6 self) symbol-form)
+                   ((fun-7 self port) (display symbol-form port))
+                   ((fun-8 self) alpha-hash)
+                   ((obj-fun-9 . components)
+                    (constructor-procedure components))
+                   ((constructor-procedure components)
+                    (or (retrieve-from-compound-table constructor
+                            components)
+                        (let ((expr (constructor-construct constructor
+                                     components)))
+                          (insert-in-compound-table constructor
+                              components expr)
+                          expr)))
+                   ((constructor-construct constructor components)
+                    (let ((new-sorting
+                              (apply component-checker components))
+                          (new-bindings
+                              (and binder?
+                                   (funcall binder? components)))
+                          (new-height
+                              (if (null? components) 0
+                                  (1+ (apply max
+                                       (map expression-height
+                                        components)))))
+                          (new-home (compute-home-language components))
+                          (expr (make-expression)))
+                      (set (expression-components expr) components)
+                      (set (expression-constructor expr) constructor)
+                      (set (expression-constants expr)
+                           (collect-set expression-constants
+                               components))
+                      (set (expression-bound-variables expr)
+                           (set-union
+                               (collect-set bound-variables components)
+                               new-bindings))
+                      (set (expression-free-variables expr)
+                           (set-diff
+                               (collect-set free-variables components)
+                               new-bindings))
+                      (set (expression-newly-bound-variables expr)
+                           new-bindings)
+                      (if (not (null? components))
+                          (set (expression-lead-constant expr)
+                               (expression-lead-constant
+                                   (car components)))
+                          (set (expression-lead-constant expr)
+                               'no-lead-constant))
+                      (set (expression-sorting expr) new-sorting)
+                      (set (expression-home expr) new-home)
+                      (set (expression-height expr) new-height)
+                      (set (expression-descriptor-hash expr)
+                           (descriptor-hash expr))
+                      (set (expression-alpha-hash expr)
+                           (hash-combine-two-fixnums alpha-hash
+                               (alpha-hash-combine-exprs components)))
+                      (set (expression-alpha-root expr)
+                           (if binder?
+                               (compute-expression-alpha-root expr
+                                   (hash-combine-two-fixnums alpha-hash
+                                    (alpha-hash-combine-exprs
+                                     components)))
+                               (let ((roots
+                                      (map expression-alpha-root
+                                       components)))
+                                 (if (every? eq? components roots) expr
+                                     (constructor-procedure roots)))))
+                      (set (expression-var-name-conflict? expr)
+                           (constructor-conflicting-vars components
+                               binder?))
+                      expr)))
+            (refurnish-object constructor obj-fun-9
+                (constructor? fun-2) (binding-constructor? fun-3)
+                (gct-entry-value fun-4) (constructor-hash fun-5)
+                (name fun-6) (print fun-7) (two-d-table-hash fun-8))
+            (set (symbol->constructor symbol-form) constructor)
+            (push *constructors* constructor)
+            constructor)))
+
+(define-integrable
+    (compute-expression-alpha-root uninterned-expression hash)
+    (let ((entries (table-entry *alpha-root-table* hash)))
+      (let ((root (find-alpha-root-in-list uninterned-expression
+                      entries)))
+        (if (eq? uninterned-expression root)
+            (push (table-entry *alpha-root-table* hash)
+                  uninterned-expression))
+        root)))
+
+(define *alpha-root-table* (make-table '*alpha-root-table*))
+
+(define *constructor-conflicting-vars-table*
+        (make-table '*constructor-conflicting-vars-table*))
+
+(define (constructor-conflicting-vars components binder?)
+        (if binder?
+            (let* ((nbvs (funcall binder? components))
+                   (bodies (set-difference components nbvs)))
+              (set-difference
+                  (constructor-conflicting-vars bodies value-false) nbvs))
+            (let ((table *constructor-conflicting-vars-table*))
+              (iterate iter ((components components) (conflicts nil))
+                       (if (null? components) (make-set conflicts)
+                           (let ((first (car components)))
+                             (iterate sub-iter
+                                      ((vars (free-variables first))
+                                       (conflicts conflicts))
+                                      (if (null? vars)
+                                       (iter (cdr components)
+                                        (append
+                                         (expression-var-name-conflict?
+                                          first)
+                                         conflicts))
+                                       (let*
+                                        ((n (name (car vars)))
+                                         (e (table-entry table n)))
+                                         (if
+                                          (and e
+                                           (not (eq? e (car vars))))
+                                          (sub-iter (cdr vars)
+                                           (cons* (car vars) e
+                                            conflicts))
+                                          (bind
+                                           (((table-entry table n)
+                                             (car vars)))
+                                           (sub-iter (cdr vars)
+                                            conflicts))))))))))))
+
+(define-predicate transparent-constructor?)
+
+(define (make-transparent-constructor symbol-form sexp-decoder
+            sexp-builder)
+        (let ((gct-entry (make-gct-entry)) (constructor (make-object)))
+          (labels (((fun-10 self) value-true) ((fun-11 self) value-true)
+                   ((fun-12 self) value-false) ((fun-13 self) gct-entry)
+                   ((fun-14 self) symbol-form)
+                   ((fun-15 self port) (display symbol-form port))
+                   ((obj-fun-16 component)
+                    (constructor-procedure component))
+                   ((constructor-procedure component)
+                    (let ((expr (make-expression)))
+                      (set (expression-components expr)
+                           (list component))
+                      (set (expression-constructor expr) constructor)
+                      (set (expression-constants expr)
+                           (expression-constants component))
+                      (set (expression-bound-variables expr)
+                           (bound-variables component))
+                      (set (expression-free-variables expr)
+                           (free-variables component))
+                      (set (expression-newly-bound-variables expr) nil)
+                      (set (expression-lead-constant expr)
+                           (expression-lead-constant component))
+                      (set (expression-sorting expr)
+                           (expression-sorting component))
+                      (set (expression-home expr)
+                           (home-language component))
+                      (set (expression-height expr)
+                           (1+ (expression-height component)))
+                      (set (expression-alpha-hash expr)
+                           (expression-alpha-hash component))
+                      expr)))
+            (refurnish-object constructor obj-fun-16
+                (constructor? fun-10) (transparent-constructor? fun-11)
+                (binding-constructor? fun-12) (gct-entry-value fun-13)
+                (name fun-14) (print fun-15))
+            (set (symbol->constructor symbol-form) constructor)
+            (set-sexp-decoder constructor sexp-decoder)
+            (set-sexp-builder constructor sexp-builder)
+            (push *constructors* constructor)
+            constructor)))
+
+(define (quantification? formula)
+        (and (formula? formula) (binding-expression? formula)))
+
+(define (boolean-combination? formula)
+        (and (formula? formula) (not (quantification? formula))
+             (not (atomic-formula? formula))))
+
+(define (constructor-simplify expression)
+        (let ((constructor (expression-constructor expression)))
+          (if constructor
+              (let ((simplifier (constructor-simplifier constructor)))
+                (if simplifier
+                    (funcall simplifier
+                             (expression-components expression))
+                    expression))
+              expression)))
+
+(define (recursive-constructor-simplify expression)
+        (let ((constructor (expression-constructor expression)))
+          (if constructor
+              (let ((simplifier (constructor-simplifier constructor)))
+                (if simplifier
+                    (funcall simplifier
+                             (map recursive-constructor-simplify
+                                  (expression-components expression)))
+                    (apply constructor
+                           (map recursive-constructor-simplify
+                                (expression-components expression)))))
+              expression)))

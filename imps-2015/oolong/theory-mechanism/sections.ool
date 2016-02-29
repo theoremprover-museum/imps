@@ -1,0 +1,370 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment sections)
+
+(define imps-filespec? filespec?)
+
+(define imps-get-default-filename get-default-filename)
+
+(define imps-expand-filename expand-filename)
+
+(define imps-filename->string filename->string)
+
+(define (imps-filespec->string spec)
+        (imps-filename->string
+            (imps-expand-filename (imps-get-default-filename spec))))
+
+(define (imps-filespec-equal? spec1 spec2)
+        (string-equal? (imps-filespec->string spec1)
+            (imps-filespec->string spec2)))
+
+(define *name-section-table* (make-table '*name-section-table*))
+
+(define (name->section the-name)
+        (table-entry *name-section-table* the-name))
+
+(define *loaded-files-table* (make-string-table '*loaded-files-table*))
+
+(define (imps-file-loaded? spec)
+        (table-entry *loaded-files-table* (imps-filespec->string spec)))
+
+(define-structure-type section
+  name 
+  component-names 
+  filespecs
+  loaded? 
+  ;obarray-entries
+    (((name self) (section-name self))
+     ((print self port)
+      (format port "#{IMPS-section ~A: ~S}" (object-hash self)
+              (section-name self)))))
+
+(define (build-section the-name component-names filespecs)
+  (or (symbol? the-name)
+      (imps-error "BUILD-SECTION: ~A ~S ~A" "the section name"
+		  the-name "is not a symbol."))
+  (map (lambda (comp-name)
+	 (or (symbol? comp-name)
+	     (imps-error "BUILD-SECTION: ~A ~S ~A"
+			 "the component section name" comp-name
+			 "is not a symbol.")))
+       component-names)
+  (map (lambda (spec)
+	 (or (imps-filespec? spec)
+	     (imps-error "BUILD-SECTION: ~S ~A" spec
+			 "is not a file specification.")))
+       filespecs)
+  (let ((old-section (name->section the-name)))
+    (if old-section
+	(block (let ((os-component-names (section-component-names old-section))
+		     (ns-component-names component-names)
+		     (os-filespecs (section-filespecs old-section))
+		     (ns-filespecs filespecs))
+		 (or (and (eq? (length os-component-names)
+			       (length ns-component-names))
+			  (every? eq? os-component-names
+				  ns-component-names)
+			  (eq? (length os-filespecs)
+			       (length ns-filespecs))
+			  (every? imps-filespec-equal?
+				  os-filespecs ns-filespecs))
+		     (imps-error "BUILD-SECTION: ~A ~S."
+				 "there is already a section named"
+				 the-name)))
+	       old-section)
+	(let ((new-section (make-section)))
+	  (set (table-entry *name-section-table* the-name)
+	       new-section)
+	  (set (section-name new-section) the-name)
+	  (set (section-component-names new-section)
+	       component-names)
+	  (set (section-filespecs new-section) filespecs)
+	  (set (section-loaded? new-section) value-false)
+	  new-section))))
+
+(define (load-imps-section the-name reload-files-only? reload? quick?)
+        (let ((section (name->section the-name)))
+          (or section
+              (imps-error "LOAD-IMPS-SECTION: ~A ~S."
+                  "there is no section named" the-name))
+          (bind (((quick-load?) quick?))
+                (if (and (section-loaded? section) reload-files-only?)
+                    (block (format-imps-load-message (standard-output)
+                               "~A ~S.~%"
+                               "Reloading files of IMPS section"
+                               the-name)
+                      (load-imps-section-files section value-true)
+                      (format-imps-load-message (standard-output)
+                          "~S ~A.~%" the-name "files are reloaded"))
+                    (load-imps-section-aux section reload?)))))
+
+(define (load-imps-section-aux section reload?)
+  (cond
+   ((and (section-loaded? section) (not reload?))
+    (format-imps-load-message (standard-output) "~A ~S.~%"
+			      "Already loaded IMPS section" (section-name section)))
+   ((and (section-loaded? section) reload?)
+    (format-imps-load-message (standard-output) "~A ~S.~%"
+			      "Reloading IMPS section" (section-name section))
+    (load-imps-component-sections section reload?)
+    (load-imps-section-files section reload?)
+    (set (section-loaded? section) value-true)
+    (format-imps-load-message (standard-output) "~S ~A.~%"
+			      (section-name section) "is reloaded"))
+   (else (format-imps-load-message (standard-output)
+				   "~A ~S.~%" "Loading IMPS section"
+				   (section-name section))
+	 (load-imps-component-sections section reload?)
+	 (load-imps-section-files section reload?)
+	 (set (section-loaded? section) value-true)
+	 (format-imps-load-message (standard-output)
+				   "~S ~A.~%" (section-name section) "is loaded"))))
+
+(define (load-imps-component-sections section reload?)
+        (walk (lambda (comp-name)
+                (let ((comp (name->section comp-name)))
+                  (load-imps-section-aux comp reload?)))
+              (section-component-names section)))
+
+(define (load-imps-section-files section reload?)
+        (load-imps-files (section-filespecs section) reload?))
+
+(define (load-imps-files filespecs reload?)
+        (walk (lambda (filespec) (load-imps-file filespec reload?))
+              filespecs)
+        (return))
+
+(define (load-imps-file spec reload?)
+  (if (or (not (imps-file-loaded? spec)) reload?)
+      (block (push-current-theory)
+	     (push-current-syntax)
+	     (format-imps-load-message (standard-output) "~A ~S.~%"
+				       (if reload? "  Reloading IMPS file"
+					   "  Loading IMPS file")
+				       (imps-filespec->string spec))
+	     (load spec)
+	     (format-imps-load-message (standard-output) "~A.~%"
+				       "  File is loaded")
+	     (pop-current-syntax)
+	     (pop-current-theory)
+	     (set (table-entry *loaded-files-table*
+			       (imps-filespec->string spec))
+		  value-true))
+      (format nil "Already loaded.")))
+
+(define (format-imps-load-message port format-string . args)
+        (apply format port format-string args))
+
+;;;(define-predicate line-numbered-port?)
+;;;
+;;;(define-operation port-line-number)
+;;;
+;;;(define def-form-end-line
+;;;        (make-simple-switch 'def-form-end-line (always value-true) value-false))
+;;;
+;;;(define def-form-name
+;;;        (make-simple-switch 'def-form-name (always value-true) value-false))
+;;;
+;;;(define def-form-kind
+;;;        (make-simple-switch 'def-form-kind (always value-true) value-false))
+
+;;;(define-structure-type imps-obarray-entry name kind directory file line
+;;;    def-name section-name
+;;;    (((print self port)
+;;;      (format port "~%#{IMPS-obarray-entry ~a ~a ~s ~s ~a ~a ~a #}"
+;;;              (imps-obarray-entry-name self)
+;;;              (imps-obarray-entry-kind self)
+;;;              (imps-obarray-entry-directory self)
+;;;              (imps-obarray-entry-file self)
+;;;              (imps-obarray-entry-line self)
+;;;              (and (symbol? (imps-obarray-entry-def-name self))
+;;;                   (imps-obarray-entry-def-name self))
+;;;              (imps-obarray-entry-section-name self)))))
+
+(define (downcase-object obj)
+        (cond
+          ((symbol? obj) (string-downcase (symbol->string obj)))
+          ((string? obj) (string-downcase obj))
+          (else (string-downcase (format nil "~A" obj)))))
+
+;;;(define (build-imps-obarray-entry name kind directory file line
+;;;            def-name section)
+;;;        (let ((entry (make-imps-obarray-entry)))
+;;;          (set (imps-obarray-entry-name entry) (downcase-object name))
+;;;          (set (imps-obarray-entry-kind entry) (downcase-object kind))
+;;;          (set (imps-obarray-entry-directory entry) directory)
+;;;          (set (imps-obarray-entry-file entry) file)
+;;;          (set (imps-obarray-entry-line entry) line)
+;;;          (set (imps-obarray-entry-def-name entry)
+;;;               (downcase-object def-name))
+;;;          (set (imps-obarray-entry-section-name entry)
+;;;               (downcase-object section))
+;;;          entry))
+;;;
+;;;(define imps-obarray-port
+;;;        (make-simple-switch 'imps-obarray-port
+;;;            (lambda (p) (or (false? p) (port? p))) value-false))
+;;;
+;;;(define (register-current-imps-obarray-entry) nil)
+;;;
+;;;(define (register-imps-obarray-entry the-name kind) nil)
+;;;
+;;;(define (emacs-install-from-obarray-port) nil)
+;;;
+;;;(define (maybe-register-imps-obarray-entry the-name kind) nil)
+;;;
+;;;(define (section-print-imps-obarray-entries section port) nil)
+
+;;;(define (section-update-auxiliary-file section) nil)
+
+;;;(define imps-auxiliary-file-dir
+;;;        (make-simple-switch 'imps-auxiliary-file-dir symbol? 'theories))
+
+;;;(define (section-retrieve-aux-dir-from-user)
+;;;        (imps-warning
+;;;            "Please switch to *tea* buffer and input
+;;;shell variable for directory in which to place section auxiliary files.")
+;;;        (retrieve-object-from-user
+;;;            "Shell variable name (for instance, HOME): "
+;;;            (standard-input) (standard-output) symbol?))
+
+;;;(define (section-update-all-auxiliary-files) nil)
+
+;;;(define (section-update-auxiliary-files-when-loaded) nil)
+
+(define (currently-loaded-sections)
+        (let ((accum nil))
+          (walk-table
+              (lambda (n section)
+                (ignore n)
+                (if (section-loaded? section) (push accum section)))
+              *name-section-table*)
+          accum))
+
+(define (currently-loaded-section-names)
+        (map name (currently-loaded-sections)))
+
+;;;(define (section-aux-filename-with-defaults section)
+;;;        (let* ((section-name (name section))
+;;;               (dir->filename
+;;;                   (lambda (dir)
+;;;                     (->filename
+;;;                         (list dir
+;;;                               (concatenate-symbol 'auxiliary-files/
+;;;                                   section-name)
+;;;                               'aux)))))
+;;;          (cond
+;;;            ((section-aux-filespec section) => ->filename)
+;;;            ((any-such-that
+;;;                 (lambda (dir)
+;;;                   (file-exists? (funcall dir->filename dir)))
+;;;                 (list (imps-auxiliary-file-dir) 'imps_aux 'home))
+;;;             => dir->filename)
+;;;            (else value-false))))
+
+;;;(define (currently-loaded-section-aux-files)
+;;;        (iterate iter
+;;;                 ((sections (currently-loaded-sections))
+;;;                  (aux-files nil))
+;;;                 (cond
+;;;                   ((null? sections) (reverse! aux-files))
+;;;                   ((section-aux-filename-with-defaults (car sections))
+;;;                    =>
+;;;                    (lambda (fn)
+;;;                      (iter (cdr sections)
+;;;                            (cons (imps-filename->string fn) aux-files))))
+;;;                   (else (iter (cdr sections) aux-files)))))
+
+;;;(define (expanded-section-aux-file section)
+;;;        (cond
+;;;          ((section-aux-filename-with-defaults section) =>
+;;;           imps-filename->string)
+;;;          (else value-false)))
+;;;
+;;(define (maybe-install-section-in-emacs-obarray section) nil)
+
+;;;(define sections-already-transmitted
+;;;        (make-simple-switch 'sections-already-transmitted
+;;;            (lambda (l) (every? section? l)) nil))
+;;;
+;;;(define (reset-sections-already-transmitted)
+;;;        (set (sections-already-transmitted) nil))
+;;;
+;;;(define (add-section-already-transmitted section)
+;;;        (set (sections-already-transmitted)
+;;;             (cons section (sections-already-transmitted))))
+;;;
+;;;(define (section-already-transmitted? section)
+;;;        (memq? section (sections-already-transmitted)))
+
+(define (section-lower-case-names)
+        (let ((accum nil))
+          (walk-table
+              (lambda (k v)
+                (ignore k)
+                (push accum
+                      (string-downcase
+                          (symbol->string (section-name v)))))
+              *name-section-table*)
+          accum))
+
+;;;(define (emacs-install-section-references section-or-name)
+;;;        (let ((section (if (section? section-or-name) section-or-name
+;;;                           (name->section section-or-name))))
+;;;          (let ((fspec (section-aux-filename-with-defaults section)))
+;;;            (if (and (string? fspec) (string-empty? fspec))
+;;;                (imps-warning
+;;;                    "No auxiliary file with references for section ~A"
+;;;                    (section-name section))
+;;;                (emacs-eval
+;;;                    "(augment-imps-obarray-from-file
+;;;             (expand-file-name (substitute-in-file-name ~S)))"
+;;;                    (imps-filename->string fspec))))))

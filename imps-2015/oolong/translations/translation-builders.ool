@@ -1,0 +1,464 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment translation-builders)
+
+(define (translation-from-definition form)
+        (receive (the-translation-name the-translation-nickname source-theory
+                     target-theory assumptions fixed-theories
+                     sort-alist constant-alist core-translation
+                     enrich?)
+                 (destructure-translation-definition form)
+                 (if core-translation
+                     (extend-translation core-translation source-theory
+                         target-theory assumptions fixed-theories
+                         sort-alist constant-alist the-translation-name
+                         the-translation-nickname enrich?)
+                     (build-translation source-theory target-theory
+                         assumptions fixed-theories sort-alist
+                         constant-alist the-translation-name
+                         the-translation-nickname enrich?))))
+
+(define (destructure-translation-definition form)
+        (let ((the-translation-name (car form)) (form (cdr form)))
+          (let* ((the-translation-nickname (car (assq-val 'nickname form)))
+                 (source-theory
+                     (name->theory
+                         (car (or (assq-val 'source form)
+                                  (assq-val 'from form)))))
+                 (target-theory
+                     (name->theory
+                         (car (or (assq-val 'target form)
+                                  (assq-val 'to form)))))
+                 (assumptions
+                     (destructure-assumptions
+                         (or (assq-val 'assumptions form)
+                             (assq-val 'context-assumptions form))
+                         target-theory))
+                 (fixed-theories
+                     (map name->theory (assq-val 'fixed-theories form)))
+                 (sort-alist
+                     (destructure-sort-pairs
+                         (assq-val 'sort-pairs form)
+                         (theory-language source-theory)
+                         (theory-language target-theory)))
+                 (constant-alist
+                     (destructure-constant-pairs
+                         (assq-val 'constant-pairs form)
+                         (theory-language source-theory)
+                         (theory-language target-theory)))
+                 (core-translation-name
+                     (car (assq-val 'core-translation form)))
+                 (core-translation
+                     (if core-translation-name
+                         (name->translation core-translation-name)
+                         value-false))
+                 (enrich? (car (assq-val 'enrich? form))))
+            (return
+              the-translation-name
+              the-translation-nickname
+              source-theory
+              target-theory
+              assumptions
+              fixed-theories
+              sort-alist
+              constant-alist
+              core-translation
+              enrich?))))
+
+(define (destructure-assumptions string-list theory)
+        (let ((language (theory-language theory)))
+          (map (lambda (string)
+                 (and (imps-enforce string? string)
+                      (qr string language)))
+               string-list)))
+
+(define (destructure-sort-pairs sort-pairs source-language
+            target-language)
+        (map (lambda (sort-pair)
+               (destructure (((source target) sort-pair))
+                   (cons (name->sort source-language
+                             (imps-enforce symbol? source))
+                         (cond
+                           ((and (list? target)
+                                 (eq? (car target) 'pred))
+                            (qr (cadr target) target-language))
+                           ((and (list? target)
+                                 (eq? (car target) 'indic))
+                            (domain (qr (cadr target) target-language)))
+                           ((list? target)
+                            (list->sort target-language target))
+                           ((string? target)
+                            (string->sort target-language target))
+                           (else (name->sort target-language
+                                     (imps-enforce symbol? target)))))))
+             sort-pairs))
+
+(define (destructure-constant-pairs constant-pairs source-language
+            target-language)
+        (map (lambda (constant-pair)
+               (destructure (((source target) constant-pair))
+                   (cons (find-constant source-language
+                             (imps-enforce possible-symbol-form?
+                                 source))
+                         (if (string? target)
+                             (qr target target-language)
+                             (find-constant target-language
+                                 (imps-enforce possible-symbol-form?
+                                     target))))))
+             constant-pairs))
+
+(define (explicitly-translated-sort? translation sort)
+        (let ((fixed-theories (translation-fixed-theories translation))
+              (sort-alist (translation-sort-alist translation))
+              (defined-sort-alist
+                  (translation-defined-sort-alist translation)))
+          (or (assq sort sort-alist)
+              (and (assq sort defined-sort-alist)
+                   (sort? (translate-sort translation sort)))
+              (any? (lambda (th) (theory-resolved-sort? th sort))
+                    fixed-theories))))
+
+(define (implicitly-translated-sort? translation sort)
+        (let ((source-theory (translation-source-theory translation)))
+          (and (theory-defined-sort? source-theory sort)
+               (not (explicitly-translated-sort? translation sort)))))
+
+(define (explicitly-translated-sorts translation)
+        (set-separate
+            (lambda (sort)
+              (explicitly-translated-sort? translation sort))
+            (theory-sorts-resolved
+                (translation-source-theory translation))))
+
+(define (explicitly-translated-constant? translation constant)
+        (let ((fixed-theories (translation-fixed-theories translation))
+              (constant-alist (translation-constant-alist translation))
+              (defined-constant-alist
+                  (translation-defined-constant-alist translation)))
+          (or (assq constant constant-alist)
+              (and (assq constant defined-constant-alist)
+                   (constant?
+                       (translate-constant translation constant)))
+              (any? (lambda (th) (theory-constant? th constant))
+                    fixed-theories))))
+
+(define (implicitly-translated-constant? translation constant)
+        (let ((source-theory (translation-source-theory translation)))
+          (and (theory-defined-constant? source-theory constant)
+               (not (explicitly-translated-constant? translation
+                        constant)))))
+
+(define (explicitly-translated-constants translation)
+        (set-separate
+            (lambda (const)
+              (explicitly-translated-constant? translation const))
+            (theory-constants (translation-source-theory translation))))
+
+(define (build-language-translation source-language target-language
+            fixed-languages sort-alist constant-alist the-name
+            the-nickname . error-kind)
+        (apply build-translation (language->theory source-language)
+               (language->theory target-language) the-empty-set
+               (map language->theory fixed-languages) sort-alist
+               constant-alist the-name the-nickname value-true error-kind))
+
+(define (translation->theory-interpretation translation . names)
+        (or (translation? translation)
+            (imps-error "TRANSLATION->THEORY-INTERPRETATION: ~S ~A."
+                translation "is not a translation"))
+        (or (not (translation-theory-interpretation? translation))
+            (imps-error "TRANSLATION->THEORY-INTERPRETATION: ~S ~A."
+                translation "is already a theory interpretation"))
+        (let* ((source-theory (translation-source-theory translation))
+               (target-theory (translation-target-theory translation))
+               (assumptions (translation-assumptions translation))
+               (fixed-theories
+                   (translation-fixed-theories translation))
+               (sort-alist (translation-sort-alist translation))
+               (constant-alist
+                   (translation-constant-alist translation))
+               (the-name
+                   (cond
+                     ((and (null? names) (not (name translation)))
+                      value-false)
+                     ((null? names)
+                      (concatenate-symbol 'ot% (name translation)))
+                     (else (car names))))
+               (the-nickname
+                   (cond
+                     ((and (null? names)
+                           (not (translation-nickname translation)))
+                      value-false)
+                     ((null? names)
+                      (concatenate-symbol 'to%
+                          (translation-nickname translation)))
+                     (else (cadr names))))
+               (new-assumptions
+                   (set-union assumptions
+                       (translation-obligations translation)))
+               (translation
+                   (build-translation source-theory target-theory
+                       new-assumptions fixed-theories sort-alist
+                       constant-alist the-name the-nickname value-true)))
+          (set-to-theory-interpretation translation)
+          translation))
+
+(define (compose-translations translation-1 translation-2 . names)
+        (let ((source-theory-1
+                  (translation-source-theory translation-1))
+              (source-theory-2
+                  (translation-source-theory translation-2))
+              (target-theory-1
+                  (translation-target-theory translation-1))
+              (target-theory-2
+                  (translation-target-theory translation-2)))
+          (or (translation? translation-1)
+              (imps-error "COMPOSE-TRANSLATIONS: ~S ~A." translation-1
+                  "is not a translation"))
+          (or (translation? translation-2)
+              (imps-error "COMPOSE-TRANSLATIONS: ~S ~A." translation-2
+                  "is not a translation"))
+          (or (sub-theory? target-theory-1 source-theory-2)
+              (imps-error "COMPOSE-TRANSLATIONS: ~S ~A ~S."
+                  target-theory-1 "is not a subtheory of"
+                  source-theory-2))
+          (let* ((assumptions-1
+                     (translation-assumptions translation-1))
+                 (assumptions-2
+                     (translation-assumptions translation-2))
+                 (fixed-theories-1
+                     (translation-fixed-theories translation-1))
+                 (fixed-theories-2
+                     (translation-fixed-theories translation-2))
+                 (sort-alist-1 (translation-sort-alist translation-1))
+                 (constant-alist-1
+                     (translation-constant-alist translation-1))
+                 (the-name
+                     (if (null? names)
+                         (concatenate-symbol (name translation-1)
+                             '-composed-with- (name translation-2))
+                         (car names)))
+                 (the-nickname
+                     (if (not (eq? (length names) 2)) value-false
+                         (cadr names)))
+                 (assumptions
+                     (set-union assumptions-2
+                         (set-map (lambda (formula)
+                                    (translate-expression translation-2
+                                     formula))
+                                  assumptions-1)))
+                 (fixed-theories
+                     (set-intersection fixed-theories-1
+                         fixed-theories-2))
+                 (sort-alist
+                     (map (lambda (pair)
+                            (cons (car pair)
+                                  (if (sort? (cdr pair))
+                                      (translate-sort translation-2
+                                       (cdr pair))
+                                      (translate-expression
+                                       translation-2 (cdr pair)))))
+                          sort-alist-1))
+                 (constant-alist
+                     (map (lambda (pair)
+                            (cons (car pair)
+                                  (translate-expression translation-2
+                                      (cdr pair))))
+                          constant-alist-1))
+                 (translation
+                     (build-translation source-theory-1 target-theory-2
+                         assumptions fixed-theories sort-alist
+                         constant-alist the-name the-nickname value-true)))
+            (if (and (translation-theory-interpretation? translation-1)
+                     (translation-theory-interpretation? translation-2))
+                (set-to-theory-interpretation translation))
+            translation)))
+
+(define (extend-translation translation source-theory target-theory
+            assumptions fixed-theories sort-alist constant-alist
+            the-name the-nickname enrich? . error-kind)
+        (let ((source-theory
+                  (theory-union
+                      (list (translation-source-theory translation)
+                            source-theory)))
+              (target-theory
+                  (theory-union
+                      (list (translation-target-theory translation)
+                            target-theory)))
+              (assumptions
+                  (set-union (translation-assumptions translation)
+                      assumptions))
+              (fixed-theories
+                  (set-union (translation-fixed-theories translation)
+                      fixed-theories))
+              (sort-alist
+                  (set-union (translation-sort-alist translation)
+                      sort-alist))
+              (constant-alist
+                  (set-union (translation-constant-alist translation)
+                      constant-alist)))
+          (apply build-translation source-theory target-theory
+                 assumptions fixed-theories sort-alist constant-alist
+                 the-name the-nickname enrich? error-kind)))
+
+(define (join-translations translations . names)
+        (every? (lambda (x)
+                  (or (translation? x)
+                      (imps-error "JOIN-TRANSLATIONS: ~S ~A." x
+                          "is not a translation")))
+                translations)
+        (let* ((source-theory
+                   (theory-union
+                       (map translation-source-theory translations)))
+               (target-theory
+                   (theory-union
+                       (map translation-target-theory translations)))
+               (assumptions
+                   (big-u (map translation-assumptions translations)))
+               (fixed-theories
+                   (big-u (map translation-fixed-theories translations)))
+               (sort-alist
+                   (big-u (map translation-sort-alist translations)))
+               (constant-alist
+                   (big-u (map translation-constant-alist translations)))
+               (the-name (if (null? names) value-false (car names)))
+               (the-nickname
+                   (if (not (eq? (length names) 2)) value-false
+                       (cadr names)))
+               (translation
+                   (build-translation source-theory target-theory
+                       assumptions fixed-theories sort-alist
+                       constant-alist the-name the-nickname value-true)))
+          (if (every? translation-theory-interpretation? translations)
+              (set-to-theory-interpretation translation))
+          translation))
+
+(define (identity-translation theory . the-name)
+        (translation-from-definition
+            (list (if (null? the-name) value-false (car the-name))
+                  (list 'source (name theory))
+                  (list 'target (name theory)))))
+
+(define (theory-to-subtheory-translation theory subtheory . the-name)
+        (or (sub-theory? subtheory theory)
+            (imps-error "THEORY-TO-SUBTHEORY-TRANSLATION: ~S ~A ~S."
+                subtheory "is not a subtheory of" theory))
+        (or (set-equal? (theory-primitive-sorts theory)
+                (theory-primitive-sorts subtheory))
+            (imps-error "THEORY-TO-SUBTHEORY-TRANSLATION: ~S ~A ~S."
+                theory "contains primitive sorts which are not in"
+                subtheory))
+        (let* ((the-name (if (null? the-name) value-false (car the-name)))
+               (outside-primitive-constants
+                   (set-diff (theory-primitive-constants theory)
+                       (theory-primitive-constants subtheory)))
+               (constant-alist
+                   (map (lambda (const)
+                          (let ((var (find-variable (name const)
+                                      (expression-sorting const))))
+                            (cons const var)))
+                        outside-primitive-constants))
+               (preliminary-translation
+                   (build-translation theory subtheory the-empty-set
+                       (list subtheory) nil constant-alist value-false
+                       value-false value-false))
+               (outside-axioms
+                   (set-diff (theory-axioms theory)
+                       (theory-axioms subtheory)))
+               (assumptions
+                   (map (lambda (ax)
+                          (translate-sentence preliminary-translation
+                              ax))
+                        outside-axioms))
+               (translation
+                   (build-translation theory subtheory assumptions
+                       (list subtheory) nil constant-alist the-name
+                       value-false value-false)))
+          (theory-interpretation-check-using-simplification
+              translation)
+          translation))
+
+(define (repeatedly-replace-substring str from-substring to-substring)
+        (let ((new (replace-substring str from-substring to-substring)))
+          (if (string-equal? new str) str
+              (repeatedly-replace-substring new from-substring
+                  to-substring))))
+
+(define (replace-substring str from-substring to-substring)
+        (let ((start (find-matching-substring str from-substring)))
+          (if (not start) str
+              (let ((offset (+ start (string-length from-substring))))
+                (string-append (substring str 0 start) to-substring
+                    (substring str offset
+                        (- (string-length str) offset)))))))
+
+(define (find-matching-substring str from-substring)
+        (let ((from-len (string-length from-substring))
+              (str-len (string-length str)))
+          (labels (((matches-at-offset? offset)
+                    (do ((offset offset (1+ offset))
+                         (counter 0 (1+ counter)))
+                        ((or (= offset str-len) (= counter from-len)
+                             (not (char= (string-elt str offset)
+                                         (string-elt from-substring
+                                          counter))))
+                         (= counter from-len)))))
+            (iterate iter ((offset 0))
+                     (cond
+                       ((< str-len (+ from-len offset)) value-false)
+                       ((matches-at-offset? offset) offset)
+                       (else (iter (1+ offset))))))))
+
+(define (replace-substring-renamer from-substring to-substring)
+        (lambda (symbol)
+          (string->symbol
+              (repeatedly-replace-substring (symbol->string symbol)
+                  from-substring to-substring))))

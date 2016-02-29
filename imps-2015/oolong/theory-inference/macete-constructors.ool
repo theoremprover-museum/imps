@@ -1,0 +1,327 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment macete-constructors)
+
+(define-operation (composite-macete? x) (imps-enforce macete? x)
+    value-false)
+
+(define-operation (macete-components x) (imps-enforce macete? x) nil)
+
+(define-operation (macete-constructor-name x))
+
+(define-operation (macete-constructor x) value-false)
+
+(define-operation (constructor-macete->strategy-converter soi))
+
+(define-operation (constructor-key-amalgamator soi))
+
+(define macete-constructor-table (make-table))
+
+(define (make-macete-constructor proc soundness-predicate
+				 bidirectionality-predicate macete->strategy-converter
+				 key-amalgamator constructor-name)
+  (enforce symbol? constructor-name)
+  (set (table-entry macete-constructor-table constructor-name)
+       (let ((constructor (make-object)))
+	 (labels (((fun-116 soi) key-amalgamator)
+		  ((fun-117 soi)
+		   macete->strategy-converter)
+		  ((obj-fun-118 macetes)
+		   (or (proper-list? macetes)
+		       (imps-error "~A is not a proper list" macetes))
+		   (walk (lambda (x) (enforce macete? x))
+			 macetes)
+		   (let ((macete
+			  (join
+			   (object nil
+				   ((composite-macete? soi)
+				    value-true)
+				   ((macete-constructor soi)
+				    constructor)
+				   ((macete-components x) macetes)
+				   ((macete-constructor-name soi)
+				    constructor-name)
+				   ((macete-sound-in-theory? soi
+							     theory)
+				    (funcall soundness-predicate
+					     macetes theory)))
+			   (build-macete
+			    (lambda (context expr)
+			      (funcall proc context expr
+				       macetes))
+			    (funcall
+			     bidirectionality-predicate
+			     macetes)
+			    nil))))
+		     macete)))
+	   (refurnish-object constructor obj-fun-118
+			     (constructor-key-amalgamator fun-116)
+			     (constructor-macete->strategy-converter
+			      fun-117))
+	   constructor))))
+
+(define (constructor-name->macete-constructor constructor-name)
+  (table-entry macete-constructor-table constructor-name))
+
+(define (default-bidirectionality-predicate macetes)
+        (every? bidirectional-macete? macetes))
+
+(define (default-soundness-predicate macetes theory)
+        (every? (lambda (x) (macete-sound-in-theory? x theory))
+                macetes))
+
+(define (default-macete->strategy-converter macete)
+        (lambda (sqn) (deduction-graph-apply-macete sqn macete)))
+
+(define (series-macete->strategy-converter macete)
+        (series-strategy-constructor
+            (map macete->strategy (macete-components macete))))
+
+(define (repeat-macete->strategy-converter macete)
+        (repeat-strategy-constructor
+            (map macete->strategy (macete-components macete))))
+
+(define (sequential-macete->strategy-converter macete)
+        (sequential-strategy-constructor
+            (map macete->strategy (macete-components macete))))
+
+(define (parallel-macete->strategy-converter macete)
+        (parallel-strategy-constructor
+            (map macete->strategy (macete-components macete))))
+
+(define (union-amalgamator key-lists) (big-u key-lists))
+
+(define (guard-amalgamator key-lists) (car key-lists))
+
+(define series-macete-constructor
+        (make-macete-constructor
+            (lambda (context expr macetes)
+              (iterate loop ((expr expr) (macetes macetes))
+                       (cond
+                         ((null? macetes) expr)
+                         (else (loop
+                                 (apply-macete (car macetes) context
+                                     expr)
+                                 (cdr macetes))))))
+            default-soundness-predicate
+            default-bidirectionality-predicate
+            series-macete->strategy-converter union-amalgamator
+            'series))
+
+(define without-minor-premises-macete-constructor
+        (make-macete-constructor
+            (lambda (context expr macetes)
+              (imps-enforce (lambda (x) (= (length x) 1)) macetes)
+              (bind (((accumulate-undischarged-minor-premises?)
+                      value-false))
+                    (apply-macete (car macetes) context expr)))
+            default-soundness-predicate
+            default-bidirectionality-predicate
+            default-macete->strategy-converter union-amalgamator
+            'without-minor-premises))
+
+(define handling-minor-premises-macete-constructor
+        (make-macete-constructor
+            (lambda (context expr macetes)
+              (imps-enforce (lambda (x) (= (length x) 2)) macetes)
+              (let ((main-macete (car macetes))
+                    (minor-macete (cadr macetes)))
+                (receive (result new-minors)
+                         (bind (((accumulate-undischarged-minor-premises?) value-true)
+                                ((undischarged-minor-premises) value-false))
+                               (let ((result
+                                      (apply-macete main-macete context
+                                       expr)))
+                                 (return
+                                   result
+                                   (undischarged-minor-premises))))
+                         (set (undischarged-minor-premises)
+                              (set-union
+                                  (map (lambda (seq)
+                                         (build-sequent
+                                          (sequent-context seq)
+                                          (apply-macete minor-macete
+                                           (sequent-context seq)
+                                           (sequent-assertion seq))))
+                                       new-minors)
+                                  (undischarged-minor-premises)))
+                         result)))
+            default-soundness-predicate
+            default-bidirectionality-predicate
+            default-macete->strategy-converter union-amalgamator
+            'handling-minor-premises))
+
+(define sequential-macete-constructor
+        (make-macete-constructor
+            (lambda (context expr macetes)
+              (iterate loop ((expr expr) (macetes macetes))
+                       (cond
+                         ((null? macetes) expr)
+                         (else (let ((new-expr
+                                      (apply-macete (car macetes)
+                                       context expr)))
+                                 (if (eq? new-expr expr) expr
+                                     (loop new-expr (cdr macetes))))))))
+            default-soundness-predicate
+            default-bidirectionality-predicate
+            sequential-macete->strategy-converter guard-amalgamator
+            'sequential))
+
+(define parallel-macete-constructor
+        (make-macete-constructor
+            (lambda (context expr macetes)
+              (iterate loop ((expr1 expr) (macetes macetes))
+                       (cond
+                         ((null? macetes) expr1)
+                         ((eq? expr1 expr)
+                          (loop
+                            (apply-macete (car macetes) context expr)
+                            (cdr macetes)))
+                         (else expr1))))
+            default-soundness-predicate
+            default-bidirectionality-predicate
+            parallel-macete->strategy-converter union-amalgamator
+            'parallel))
+
+(make-macete-constructor
+    (lambda (context expr macetes)
+      (iterate loop ((macetes macetes))
+               (if (null? macetes) expr
+                   (let ((expr1 (apply-macete (car macetes) context
+                                    expr)))
+                     (if (truth? expr1) expr1 (loop (cdr macetes)))))))
+    default-soundness-predicate default-bidirectionality-predicate
+    parallel-macete->strategy-converter union-amalgamator 'any-true?)
+
+(define repeat-macete-constructor
+        (make-macete-constructor
+            (lambda (context expr macetes)
+              (labels (((series expr macetes)
+                        (cond
+                          ((null? macetes) expr)
+                          (else (series (apply-macete (car macetes)
+                                         context expr)
+                                        (cdr macetes)))))
+                       ((repeat expr)
+                        (let ((new-expr (series expr macetes)))
+                          (if (alpha-equivalent? new-expr expr) expr
+                              (repeat new-expr)))))
+                (repeat expr)))
+            default-soundness-predicate
+            default-bidirectionality-predicate
+            repeat-macete->strategy-converter union-amalgamator
+            'repeat))
+
+(define sound-macete-constructor
+        (make-macete-constructor
+            (lambda (context expr macetes)
+              (enforce (lambda (x) (= (length x) 3)) macetes)
+              (let ((macete (car macetes))
+                    (source-macete (cadr macetes))
+                    (target-macete (caddr macetes)))
+                (imps-enforce bidirectional-macete? target-macete)
+                (let ((new-expr (apply-macete macete context expr)))
+                  (cond
+                    ((and (macete-sound-in-theory? source-macete
+                              (context-theory context))
+                          (macete-sound-in-theory? target-macete
+                              (context-theory context))
+                          (alpha-equivalent?
+                              (apply-macete source-macete context expr)
+                              (apply-macete target-macete context
+                                  new-expr)))
+                     new-expr)
+                    (else expr)))))
+            (lambda (x theory) (ignore x) (ignore theory) value-true)
+            (lambda (macetes) (bidirectional-macete? (cadr macetes)))
+            default-macete->strategy-converter guard-amalgamator
+            'sound))
+
+(define (build-anonymous-macete sexp)
+        (cond
+          ((symbol? sexp)
+           (cond
+             ((name->macete sexp))
+             (else (imps-error "There is no macete ~a." sexp))))
+          ((list? sexp)
+           (cond
+             ((constructor-name->macete-constructor (car sexp)) =>
+              (lambda (constructor)
+                (funcall constructor
+                         (map (lambda (x) (build-anonymous-macete x))
+                              (cdr sexp)))))
+             (else (imps-error "~a is not a macete constructor"
+                       (car sexp)))))
+          (else (imps-error "~a is not a valid form for a macete" sexp))))
+
+(define (build-macete-from-sexp sexp the-name)
+        (let ((macete (build-anonymous-macete sexp)))
+          (set (macete-name macete) the-name)
+          macete))
+
+(define (build-and-install-macete-from-sexp sexp the-name . dont-rename)
+        (let ((macete (build-anonymous-macete sexp)))
+          (or dont-rename (set (macete-name macete) the-name))
+          (add-macete macete)
+          macete))
+
+(define (macete->strategy macete)
+        (if (composite-macete? macete)
+            (funcall (constructor-macete->strategy-converter
+                         (macete-constructor macete))
+                     macete)
+            (default-macete->strategy-converter macete)))
+
+(define (build-strategy-from-macete macete)
+        (build-universal-command (macete->strategy macete)
+            (if (macete-name macete)
+                (symbol-append 'converted% (macete-name macete)) nil)
+            (always value-true)))

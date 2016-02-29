@@ -1,0 +1,333 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment theorem)
+
+(define *name-theorem-table* (make-table '*name-theorem-table*))
+
+(define (name->theorem the-name)
+        (or (name->theorem-1 the-name)
+            (imps-error "NAME->THEOREM: no theorem named ~A." the-name)))
+
+(define (name->theorem-1 the-name)
+        (table-entry *name-theorem-table* the-name))
+
+(define-integrable retrieve-theorem (lambda (fmla) fmla))
+
+(define theorem? formula?)
+
+(define *theorem-info-table* (make-table '*theorem-info-table*))
+
+(define (set-theorem-info formula home-theory name-list usage-list
+            theory-usage-alist downcased-name)
+        (set (table-entry *theorem-info-table* formula)
+             (list home-theory name-list usage-list theory-usage-alist
+                   downcased-name))
+        (return))
+
+(define (set-theorem-info-nth formula n new-value)
+        (let ((entry (table-entry *theorem-info-table* formula)))
+          (if entry (set (nth entry n) new-value)
+              (block (set-theorem-info formula nil nil nil nil nil)
+                (set-theorem-info-nth formula n new-value))))
+        (return))
+
+(define (count-theorems)
+        (let ((count 0))
+          (walk-table
+              (lambda (key entry)
+                (ignore key entry)
+                (increment count))
+              *theorem-info-table*)
+          count))
+
+(define theorem-home-theory
+        (operation
+            (lambda (theorem)
+              (let ((entry (table-entry *theorem-info-table* theorem)))
+                (if entry (car entry) value-false)))
+            ((setter self)
+             (lambda (theorem nv) (set-theorem-info-nth theorem 0 nv)))))
+
+(define theorem-name
+        (operation
+            (lambda (theorem)
+              (let ((entry (table-entry *theorem-info-table* theorem)))
+                (if entry (caadr entry) value-false)))
+            ((setter self)
+             (lambda (theorem nv)
+               (imps-enforce
+                   (lambda (nv) (or (false? nv) (symbol? nv))) nv)
+               (or (table-entry *theorem-info-table* theorem)
+                   (set-theorem-info theorem nil nil nil nil nil))
+               (let ((old (nth (table-entry *theorem-info-table*
+                                   theorem)
+                               1)))
+                 (or (eq? nv (car old)) (false? nv)
+                     (block (set (theorem-downcased-name theorem)
+                                 (if nv
+                                     (string-downcase!
+                                      (symbol->string nv))
+                                     ""))
+                       (set-theorem-info-nth theorem 1 (cons nv old))
+                       (set (table-entry *name-theorem-table* nv)
+                            theorem))))))))
+
+(define-integrable theorem-formula (lambda (thm) thm))
+
+(define theorem-usage-list
+        (operation
+            (lambda (theorem)
+              (let ((entry (table-entry *theorem-info-table* theorem)))
+                (if entry (caddr entry) value-false)))
+            ((setter self)
+             (lambda (theorem nv) (set-theorem-info-nth theorem 2 nv)))))
+
+(define theorem-theory-usage-alist
+        (operation
+            (lambda (theorem)
+              (let ((entry (table-entry *theorem-info-table* theorem)))
+                (if entry (cadddr entry) value-false)))
+            ((setter self)
+             (lambda (theorem nv) (set-theorem-info-nth theorem 3 nv)))))
+
+(define theorem-downcased-name
+        (operation
+            (lambda (theorem)
+              (let ((entry (table-entry *theorem-info-table* theorem)))
+                (if entry (nth entry 4) value-false)))
+            ((setter self)
+             (lambda (theorem nv) (set-theorem-info-nth theorem 4 nv)))))
+
+(define (build-theorem home-theory formula the-name usage-list)
+        (enforce (lambda (theory)
+                   (or (null? theory) (theory? theory)))
+                 home-theory)
+        (enforce formula? formula)
+        (enforce (lambda (the-name)
+                   (or (null? the-name) (symbol? the-name)))
+                 the-name)
+        (if (not (null? the-name))
+            (let ((old-thm (table-entry *name-theorem-table* the-name)))
+              (and old-thm
+                   (not (eq? (theorem-formula old-thm) formula))
+                   (rename-theorem old-thm the-name))))
+        (let ((thm formula)
+              (the-name (or the-name (theorem-name formula)))
+              (home-theory
+                  (or home-theory (theorem-home-theory formula))))
+          (let ((usage-list
+                    (if the-name (cons 'elementary-macete usage-list)
+                        usage-list)))
+            (set (theorem-home-theory thm) home-theory)
+            (set (theorem-name thm) the-name)
+            (set (theorem-usage-list thm)
+                 (set-union usage-list (theorem-usage-list thm)))
+            (set (theorem-theory-usage-alist thm) nil)
+            (set (table-entry *name-theorem-table* the-name) thm)
+            thm)))
+
+(define (rename-theorem formula the-name)
+        (let ((preferred-name (theorem-name formula)))
+          (let ((new-name (concatenate-symbol the-name '$)))
+            (format (error-output)
+                    "~%;; Warning -- RENAME-THEOREM: renaming theorem formerly called ~S to ~S.~&"
+                    the-name new-name)
+            (set (table-entry *name-theorem-table* new-name) formula)
+            (if (eq? preferred-name the-name)
+                (set (theorem-name formula) new-name)))))
+
+(define (theory-install-theorem theory theorem)
+        (let* ((thm-table (theory-theorem-hash-table theory))
+               (expr (universal-matrix (theorem-formula theorem) nil))
+               (constructor
+                   (expression-quasi-constructor-or-constructor expr))
+               (lead (expression-lead-constant expr)))
+          (set (two-d-table-entry thm-table constructor lead)
+               (add-set-element theorem
+                   (two-d-table-entry thm-table constructor lead)))
+          (return)))
+
+(define (trivial-theorem? formula)
+        (or (truth? formula)
+            (and (or (universal? formula) (existential? formula))
+                 (trivial-theorem? (binding-body formula)))))
+
+(define (theory-literal-theorem? theory theorem)
+        (let* ((thm-table (theory-theorem-hash-table theory))
+               (expr (universal-matrix (theorem-formula theorem) nil))
+               (constructor
+                   (expression-quasi-constructor-or-constructor expr))
+               (lead (expression-lead-constant expr)))
+          (memq? theorem
+                 (two-d-table-entry thm-table constructor lead))))
+
+(define (retrieve-hashed-theorems table constr lead)
+        (two-d-table-entry table constr lead))
+
+(define (walk-possible-matching-theorems proc theory formula)
+        (let* ((expr (universal-matrix formula nil))
+               (constrs (expression-quasi-constructors-and-constructor
+                            expr))
+               (lead (expression-lead-constant expr)))
+          (walk (lambda (constr)
+                  (walk-theory-theorems-matching-constructor-and-first-lead
+                      proc theory constr lead))
+                constrs)))
+
+(define (walk-theory-theorems-matching-constructor-and-first-lead proc
+            theory constr lead)
+        (walk proc
+              (retrieve-hashed-theorems
+                  (theory-theorem-hash-table theory) constr lead))
+        (if (expression? lead)
+            (walk proc
+                  (retrieve-hashed-theorems
+                      (theory-theorem-hash-table theory) constr
+                      'no-lead-constant))))
+
+(define (theory-contains-theorem? theory theorem)
+        (catch 'found
+          (walk-possible-matching-theorems
+              (lambda (th)
+                (if (eq? theorem th) (throw 'found value-true)))
+              theory (theorem-formula theorem)))
+        value-false)
+
+(define (theory-theorems theory)
+        (let ((accum nil))
+          (walk-two-d-table
+              (lambda (k1 k2 formulas)
+                (ignore k1 k2)
+                (set accum (set-union formulas accum)))
+              (theory-theorem-hash-table theory))
+          accum))
+
+(define (theory-walk-theorems theory proc)
+        (walk-two-d-table
+            (lambda (k1 k2 formulas)
+              (ignore k1 k2)
+              (walk proc formulas))
+            (theory-theorem-hash-table theory)))
+
+(define (resolve-theorem-name formula the-name) (ignore formula)
+        (format (error-output)
+                "~%;; Warning -- RESOLVE-THEOREM-NAME: renaming ~S to ~S.~&"
+                the-name (concatenate-symbol the-name '$))
+        (concatenate-symbol the-name '$))
+
+(define (formula->theorem theory formula the-name . usage-list)
+        (build-theorem theory formula the-name usage-list))
+
+(define (theorem-instance? theorem sequent persist) (ignore persist)
+        (let ((extended-context
+                  (context-add-assumption (sequent-context sequent)
+                      (universal-closure (theorem-formula theorem)))))
+          (sequent-entailed?
+              (build-sequent extended-context
+                  (sequent-assertion sequent)))))
+
+(define (theorem->sexp theorem)
+        (let ((home-theory-name
+                  (theory-name (theorem-home-theory theorem)))
+              (formula (theorem-formula theorem))
+              (the-name (theorem-name theorem))
+              (usage-list (theorem-usage-list theorem)))
+          (list home-theory-name the-name (qp formula) usage-list)))
+
+(define (sexp->theorem sexp)
+        (destructure
+            (((home-theory-name the-name formula-sexp usage-list) sexp))
+            (let ((theory (name->theory home-theory-name)))
+              (build-theorem theory
+                  (sexp->expression (theory-language theory)
+                      formula-sexp)
+                  the-name usage-list))))
+
+(define (theory-theorems->sexp theory)
+        (map theorem->sexp (theory-theorems theory)))
+
+(define (reverse-formula formula)
+        (let* ((body (universal-matrix-respecting-qcs
+                         (expression-alpha-root formula) nil))
+               (reversed-body (reverse-formula-body body nil)))
+          (universal-closure reversed-body)))
+
+(define (reverse-formula-body body reqs)
+        (cond
+          ((quasi-equation? body)
+           (quasi-equality (quasi-equation-rhs body)
+               (quasi-equation-lhs body)))
+          ((quasi-constructor?
+               (expression-quasi-constructor-if-enabled-or-constructor
+                   body))
+           body)
+          ((equation? body)
+           (equality (expression-rhs body) (expression-lhs body)))
+          ((biconditional? body)
+           (biconditional (expression-rhs body) (expression-lhs body)))
+          ((implication? body)
+           (let ((reversed-rhs
+                     (reverse-formula-body (expression-rhs body)
+                         (set-union reqs
+                             (ultimate-conjuncts
+                                 (list (expression-lhs body)))))))
+             (implication (expression-lhs body) reversed-rhs)))
+          ((and (universal? body)
+                (empty-set?
+                    (set-intersection
+                        (big-u (set-map free-variables reqs))
+                        (newly-bound-variables body))))
+           (let ((reversed-rhs
+                     (reverse-formula-body
+                         (universal-matrix-respecting-qcs body nil)
+                         reqs)))
+             (apply forall reversed-rhs (binding-variables body))))
+          (else body)))

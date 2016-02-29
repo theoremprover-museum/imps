@@ -1,0 +1,303 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment sexp-print)
+
+(define *line-width* 79)
+
+(define *single-line-special-form-limit* 30)
+
+(define head car)
+
+(define (tail s) (force (cdr s)))
+
+(define (map-stream proc stream)
+        (cons (funcall proc (head stream))
+              (delay (map-stream proc (tail stream)))))
+
+(define (stream-ref stream n)
+        (if (= n 0) (head stream) (stream-ref (tail stream) (- n 1))))
+
+(define (sexp-pretty-print obj port)
+        (let ((node (pp-prescan obj 0))) (print-node node port 0)))
+
+(define make-node list)
+
+(define (node-dimensions node) (funcall (car node)))
+
+(define (node-pass-2 node pos) (funcall (cadr node) pos))
+
+(define (print-node node port pos) (funcall (caddr node) port pos))
+
+(define (pp-prescan obj hang)
+        (cond
+          ((symbol? obj)
+           (make-leaf (string-length (symbol->string obj)) obj hang))
+          ((number? obj)
+           (make-leaf (string-length (format nil "~a" obj)) obj hang))
+          ((boolean? obj) (make-leaf 2 obj hang))
+          ((string? obj)
+           (make-leaf (+ (string-length obj) 2) obj hang))
+          ((char? obj)
+           (make-leaf (case obj ((#\Space) 7) ((#\Newline) 9) (else 3))
+               obj hang))
+          ((pair? obj) (pp-prescan-pair obj hang))
+          ((vector? obj) (pp-prescan-vector obj hang))
+          (else (make-leaf 25 obj hang))))
+
+(define (make-leaf width obj hang)
+        (let ((width (+ width hang)))
+          (make-node (lambda () width) (lambda (pos) (+ pos width))
+              (lambda (port pos)
+                (print obj port)
+                (do ((i 0 (+ i 1))) ((>= i hang) (+ pos width))
+                  (write-char port #\)))))))
+
+(define (make-prefix-node string node)
+        (let ((len (string-length string)))
+          (make-node (lambda () (+ (node-dimensions node) len))
+              (lambda (pos) (node-pass-2 node (+ pos len)))
+              (lambda (port pos)
+                (display string port)
+                (print-node node port (+ pos len))))))
+
+(define (pp-prescan-vector obj hang)
+        (if (= (vector-length obj) 0) (make-leaf 3 obj hang)
+            (make-prefix-node "#"
+                (pp-prescan-list (vector->list obj) value-true hang))))
+
+(define (pp-prescan-pair obj hang)
+        (cond
+          ((pp-read-macro-inverse obj) =>
+           (lambda (inverse)
+             (make-prefix-node inverse (pp-prescan (cadr obj) hang))))
+          ((eq? 'apply-operator (car obj))
+           (pp-prescan-list (cdr obj) value-false hang))
+          (else (pp-prescan-list obj value-false hang))))
+
+(define (pp-prescan-list obj random? hang)
+        (iterate loop ((l obj) (z nil))
+                 (if (pair? (cdr l))
+                     (loop (cdr l) (cons (pp-prescan (car l) 0) z))
+                     (make-list-node
+                         (reverse (if (null? (cdr l))
+                                      (cons
+                                       (pp-prescan (car l) (+ hang 1))
+                                       z)
+                                      (cons
+                                       (make-prefix-node ". "
+                                        (pp-prescan (cdr l) (+ hang 1)))
+                                       (cons (pp-prescan (car l) 0) z))))
+                         obj (or random? (not (null? (cdr l))))))))
+
+(define (make-list-node node-list obj random?)
+        (let* ((random? (or random? (not (symbol? (car obj)))
+                            (eq? (car obj) 'else)))
+               (probe (if (not random?) (assq (car obj) *indentations*)
+                          value-false))
+               (format horizontal-format)
+               (dimensions (compute-dimensions node-list format))
+               (go-non-horizontal
+                   (lambda (col)
+                     (set format
+                          (cond
+                            (random? vertical-format)
+                            ((not probe) little-ell-format)
+                            (else (funcall (cadr probe) obj))))
+                     (let* ((start-col (+ col 1))
+                            (col (node-pass-2 (car node-list)
+                                     start-col))
+                            (final-col
+                                (funcall format (cdr node-list)
+                                         (lambda (node col target-col)
+                                           (ignore col)
+                                           (node-pass-2 node
+                                            target-col))
+                                         start-col (+ col 1) col)))
+                       (set dimensions
+                            (compute-dimensions node-list format))
+                       final-col))))
+          (if (> dimensions
+                 (if probe *single-line-special-form-limit*
+                     *line-width*))
+              (funcall go-non-horizontal 0))
+          (make-node (lambda () dimensions)
+              (lambda (col)
+                (let ((defacto (+ col (column-of dimensions))))
+                  (if (> defacto *line-width*)
+                      (funcall go-non-horizontal col) defacto)))
+              (lambda (port pos)
+                (write-char port #\()
+                (let* ((pos (+ pos 1)) (start-col (column-of pos))
+                       (pos (print-node (car node-list) port pos)))
+                  (funcall format (cdr node-list)
+                           (lambda (node pos target-col)
+                             (let ((pos
+                                    (go-to-column target-col port pos)))
+                               (print-node node port pos)))
+                           start-col (+ (column-of pos) 1) pos))))))
+
+(define (compute-dimensions node-list format)
+        (let* ((start-col 1)
+               (pos (+ (make-position start-col 0)
+                       (node-dimensions (car node-list)))))
+          (funcall format (cdr node-list)
+                   (lambda (node pos target-col)
+                     (let* ((dims (node-dimensions node))
+                            (lines (+ (line-of pos) (line-of dims)))
+                            (width (+ target-col (column-of dims))))
+                       (if (>= (column-of pos) target-col)
+                           (make-position (max (column-of pos) width)
+                               (+ lines 1))
+                           (make-position width lines))))
+                   start-col (+ (column-of pos) 1) pos)))
+
+(define on-same-line
+        (lambda (start-col first-col pos)
+          (ignore start-col first-col)
+          (+ (column-of pos) 1)))
+
+(define indent-under-first
+        (lambda (start-col first-col pos)
+          (ignore start-col pos)
+          first-col))
+
+(define indent-for-body
+        (lambda (start-col first-col pos)
+          (ignore first-col pos)
+          (+ start-col 1)))
+
+(define indent-under-head
+        (lambda (start-col first-col pos)
+          (ignore first-col pos)
+          start-col))
+
+(define (once separator format)
+        (lambda (tail proc start-col first-col pos)
+          (if (null? tail) pos
+              (let ((target-col
+                        (funcall separator start-col first-col pos)))
+                (funcall format (cdr tail) proc start-col first-col
+                         (funcall proc (car tail) pos target-col))))))
+
+;;This was translated incorrectly:
+
+(define (indefinitely separator)
+        (labels (((self a_1 a_2 a_3 a_4 a_5)
+		  (funcall 
+		   (once separator
+                          (lambda (tail proc start-col first-col pos)
+                            (self tail proc start-col first-col pos)))
+		    a_1 a_2 a_3 a_4 a_5)))
+          self))
+
+(define (repeatedly separator count format)
+        (do ((i 0 (+ i 1)) (format format (once separator format)))
+            ((>= i count) format)))
+
+(define vertical-format (indefinitely indent-under-head))
+
+(define horizontal-format (indefinitely on-same-line))
+
+(define big-ell-format (indefinitely indent-under-first))
+
+(define little-ell-format (indefinitely indent-for-body))
+
+(define hook-formats
+        (let ((stream nil))
+          (set stream
+               (cons little-ell-format
+                     (delay (map-stream
+                                (lambda (format)
+                                  (once indent-under-first format))
+                                stream))))
+          stream))
+
+(define hook
+        (let ((hooks (map-stream
+                         (lambda (format)
+                           (lambda (exp) (ignore exp) format))
+                         hook-formats)))
+          (lambda (n) (stream-ref hooks n))))
+
+(define *indentations*
+        (list (list 'lambda (hook 1)) (list 'forall (hook 1))
+              (list 'forsome (hook 1)) (list 'with (hook 1))
+              (list 'iota (hook 1)) (list 'iota-p (hook 1))
+              (list 'if (lambda (exp) (ignore exp) little-ell-format))
+              (list 'if-form
+                    (lambda (exp) (ignore exp) little-ell-format))))
+
+(define (go-to-column target-col port pos)
+        (let* ((column (column-of pos))
+               (line (if (>= column target-col) (+ (line-of pos) 1)
+                         (line-of pos))))
+          (do ((column (if (>= column target-col)
+                           (block (newline port) 0) column)
+                       (+ column 1)))
+              ((>= column target-col) (make-position column line))
+            (write-char port #\Space))))
+
+(define (make-position column line) (+ column (* line 1000)))
+
+(define (column-of pos) (remainder pos 1000))
+
+(define (line-of pos) (quotient pos 1000))
+
+(define (pp-read-macro-inverse x)
+        (cond
+          ((and (pair? x) (pair? (cdr x)) (null? (cddr x)))
+           (case (car x)
+             ((quote) "'")
+             ((quasiquote) "`")
+             ((unquote) ",")
+             ((unquote-splicing) ",@")
+             (else value-false)))
+          (else value-false)))

@@ -1,0 +1,109 @@
+#!/bin/sh
+
+PATTERN=$1
+
+for i in *$PATTERN*
+do 
+  echo $i
+  root=`echo $i | gawk  '{ gsub(/\.gz$/,"") ;print $0}'`
+    gzipped=`echo $i | gawk  '{ if ($0~/\.gz$/) {print 1} else {print 0}}'`
+    echo ""
+    if test $gzipped -eq 1 
+    then 
+      gunzip $i
+    fi
+    cat $root | gawk 'BEGIN{ 
+  succeeded=0;
+  failed = 0;
+  proving=0;
+  SECTIONS="";
+}
+
+/Host Information/ {HOST=$0}
+/^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)[ ]*[A-Z][a-z][a-z][ ]*[0-9]+[ ]*[0-9]*:[0-9]*:[0-9}*[ ]*[A-Z]*/ {WHEN=$0}
+/ooooo    o        ooooooo   ooooo   ooooo/ {LISP="CLISP"}
+/^;; Optimization settings: / {LISP="Allegro Common Lisp"}
+/^GCL/ {LISP=$0}
+/^CMU/ {LISP=$0}
+/Proving/ {
+  if (proving==1) {
+    ++failed;
+    Unproved[PreviousNum]=PreviousName;
+      }
+  proving=1;
+  PreviousNum=$3;
+  PreviousName=$4;  
+}
+
+/^Loading IMPS section/ {gsub(/\./," "); SECTIONS=$4 " " SECTIONS}
+    
+/GROUNDED.* YES/ {
+  proving=0;
+  ++succeeded;
+}
+
+/GROUNDED.* NO/ {
+  proving=0;
+  ++failed;
+  Unproved[PreviousNum]=PreviousName;
+
+}
+
+END{
+  print HOST;
+  print WHEN;
+  print LISP;
+  print "------------";
+  print SECTIONS;
+  print "------------";
+  if (PreviousNum==0) {
+    print "No proofs in this file!"
+    } else {
+      print succeeded, "PROOFS SUCCEEDED.";
+      print failed, "PROOFS (" 100* failed/PreviousNum "% of total) FAILED.";
+      for (v in  Unproved) {
+	print v, Unproved[v]
+  }
+}
+}'
+
+     echo ""
+done
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    
+
+    

@@ -1,0 +1,1703 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment constructor-inferences)
+
+(define (conjunction-lc-incrementer components n)
+        (iterate iter
+                 ((sub-list components) (incremental-context nil)
+                  (n n))
+                 (cond
+                   ((zero? n) incremental-context)
+                   ((null? components)
+                    (imps-error
+                        "CONJUNCTION-LC-INCREMENTER: ~d too few components."
+                        n))
+                   (else (iter (cdr sub-list)
+                               (cons (car sub-list)
+                                     incremental-context)
+                               (-1+ n))))))
+
+(define (disjunction-lc-incrementer components n)
+        (iterate iter
+                 ((sub-list components) (incremental-context nil)
+                  (n n))
+                 (cond
+                   ((zero? n) incremental-context)
+                   ((null? components)
+                    (imps-error
+                        "DISJUNCTION-LC-INCREMENTER: ~d too few components."
+                        n))
+                   (else (iter (cdr sub-list)
+                               (cons (push-not (car sub-list))
+                                     incremental-context)
+                               (-1+ n))))))
+
+(define (implication-lc-incrementer components n)
+        (cond
+          ((zero? n) nil)
+          ((fx= n 1) (list (car components)))
+          (else (imps-error
+                    "IMPLICATION-LC-INCREMENTER: n = ~S greater than 1"
+                    n))))
+
+(define (biconditional-lc-incrementer components n)
+        (ignore components n) nil)
+
+(define (negation-lc-incrementer components n) (ignore components n)
+        nil)
+
+(define (if-incrementer components n)
+        (cond
+          ((=0? n) nil)
+          ((= n 1) (list (nth components 0)))
+          ((= n 2) (list (push-not (nth components 0))))
+          (else (imps-error "if-incrementer: index ~d too large" n))))
+
+(define-predicate direct-inference?)
+
+(define (direct-inference->rule di sequents)
+        (let ((hyps (funcall di (last sequents))))
+          (build-inference di hyps (last sequents))))
+
+(define conjunction-direct-inference
+        (object (lambda (seq)
+                  (let* ((context (sequent-context seq))
+                         (assertion (sequent-assertion seq))
+                         (components (expression-components assertion))
+                         (len (length components)))
+                    (or (eq? (expression-constructor assertion)
+                             conjunction)
+                        (imps-error
+                            "CONJUNCTION-DIRECT-INFERENCE: constructor must be conjunction, not ~S"
+                            (expression-constructor assertion)))
+                    (do ((i 0 (1+ i))
+                         (hyps nil
+                               (cons (build-sequent
+                                      (context-add-assumptions context
+                                       (funcall
+                                        (constructor-lc-incrementer
+                                         conjunction)
+                                        components i))
+                                      (nth components i))
+                                     hyps)))
+                        ((= i len) (reverse! hyps)))))
+                ((direct-inference? self) value-true)
+                ((->rule self)
+                 (object (lambda (sequents)
+                           (direct-inference->rule self sequents))
+                         ((rule? r) value-true)
+                         ((rule-soundness-predicate self)
+                          (always value-true))
+                         ((rule-generator r) self)
+                         ((name r) 'conjunction-direct-inference)))
+                ((name self) 'conjunction-direct-inference)))
+
+(define unordered-conjunction-direct-inference
+        (object (lambda (seq)
+                  (let* ((context (sequent-context seq))
+                         (assertion (sequent-assertion seq))
+                         (components (expression-components assertion))
+                         (len (length components)))
+                    (or (eq? (expression-constructor assertion)
+                             conjunction)
+                        (imps-error
+                            "UNORDERED-CONJUNCTION-DIRECT-INFERENCE: constructor must be conjunction, not ~S"
+                            (expression-constructor assertion)))
+                    (do ((i 0 (1+ i))
+                         (hyps nil
+                               (cons (build-sequent context
+                                      (nth components i))
+                                     hyps)))
+                        ((= i len) (reverse! hyps)))))
+                ((direct-inference? self) value-true)
+                ((->rule self)
+                 (object (lambda (sequents)
+                           (direct-inference->rule self sequents))
+                         ((rule? r) value-true)
+                         ((rule-soundness-predicate self)
+                          (always value-true))
+                         ((rule-generator r) self)
+                         ((name r)
+                          'unordered-conjunction-direct-inference)))
+                ((name self) 'unordered-conjunction-direct-inference)))
+
+(define disjunction-direct-inference
+        (object (lambda (seq)
+                  (let* ((context (sequent-context seq))
+                         (assertion (sequent-assertion seq))
+                         (components (expression-components assertion))
+                         (len (length components)))
+                    (or (eq? (expression-constructor assertion)
+                             disjunction)
+                        (imps-error
+                            "DISJUNCTION-DIRECT-INFERENCE: constructor must be disjunction, not ~S"
+                            (expression-constructor assertion)))
+                    (list (build-sequent
+                              (context-add-assumptions context
+                                  (funcall (constructor-lc-incrementer
+                                            disjunction)
+                                           components (-1+ len)))
+                              (nth components (-1+ len))))))
+                ((direct-inference? self) value-true)
+                ((->rule self)
+                 (object (lambda (sequents)
+                           (direct-inference->rule self sequents))
+                         ((rule? r) value-true)
+                         ((rule-soundness-predicate self)
+                          (always value-true))
+                         ((rule-generator r) self)
+                         ((name r) 'disjunction-direct-inference)))
+                ((name self) 'disjunction-direct-inference)))
+
+(define implication-direct-inference
+        (object (lambda (seq)
+                  (let* ((context (sequent-context seq))
+                         (assertion (sequent-assertion seq))
+                         (components (expression-components assertion)))
+                    (or (eq? (expression-constructor assertion)
+                             implication)
+                        (imps-error
+                            "IMPLICATION-DIRECT-INFERENCE: constructor must be implication, not ~S"
+                            (expression-constructor assertion)))
+                    (list (build-sequent
+                              (context-add-assumptions context
+                                  (funcall (constructor-lc-incrementer
+                                            implication)
+                                           components 1))
+                              (nth components 1)))))
+                ((direct-inference? self) value-true)
+                ((->rule self)
+                 (object (lambda (sequents)
+                           (direct-inference->rule self sequents))
+                         ((rule? r) value-true)
+                         ((rule-soundness-predicate self)
+                          (always value-true))
+                         ((rule-generator r) self)
+                         ((name r) 'implication-direct-inference)))
+                ((name self) 'implication-direct-inference)))
+
+(define conditional-formula-direct-inference
+        (object (lambda (seq)
+                  (let* ((context (sequent-context seq))
+                         (assertion (sequent-assertion seq))
+                         (components (expression-components assertion)))
+                    (or (conditional-formula? assertion)
+                        (imps-error
+                            "CONDITIONAL-FORMULA-DIRECT-INFERENCE: constructor must be if-form, not ~S"
+                            (expression-constructor assertion)))
+                    (list (build-sequent
+                              (context-add-assumption context
+                                  (nth components 0))
+                              (nth components 1))
+                          (build-sequent
+                              (context-add-assumption context
+                                  (negation (nth components 0)))
+                              (nth components 2)))))
+                ((direct-inference? self) value-true)
+                ((->rule self)
+                 (object (lambda (sequents)
+                           (direct-inference->rule self sequents))
+                         ((rule? r) value-true)
+                         ((rule-soundness-predicate self)
+                          (always value-true))
+                         ((rule-generator r) self)
+                         ((name r)
+                          'conditional-formula-direct-inference)))
+                ((name self) 'conditional-formula-direct-inference)))
+
+(define biconditional-direct-inference
+        (object (lambda (seq)
+                  (let* ((context (sequent-context seq))
+                         (assertion (sequent-assertion seq))
+                         (components (expression-components assertion)))
+                    (or (eq? (expression-constructor assertion)
+                             biconditional)
+                        (imps-error
+                            "BICONDITIONAL-DIRECT-INFERENCE: constructor must be biconditional, not ~S"
+                            (expression-constructor assertion)))
+                    (list (build-sequent
+                              (context-add-assumption context
+                                  (nth components 0))
+                              (nth components 1))
+                          (build-sequent
+                              (context-add-assumption context
+                                  (nth components 1))
+                              (nth components 0)))))
+                ((direct-inference? self) value-true)
+                ((->rule self)
+                 (object (lambda (sequents)
+                           (direct-inference->rule self sequents))
+                         ((rule? r) value-true)
+                         ((rule-soundness-predicate self)
+                          (always value-true))
+                         ((rule-generator r) self)
+                         ((name r) 'biconditional-direct-inference)))
+                ((name self) 'biconditional-direct-inference)))
+
+(define negation-direct-inference
+        (object (lambda (seq)
+                  (let* ((context (sequent-context seq))
+                         (assertion (sequent-assertion seq)))
+                    (or (eq? (expression-constructor assertion)
+                             negation)
+                        (imps-error
+                            "NEGATION-DIRECT-INFERENCE: constructor must be negation, not ~S"
+                            (expression-constructor assertion)))
+                    (list (build-sequent
+                              (context-add-assumption context
+                                  (push-not assertion))
+                              falsehood))))
+                ((direct-inference? self) value-true)
+                ((->rule self)
+                 (object (lambda (sequents)
+                           (direct-inference->rule self sequents))
+                         ((rule? r) value-true)
+                         ((rule-soundness-predicate self)
+                          (always value-true))
+                         ((rule-generator r) self)
+                         ((name r) 'negation-direct-inference)))
+                ((name self) 'negation-direct-inference)))
+
+(define forall-direct-inference
+        (object (lambda (seq)
+                  (let* ((context (sequent-context seq))
+                         (assertion (sequent-assertion seq)))
+                    (or (eq? (expression-constructor assertion)
+                             for-all)
+                        (imps-error
+                            "FOR-ALL-DIRECT-INFERENCE: constructor must be for-all, not ~S"
+                            (expression-constructor assertion)))
+                    (let ((avoid-vars
+                              (set-union (free-variables context)
+                                  (set-difference (variables assertion)
+                                      (newly-bound-variables assertion)))))
+                      (list (build-sequent context
+                                (clean-universal-body assertion
+                                    avoid-vars))))))
+                ((direct-inference? self) value-true)
+                ((->rule self)
+                 (object (lambda (sequents)
+                           (direct-inference->rule self sequents))
+                         ((rule? r) value-true)
+                         ((rule-soundness-predicate self)
+                          (always value-true))
+                         ((rule-generator r) self)
+                         ((name r) 'for-all-direct-inference)))
+                ((name self) 'for-all-direct-inference)))
+
+(define for-all-direct-inference forall-direct-inference)
+
+(define is-defined-in-sort-direct-inference
+        (object (lambda (seq)
+                  (let* ((context (sequent-context seq))
+                         (assertion (sequent-assertion seq))
+                         (term (car (expression-components assertion)))
+                         (sorting (expression-sorting
+                                      (cadr
+                                       (expression-components
+                                        assertion)))))
+                    (or (eq? (expression-constructor assertion)
+                             is-defined-in-sort)
+                        (imps-error
+                            "IS-DEFINED-IN-SORT-DIRECT-INFERENCE: constructor is ~S"
+                            (expression-constructor assertion)))
+                    (if (or (equal-sortings? sorting ind)
+                            (equal-sortings? sorting
+                                (expression-sorting term)))
+                        (list (build-sequent context (is-defined term)))
+                        (let ((var (new-variable sorting 'nv
+                                    (set-union (free-variables seq)
+                                     (bound-variables seq)))))
+                          (list (build-sequent context
+                                    (forsome (equality term var) var)))))))
+                ((direct-inference? self) value-true)
+                ((->rule self)
+                 (object (lambda (sequents)
+                           (direct-inference->rule self sequents))
+                         ((rule? r) value-true)
+                         ((rule-soundness-predicate self)
+                          (always value-true))
+                         ((rule-generator r) self)
+                         ((name r)
+                          'is-defined-in-sort-direct-inference)))
+                ((name self) 'is-defined-in-sort-direct-inference)))
+
+(define equality-direct-inference
+        (object (lambda (seq)
+                  (or (eq? (expression-constructor
+                               (sequent-assertion seq))
+                           equality)
+                      (imps-error
+                          "EQUALITY-DIRECT-INFERENCE: constructor is ~S"
+                          (expression-constructor assertion)))
+                  (let* ((context (sequent-context seq))
+                         (assertion (sequent-assertion seq))
+                         (lhs (expression-lhs assertion))
+                         (rhs (expression-rhs assertion)))
+                    (cond
+                      ((and (function? lhs) (function? rhs)
+                            (same-sorted? lhs rhs))
+                       (let ((vars (sorts->new-variables
+                                    (higher-sorting-domains
+                                     (expression-sorting lhs))
+                                    'x (free-variables context))))
+                         (list (build-sequent context
+                                   (forall
+                                    (equality
+                                     (apply apply-operator lhs vars)
+                                     (apply apply-operator rhs vars)
+                                     vars))))))
+                      ((and (function? lhs) (function? rhs))
+                       (let ((l-vars (sorts->new-variables
+                                      (higher-sorting-domains
+                                       (expression-sorting lhs))
+                                      'x (free-variables context)))
+                             (r-vars (sorts->new-variables
+                                      (higher-sorting-domains
+                                       (expression-sorting rhs))
+                                      'x (free-variables context))))
+                         (list (build-sequent context
+                                   (conjunction
+                                    (forall
+                                     (equality
+                                      (apply apply-operator lhs l-vars)
+                                      (apply apply-operator rhs l-vars)
+                                      l-vars))
+                                    (forall
+                                     (equality
+                                      (apply apply-operator lhs r-vars)
+                                      (apply apply-operator rhs r-vars)
+                                      r-vars)))))))
+                      (else (fail)))))
+                ((direct-inference? self) value-true)
+                ((->rule self)
+                 (object (lambda (sequents)
+                           (direct-inference->rule self sequents))
+                         ((rule? r) value-true)
+                         ((rule-soundness-predicate self)
+                          (always value-false))
+                         ((rule-generator r) self)
+                         ((name r) 'equality-direct-inference)))
+                ((name self) 'equality-direct-inference)))
+
+(define quasi-equality-direct-inference
+        (object (lambda (seq)
+                  (let ((context (sequent-context seq))
+                        (assertion (sequent-assertion seq)))
+                    (or (eq? (expression-quasi-constructor assertion)
+                             quasi-equality)
+                        (imps-error
+                            "quasi-equality-direct-inference: quasi-constructor is ~S"
+                            (quasi-expression-constructor assertion)))
+                    (receive (lhs rhs)
+                             (let ((q-comps
+                                    (expression-quasi-components
+                                     assertion)))
+                               (return (car q-comps) (cadr q-comps)))
+                             (let ((the-equation (equality lhs rhs))
+                                   (lhs-def (is-defined lhs))
+                                   (rhs-def (is-defined rhs)))
+                               (list (build-sequent
+                                      (context-add-assumption context
+                                       lhs-def)
+                                      the-equation)
+                                     (build-sequent
+                                      (context-add-assumption
+                                       (context-add-assumption context
+                                        (implication lhs-def
+                                         the-equation))
+                                       rhs-def)
+                                      the-equation))))))
+                ((direct-inference? self) value-true)
+                ((->rule self)
+                 (object (lambda (sequents)
+                           (direct-inference->rule self sequents))
+                         ((rule? r) value-true)
+                         ((rule-soundness-predicate self)
+                          (always value-true))
+                         ((rule-generator r) self)
+                         ((name r) 'quasi-equality-direct-inference)))
+                ((name self) 'quasi-equality-direct-inference)))
+
+(define-predicate antecedent-inference?)
+
+(define (antecedent-inference->rule rule sequents)
+        (let ((hyps (funcall rule (last sequents))))
+          (build-inference rule hyps (last sequents))))
+
+(define disjunction-antecedent-inference
+        (lambda (formula)
+          (imps-enforce disjunction? formula)
+          (object (lambda (seq)
+                    (let ((assertion (sequent-assertion seq))
+                          (new-assumptions
+                              (expression-components formula))
+                          (new-context
+                              (context-omit-assumption
+                                  (sequent-context seq) formula)))
+                      (map (lambda (assume)
+                             (build-sequent
+                                 (context-add-assumption new-context
+                                     assume)
+                                 assertion))
+                           new-assumptions)))
+                  ((antecedent-inference? self) value-true)
+                  ((->rule self)
+                   (object (lambda (sequents)
+                             (antecedent-inference->rule self sequents))
+                           ((rule? r) value-true)
+                           ((rule-soundness-predicate self)
+                            (always value-true))
+                           ((rule-generator r) self)
+                           ((name r) (name self))))
+                  ((name self) 'disjunction-antecedent-inference))))
+
+(define conjunction-antecedent-inference
+        (lambda (formula)
+          (imps-enforce conjunction? formula)
+          (object (lambda (seq)
+                    (let ((assertion (sequent-assertion seq))
+                          (new-assumptions
+                              (expression-components formula))
+                          (new-context
+                              (context-omit-assumption
+                                  (sequent-context seq) formula)))
+                      (list (build-sequent
+                                (context-add-assumptions new-context
+                                    new-assumptions)
+                                assertion))))
+                  ((antecedent-inference? self) value-true)
+                  ((->rule self)
+                   (object (lambda (sequents)
+                             (antecedent-inference->rule self sequents))
+                           ((rule? r) value-true)
+                           ((rule-soundness-predicate self)
+                            (always value-true))
+                           ((rule-generator r) self)
+                           ((name r) (name self))))
+                  ((name self) 'conjunction-antecedent-inference))))
+
+(define conditional-formula-antecedent-inference
+        (lambda (formula)
+          (imps-enforce conditional-formula? formula)
+          (object (lambda (seq)
+                    (let ((assertion (sequent-assertion seq))
+                          (comps (expression-components formula))
+                          (new-context
+                              (context-omit-assumption
+                                  (sequent-context seq) formula)))
+                      (let ((test (nth comps 0)) (conseq (nth comps 1))
+                            (alt (nth comps 2)))
+                        (list (build-sequent
+                                  (context-add-assumptions new-context
+                                      (list test conseq))
+                                  assertion)
+                              (build-sequent
+                                  (context-add-assumptions new-context
+                                      (list (negation test) alt))
+                                  assertion)))))
+                  ((antecedent-inference? self) value-true)
+                  ((->rule self)
+                   (object (lambda (sequents)
+                             (antecedent-inference->rule self sequents))
+                           ((rule? r) value-true)
+                           ((rule-soundness-predicate self)
+                            (always value-true))
+                           ((rule-generator r) self)
+                           ((name r) (name self))))
+                  ((name self)
+                   'conditional-formula-antecedent-inference))))
+
+(define implication-antecedent-inference
+        (lambda (formula)
+          (imps-enforce implication? formula)
+          (object (lambda (seq)
+                    (let ((assertion (sequent-assertion seq))
+                          (new-antecedent
+                              (implication-antecedent formula))
+                          (new-consequent
+                              (implication-consequent formula))
+                          (new-context
+                              (context-omit-assumption
+                                  (sequent-context seq) formula)))
+                      (list (build-sequent
+                                (context-add-assumption new-context
+                                    (push-not new-antecedent))
+                                assertion)
+                            (build-sequent
+                                (context-add-assumption new-context
+                                    new-consequent)
+                                assertion))))
+                  ((antecedent-inference? self) value-true)
+                  ((->rule self)
+                   (object (lambda (sequents)
+                             (antecedent-inference->rule self sequents))
+                           ((rule? r) value-true)
+                           ((rule-soundness-predicate self)
+                            (always value-true))
+                           ((rule-generator r) self)
+                           ((name r) (name self))))
+                  ((name self) 'implication-antecedent-inference))))
+
+(define biconditional-antecedent-inference
+        (lambda (formula)
+          (imps-enforce biconditional? formula)
+          (object (lambda (seq)
+                    (let ((assertion (sequent-assertion seq))
+                          (lhs (expression-lhs formula))
+                          (rhs (expression-rhs formula))
+                          (new-context
+                              (context-omit-assumption
+                                  (sequent-context seq) formula)))
+                      (list (build-sequent
+                                (context-add-assumptions new-context
+                                    (list lhs rhs))
+                                assertion)
+                            (build-sequent
+                                (context-add-assumptions new-context
+                                    (list (push-not lhs)
+                                     (push-not rhs)))
+                                assertion))))
+                  ((antecedent-inference? self) value-true)
+                  ((->rule self)
+                   (object (lambda (sequents)
+                             (antecedent-inference->rule self sequents))
+                           ((rule? r) value-true)
+                           ((rule-soundness-predicate self)
+                            (always value-true))
+                           ((rule-generator r) self)
+                           ((name r) (name self))))
+                  ((name self) 'biconditional-antecedent-inference))))
+
+(define quasi-equality-antecedent-inference
+        (lambda (formula)
+          (imps-enforce quasi-equation? formula)
+          (object (lambda (seq)
+                    (imps-enforce
+                        (lambda (seq)
+                          (memq? formula (sequent-assumptions seq)))
+                        seq)
+                    (let ((assertion (sequent-assertion seq))
+                          (new-context
+                              (context-omit-assumption
+                                  (sequent-context seq) formula)))
+                      (destructure
+                          (((lhs rhs)
+                            (expression-quasi-components formula)))
+                          (list (build-sequent
+                                    (context-add-assumption new-context
+                                     (equality lhs rhs))
+                                    assertion)
+                                (build-sequent
+                                    (context-add-assumption
+                                     (context-add-assumption
+                                      new-context
+                                      (negation (is-defined rhs)))
+                                     (negation (is-defined lhs)))
+                                    assertion)))))
+                  ((antecedent-inference? self) value-true)
+                  ((->rule self)
+                   (object (lambda (sequents)
+                             (antecedent-inference->rule self sequents))
+                           ((rule? r) value-true)
+                           ((rule-soundness-predicate self)
+                            (always value-true))
+                           ((rule-generator r) self)
+                           ((name r) (name self))))
+                  ((name self) 'quasi-equality-antecedent-inference))))
+
+(define (clean-existential-body expr avoid-vars)
+        (flet (((clean-substitution vars) (imps-enforce is-set? vars)
+                  (map (lambda (var)
+                         (make-subst-component var
+                             (new-variable (expression-sorting var)
+                                 (expression-name var) avoid-vars)))
+                       vars)))
+          (if (existential? expr)
+              (apply-substitution
+                  (clean-substitution
+                      (expression-newly-bound-variables expr))
+                  (binding-body expr))
+              expr)))
+
+(define forsome-antecedent-inference
+        (lambda (formula)
+          (imps-enforce existential? formula)
+          (object (lambda (seq)
+                    (let* ((assertion (sequent-assertion seq))
+                           (context (sequent-context seq))
+                           (new-assumption
+                               (clean-existential-body formula
+                                   (sequent-free-variables seq)))
+                           (new-context
+                               (context-omit-assumption context
+                                   formula)))
+                      (list (build-sequent
+                                (context-add-assumption new-context
+                                    new-assumption)
+                                assertion))))
+                  ((antecedent-inference? self) value-true)
+                  ((->rule self)
+                   (object (lambda (sequents)
+                             (antecedent-inference->rule self sequents))
+                           ((rule? r) value-true)
+                           ((rule-soundness-predicate self)
+                            (always value-true))
+                           ((rule-generator r) self)
+                           ((name r) (name self))))
+                  ((name self) 'for-some-antecedent-inference))))
+
+(define (apply-operator-simplifier components)
+        (let ((crude (apply apply-operator components)))
+          (cond
+            ((and (predicate? (car components))
+                  (necessarily-undefined? crude))
+             falsehood)
+            ((and (function? (car components))
+                  (necessarily-undefined? crude))
+             (undefined
+                 (higher-sort-range
+                     (expression-sorting (car components)))))
+            (else crude))))
+
+(define (negation-simplifier components) (push-not (car components)))
+
+(define-integrable (make-alpha-set components)
+    (iterate iter ((components components) (survivors nil))
+             (cond
+               ((null? components) (reverse! survivors))
+               ((mem? alpha-equivalent? (car components) survivors)
+                (iter (cdr components) survivors))
+               (else (iter (cdr components)
+                           (cons (car components) survivors))))))
+
+(define (conjunction-simplifier components)
+        (if (memq? falsehood components) falsehood
+            (let ((sublist (delq truth (make-alpha-set components))))
+              (cond
+                ((null? sublist) truth)
+                ((null? (cdr sublist)) (car sublist))
+                ((> (length sublist) *maximum-number-of-arguments*)
+                 (nest-below-maximum-and-apply conjunction sublist))
+                (else (apply conjunction sublist))))))
+
+(define (disjunction-simplifier components)
+        (if (memq? truth components) truth
+            (let ((sublist (delq falsehood (make-alpha-set components))))
+              (cond
+                ((null? sublist) falsehood)
+                ((null? (cdr sublist)) (car sublist))
+                ((> (length sublist) *maximum-number-of-arguments*)
+                 (nest-below-maximum-and-apply disjunction sublist))
+                (else (apply disjunction sublist))))))
+
+(define (implication-simplifier components)
+        (let ((antecedent (car components))
+              (consequent (cadr components)))
+          (cond
+            ((alpha-equivalent? antecedent consequent) truth)
+            ((eq? truth consequent) truth)
+            ((eq? falsehood antecedent) truth)
+            ((eq? truth antecedent) consequent)
+            ((eq? falsehood consequent) (push-not antecedent))
+            (else (implication antecedent consequent)))))
+
+(define (biconditional-simplifier components)
+        (let ((lhs (car components)) (rhs (cadr components)))
+          (cond
+            ((or (eq? lhs rhs) (alpha-equivalent? lhs rhs)) truth)
+            ((eq? (push-not lhs) (flush-not rhs)) falsehood)
+            ((eq? truth lhs) rhs)
+            ((eq? truth rhs) lhs)
+            ((eq? falsehood lhs) (push-not rhs))
+            ((eq? falsehood rhs) (push-not lhs))
+            (else (apply biconditional components)))))
+
+(define (is-defined-simplifier components)
+        (let ((c (car components)))
+          (cond
+            ((necessarily-defined? c) truth)
+            ((necessarily-undefined? c) falsehood)
+            (else (apply is-defined components)))))
+
+(define (is-defined-in-sort-simplifier components)
+        (let ((term (car components))
+              (term-sorting (expression-sorting (car components)))
+              (var-sorting (expression-sorting (cadr components))))
+          (cond
+            ((sort-necessarily-included? term-sorting var-sorting)
+             (is-defined-simplifier (list term)))
+            ((necessarily-undefined? term) falsehood)
+            ((and (constant? term)
+                  (language-sorting->numerical-type
+                      (home-language term) var-sorting))
+             =>
+             (lambda (num-type)
+               (cond
+                 ((numerical-type? num-type)
+                  (if (funcall (numerical-type-recognizer num-type)
+                               (name term))
+                      truth falsehood))
+                 ((procedure? num-type)
+                  (if (funcall num-type (name term)) truth falsehood))
+                 (else (defined-in term var-sorting)))))
+            (else (defined-in term var-sorting)))))
+
+(define (equality-simplifier components)
+        (let ((lhs (car components)) (rhs (cadr components)))
+          (cond
+            ((or (eq? lhs rhs) (alpha-equivalent? lhs rhs))
+             (is-defined-simplifier (list lhs)))
+            ((and (constant? lhs) (constant? rhs)
+                  (numerical-object? (name lhs))
+                  (numerical-object? (name rhs)))
+             (if (numerical-= (name lhs) (name rhs)) truth falsehood))
+            ((or (necessarily-undefined? lhs)
+                 (necessarily-undefined? rhs))
+             falsehood)
+            (else (equality lhs rhs)))))
+
+(define (quasi-equality-simplifier quasi-components)
+        (let ((lhs (car quasi-components))
+              (rhs (cadr quasi-components)))
+          (cond
+            ((or (eq? lhs rhs) (alpha-equivalent? lhs rhs)) truth)
+            ((and (necessarily-undefined? lhs)
+                  (necessarily-undefined? rhs))
+             truth)
+            ((or (and (necessarily-defined? lhs)
+                      (necessarily-undefined? rhs))
+                 (and (necessarily-undefined? lhs)
+                      (necessarily-defined? rhs)))
+             falsehood)
+            ((necessarily-undefined? lhs)
+             (negation-simplifier (list (is-defined rhs))))
+            ((necessarily-undefined? rhs)
+             (negation-simplifier (list (is-defined lhs))))
+            ((or (necessarily-defined? lhs) (necessarily-defined? rhs))
+             (equality-simplifier quasi-components))
+            (else (quasi-equality lhs rhs)))))
+
+(define (quantifier-trivial-variable-simplifier quantifier components)
+        (let* ((body (car components))
+               (really-bound
+                   (set-intersection (cdr components)
+                       (expression-free-variables body))))
+          (cond
+            ((null? really-bound) body)
+            ((set-equal? really-bound (cdr components))
+             (apply quantifier components))
+            (else (apply quantifier body really-bound)))))
+
+(define (forall-distribution-simplifier components)
+        (let ((body (car components)) (newly-bound (cdr components)))
+          (select (expression-constructor body)
+                  ((disjunction)
+                   (let* ((disjuncts (expression-components body))
+                          (var-list-list
+                              (qds-vars-for-component disjuncts
+                                  newly-bound))
+                          (joint (set-difference
+                                     (set-intersection
+                                      (expression-free-variables body)
+                                      newly-bound)
+                                     (big-u var-list-list))))
+                     (quantifier-trivial-variable-simplifier forall
+                         (cons (disjunction-simplifier
+                                   (map
+                                    (lambda (disj vars)
+                                      (quantifier-trivial-variable-simplifier
+                                       forall (cons disj vars)))
+                                    disjuncts var-list-list))
+                               joint))))
+                  ((implication)
+                   (let ((ant-vars
+                             (set-intersection newly-bound
+                                 (expression-free-variables
+                                     (implication-antecedent body))))
+                         (con-vars
+                             (set-intersection newly-bound
+                                 (expression-free-variables
+                                     (implication-consequent body)))))
+                     (let ((joint (set-intersection ant-vars con-vars))
+                           (ant-only
+                               (set-difference ant-vars con-vars))
+                           (con-only
+                               (set-difference con-vars ant-vars)))
+                       (quantifier-trivial-variable-simplifier forall
+                           (cons (implication
+                                     (quantifier-trivial-variable-simplifier
+                                      forsome
+                                      (cons
+                                       (implication-antecedent body)
+                                       ant-only))
+                                     (quantifier-trivial-variable-simplifier
+                                      forall
+                                      (cons
+                                       (implication-consequent body)
+                                       con-only)))
+                                 joint)))))
+                  ((conjunction)
+                   (conjunction-simplifier
+                       (map (lambda (c)
+                              (quantifier-trivial-variable-simplifier
+                                  forall (cons c newly-bound)))
+                            (expression-components body))))
+                  (else (quantifier-trivial-variable-simplifier forall
+                            components)))))
+
+(define (forsome-distribution-simplifier components)
+        (let ((body (car components)) (newly-bound (cdr components)))
+          (select (expression-constructor body)
+                  ((conjunction)
+                   (let* ((conjuncts (expression-components body))
+                          (var-list-list
+                              (qds-vars-for-component conjuncts
+                                  newly-bound))
+                          (joint (set-difference
+                                     (set-intersection
+                                      (expression-free-variables body)
+                                      newly-bound)
+                                     (big-u var-list-list))))
+                     (quantifier-trivial-variable-simplifier forsome
+                         (cons (conjunction-simplifier
+                                   (map
+                                    (lambda (conj vars)
+                                      (quantifier-trivial-variable-simplifier
+                                       forsome (cons conj vars)))
+                                    conjuncts var-list-list))
+                               joint))))
+                  ((disjunction)
+                   (disjunction-simplifier
+                       (map (lambda (c)
+                              (quantifier-trivial-variable-simplifier
+                                  forsome (cons c newly-bound)))
+                            (expression-components body))))
+                  ((implication)
+                   (implication
+                       (quantifier-trivial-variable-simplifier forall
+                           (cons (implication-antecedent body)
+                                 newly-bound))
+                       (quantifier-trivial-variable-simplifier forsome
+                           (cons (implication-consequent body)
+                                 newly-bound))))
+                  (else (quantifier-trivial-variable-simplifier forsome
+                            components)))))
+
+(define (qds-vars-for-component components nbvs)
+        (iterate iter ((var-list-list nil) (rest components))
+                 (if (null? rest) (reverse! var-list-list)
+                     (let ((comp (car rest)))
+                       (iterate sub-iter ((vars nil) (nbvs nbvs))
+                                (if (null? nbvs)
+                                    (iter
+                                     (cons (reverse! vars)
+                                      var-list-list)
+                                     (cdr rest))
+                                    (let ((var (car nbvs)))
+                                      (if
+                                       (and
+                                        (memq? var
+                                         (expression-free-variables
+                                          comp))
+                                        (every?
+                                         (lambda (c)
+                                           (or (eq? c comp)
+                                            (not
+                                             (memq? var
+                                              (expression-free-variables
+                                               c)))))
+                                         components))
+                                       (sub-iter (cons var vars)
+                                        (cdr nbvs))
+                                       (sub-iter vars (cdr nbvs))))))))))
+
+(define forsome-simplifier forsome-distribution-simplifier)
+
+(define forall-simplifier forall-distribution-simplifier)
+
+(define (if-term-simplifier components)
+        (let ((test (nth components 0)) (con (nth components 1))
+              (alt (nth components 2)))
+          (cond
+            ((eq? truth test) con)
+            ((eq? falsehood test) alt)
+            ((and (necessarily-undefined? con)
+                  (necessarily-undefined? alt))
+             (undefined
+                 (sorting-lub (expression-sorting con)
+                     (expression-sorting alt))))
+            ((eq? con alt) con)
+            ((formula? con) (if-form-simplifier components))
+            (else (apply if-term components)))))
+
+(define if-simplifier if-term-simplifier)
+
+(define (if-form-simplifier components)
+        (destructure (((test con alt) components))
+            (cond
+              ((eq? truth test) con)
+              ((eq? falsehood test) alt)
+              ((eq? con alt) con)
+              ((eq? falsehood alt)
+               (conjunction-simplifier (list test con)))
+              ((eq? falsehood con)
+               (conjunction-simplifier (list (negation test) alt)))
+              ((eq? truth con)
+               (disjunction-simplifier (list test alt)))
+              ((eq? truth alt)
+               (disjunction-simplifier (list (negation test) con)))
+              (else (if-form test con alt)))))
+
+(define (with-simplifier components) (car components))
+
+(define (equality-truth-value-seeker context expr persist)
+        (imps-enforce equation? expr)
+        (let ((expr (equality-simplifier (expression-components expr))))
+          (cond
+            ((truth-value? expr) expr)
+            ((equation? expr)
+             (destructure (((lhs rhs) (expression-components expr)))
+                 (cond
+                   ((context-entails-equal? context lhs rhs
+                        (-1+ persist))
+                    truth)
+                   ((context-entails-unequal? context lhs rhs
+                        (-1+ persist))
+                    falsehood)
+                   (else value-false))))
+            ((convergence? expr)
+             (is-defined-truth-value-seeker context expr persist))
+            (else value-false))))
+
+(define (quasi-equality-truth-value-seeker context expr persist)
+        (imps-enforce quasi-equation? expr)
+        (let ((expr (quasi-equality-simplifier
+                        (expression-quasi-components expr))))
+          (cond
+            ((truth-value? expr) expr)
+            ((equation? expr)
+             (equality-truth-value-seeker context expr persist))
+            ((convergence? expr)
+             (is-defined-truth-value-seeker context expr persist))
+            ((quasi-equation? expr)
+             (destructure
+                 (((lhs rhs) (expression-quasi-components expr)))
+                 (cond
+                   ((and (context-entails-equal?
+                             (context-add-assumption context
+                                 (is-defined lhs))
+                             lhs rhs persist)
+                         (context-entails-equal?
+                             (context-add-assumption context
+                                 (is-defined rhs))
+                             lhs rhs persist))
+                    truth)
+                   (else value-false))))
+            (else value-false))))
+
+(define (is-defined-truth-value-seeker context expr persist)
+        (imps-enforce convergence? expr)
+        (let ((term (car (expression-components expr))))
+          (cond
+            ((necessarily-defined? term) truth)
+            ((necessarily-undefined? term) falsehood)
+            ((context-entails-defined? context term (-1+ persist))
+             truth)
+            ((context-entails-undefined? context term (-1+ persist))
+             falsehood)
+            (else value-false))))
+
+(define (is-defined-in-sort-truth-value-seeker context expr persist)
+        (imps-enforce
+            (lambda (expr)
+              (eq? is-defined-in-sort (expression-constructor expr)))
+            expr)
+        (let ((term (car (expression-components expr)))
+              (sort (expression-sorting
+                        (cadr (expression-components expr)))))
+          (cond
+            ((eq? sort prop) (if (formula? expr) truth falsehood))
+            ((necessarily-undefined? term) falsehood)
+            ((or (sort-necessarily-included? (expression-sorting term)
+                     sort)
+                 (theory-coercion-everywhere-defined?
+                     (context-theory context) (expression-sorting term)
+                     sort))
+             (if (prop-sorting? sort) truth
+                 (is-defined-truth-value-seeker context
+                     (is-defined term) (-1+ persist))))
+            ((context-entails-defined-in-sort? context term sort
+                 (-1+ persist))
+             truth)
+            (else value-false))))
+
+(define (and-or-parity i) (ignore i) 1)
+
+(define (biconditional-parity i) (ignore i) 0)
+
+(define (implies-parity i) (if (fx= i 0) -1 1))
+
+(define (negation-parity i) (ignore i) -1)
+
+(define (quantifier-parity i) (if (fx= i 0) 1 0))
+
+(define (syllogistic-inference-matcher minor major-antecedent
+            exoscopes)
+        (let ((subst (match-under-exoscopes minor major-antecedent
+                         exoscopes)))
+          (cond
+            ((succeed? subst) subst)
+            ((and (universal? major-antecedent)
+                  (null-intersection?
+                      (binding-variables major-antecedent) exoscopes))
+             (let ((subst (match-under-exoscopes minor
+                              (binding-body major-antecedent)
+                              exoscopes)))
+               (if (every? (lambda (target)
+                             (let ((repl
+                                    (substitution-find-replacement
+                                     subst target)))
+                               (or (not repl)
+                                   (and (variable? repl)
+                                    (same-sorted? target repl)))))
+                           (binding-variables major-antecedent))
+                   subst (fail))))
+            (else (fail)))))
+
+(define (subst-if-deletable disjunct minor-premise exoscopes)
+  (labels (((search-universal universal path-variables)
+	    (let* ((body (binding-body universal))
+		   (subst
+		    (match-under-exoscopes
+		     minor-premise body exoscopes))
+		   (path-variables
+		    (set-union
+		     (binding-variables universal)
+		     path-variables)))
+	      (cond
+	       ((every?
+		 (lambda (target)
+		   (let
+		       ((repl
+			 (substitution-find-replacement
+			  subst target)))
+		     (or (not repl)
+			 (and (variable? repl)
+			      (same-sorted? target repl)))))
+		 path-variables)
+		subst)
+	       ((universal? body)
+		(search-universal body
+				  path-variables))
+	       ((conjunction? body)
+		(search-conjunction body
+                                    path-variables))
+	       (else (fail)))))
+	   ((search-conjunction conj path-variables)
+	    (let ((negated-conjuncts
+		   (map push-not
+			(expression-components conj))))
+	      (any (lambda (nc)
+		     (let
+			 ((subst
+			   (match-under-exoscopes
+			    minor-premise nc exoscopes)))
+		       (cond
+			((succeed? subst) subst)
+			((universal? nc)
+			 (search-universal nc
+					   path-variables))
+			((conjunction? nc)
+			 (search-conjunction nc
+                                             path-variables))
+			(else (fail)))))
+		   negated-conjuncts))))
+    (let ((subst (match-under-exoscopes minor-premise
+					(push-not disjunct) exoscopes)))
+      (cond
+       ((succeed? subst) subst)
+       ((universal? disjunct)
+	(search-universal disjunct nil))
+       ((conjunction? disjunct)
+	(search-conjunction disjunct nil))
+       (else (fail))))))
+
+
+(define (disjunction-syllogistic-inference minor-premise major-premise exoscopes)
+  (imps-enforce disjunction? major-premise)
+  (let ((minor-premise (flush-not minor-premise))
+	(disjuncts (ultimate-disjuncts (list major-premise))))
+    (iterate iter ((remaining disjuncts))
+	     (if (null? remaining) (return value-false nil)
+	       (let ((subst (subst-if-deletable (car remaining) minor-premise exoscopes)))
+		 (if (succeed? subst)
+		     (let ((new-disjuncts
+			    (delq (car remaining) disjuncts)))
+		       (return
+			(apply-substitution subst (apply disjunction new-disjuncts))
+			subst))
+		   (iter (cdr remaining))))))))
+
+(define (implication-syllogistic-inference minor-premise major-premise
+            exoscopes)
+        (imps-enforce implication? major-premise)
+        (let ((corresponding-disjunction
+                  (disjunction
+                      (push-not (implication-antecedent major-premise))
+                      (implication-consequent major-premise))))
+          (disjunction-syllogistic-inference minor-premise
+              corresponding-disjunction exoscopes)))
+
+(define (biconditional-syllogistic-inference minor-premise
+            major-premise exoscopes)
+        (imps-enforce biconditional? major-premise)
+        (receive (conclusion convergence-requirements)
+                 (implication-syllogistic-inference minor-premise
+                     (implication (expression-lhs major-premise)
+                         (expression-rhs major-premise))
+                     exoscopes)
+                 (if (expression? conclusion)
+                     (return conclusion convergence-requirements)
+                     (receive (conclusion convergence-requirements)
+                              (implication-syllogistic-inference
+                                  minor-premise
+                                  (implication
+                                      (expression-rhs major-premise)
+                                      (expression-lhs major-premise))
+                                  exoscopes)
+                              (if (expression? conclusion)
+                                  (return
+                                    conclusion
+                                    convergence-requirements)
+                                  (return value-false nil))))))
+
+(define (context-simplify-falselike-of-sort context expr persist)
+        (ignore context persist) expr)
+
+(define (context-simplify-total context expr persist)
+        (forall-simplifier
+            (cons (context-simplify-1
+                      (requantification-filter-context expr context)
+                      (binding-body expr) persist)
+                  (binding-variables expr))))
+
+(set-constructor-parity conjunction and-or-parity)
+
+(set-constructor-parity disjunction and-or-parity)
+
+(set-constructor-parity negation negation-parity)
+
+(set-constructor-parity for-all quantifier-parity)
+
+(set-constructor-parity for-some quantifier-parity)
+
+(set-constructor-parity implication implies-parity)
+
+(set-constructor-parity biconditional biconditional-parity)
+
+(set-constructor-simplifier conjunction conjunction-simplifier)
+
+(set-constructor-simplifier disjunction disjunction-simplifier)
+
+(set-constructor-simplifier implication implication-simplifier)
+
+(set-constructor-simplifier biconditional biconditional-simplifier)
+
+(set-constructor-simplifier negation negation-simplifier)
+
+(set-constructor-simplifier is-defined is-defined-simplifier)
+
+(set-constructor-simplifier is-defined-in-sort
+    is-defined-in-sort-simplifier)
+
+(set-constructor-simplifier equality equality-simplifier)
+
+(set-constructor-simplifier quasi-equality quasi-equality-simplifier)
+
+(set-constructor-simplifier forsome forsome-simplifier)
+
+(set-constructor-simplifier forall forall-simplifier)
+
+(set-constructor-simplifier if-term if-term-simplifier)
+
+(set-constructor-simplifier if-form if-form-simplifier)
+
+(set-constructor-simplifier apply-operator apply-operator-simplifier)
+
+(set-constructor-simplifier with with-simplifier)
+
+(set-constructor-lc-incrementer conjunction conjunction-lc-incrementer)
+
+(set-constructor-lc-incrementer disjunction disjunction-lc-incrementer)
+
+(set-constructor-lc-incrementer implication implication-lc-incrementer)
+
+(set-constructor-lc-incrementer biconditional
+    biconditional-lc-incrementer)
+
+(set-constructor-lc-incrementer negation negation-lc-incrementer)
+
+(set-constructor-lc-incrementer if-term if-incrementer)
+
+(set-constructor-lc-incrementer if-form if-incrementer)
+
+(set-constructor-direct-inference conjunction
+    conjunction-direct-inference)
+
+(set-constructor-direct-inference disjunction
+    disjunction-direct-inference)
+
+(set-constructor-direct-inference implication
+    implication-direct-inference)
+
+(set-constructor-direct-inference if-form
+    conditional-formula-direct-inference)
+
+(set-constructor-direct-inference biconditional
+    biconditional-direct-inference)
+
+(set-constructor-direct-inference for-all forall-direct-inference)
+
+(set-constructor-antecedent-inference disjunction
+    disjunction-antecedent-inference)
+
+(set-constructor-antecedent-inference conjunction
+    conjunction-antecedent-inference)
+
+(set-constructor-antecedent-inference implication
+    implication-antecedent-inference)
+
+(set-constructor-antecedent-inference biconditional
+    biconditional-antecedent-inference)
+
+(set-constructor-antecedent-inference if-form
+    conditional-formula-antecedent-inference)
+
+(set-constructor-antecedent-inference quasi-equality
+    quasi-equality-antecedent-inference)
+
+(set-constructor-antecedent-inference forsome
+    forsome-antecedent-inference)
+
+(set-constructor-syllogistic-inference disjunction
+    disjunction-syllogistic-inference)
+
+(set-constructor-syllogistic-inference implication
+    implication-syllogistic-inference)
+
+(set-constructor-syllogistic-inference biconditional
+    biconditional-syllogistic-inference)
+
+(set-constructor-logical-transform lambda-application
+    context-simplify-lambda-application)
+
+(set-constructor-logical-transform quasi-equality
+    context-simplify-quasi-equality)
+
+(set-constructor-logical-transform equality context-simplify-equality)
+
+(set-constructor-logical-transform is-defined
+    context-simplify-convergence)
+
+(set-constructor-logical-transform is-defined-in-sort
+    context-simplify-sort-convergence)
+
+(set-constructor-logical-transform forsome forsome-logical-transform)
+
+(set-constructor-logical-transform if-term if-logical-transform)
+
+(set-constructor-logical-transform iota iota-logical-transform)
+
+(set-constructor-logical-transform falselike-of-sort
+    context-simplify-falselike-of-sort)
+
+(define constructor-simplifier-pair-alist nil)
+
+(define (constructor-old-simplifier constr)
+        (let ((probe (cadr (assq constr
+                                 constructor-simplifier-pair-alist))))
+          (if (procedure? probe) probe (constructor-simplifier constr))))
+
+(define (constructor-new-simplifier constr)
+        (let ((probe (cddr (assq constr
+                                 constructor-simplifier-pair-alist))))
+          (if (procedure? probe) probe (constructor-simplifier constr))))
+
+(define (update-constructor-simplifier constr new-simplifier)
+        (let ((old (constructor-simplifier constr)))
+          (push constructor-simplifier-pair-alist
+                (cons constr (cons old new-simplifier)))
+          (set-constructor-simplifier constr new-simplifier)))
+
+(define (use-new-constructor-simplifiers)
+        (walk (lambda (c)
+                (set-constructor-simplifier c
+                    (constructor-new-simplifier c)))
+              (append *constructors* *quasi-constructors*)))
+
+(define (use-old-constructor-simplifiers)
+        (walk (lambda (c)
+                (set-constructor-simplifier c
+                    (constructor-old-simplifier c)))
+              (append *constructors* *quasi-constructors*)))
+
+(define (conditional-with-undefined-limb expr)
+        (and (conditional? expr)
+             (let ((comps (expression-components expr)))
+               (cond
+                 ((necessarily-undefined? (nth comps 1)) 1)
+                 ((necessarily-undefined? (nth comps 2)) 2)
+                 (else value-false)))))
+
+(define (conditional-with-defined-limb expr)
+        (and (conditional? expr)
+             (let ((comps (expression-components expr)))
+               (cond
+                 ((necessarily-defined? (nth comps 1)) 1)
+                 ((necessarily-defined? (nth comps 2)) 2)
+                 (else value-false)))))
+
+(define (conditional-with-sort-defined-limb expr sort)
+        (and (conditional? expr)
+             (let ((comps (expression-components expr)))
+               (cond
+                 ((necessarily-defined-in-sort? (nth comps 1) sort) 1)
+                 ((necessarily-defined-in-sort? (nth comps 2) sort) 2)
+                 (else value-false)))))
+
+(define (equality-simplifier-with-conditionals components)
+        (let ((lhs (car components)) (rhs (cadr components)))
+          (cond
+            ((or (eq? lhs rhs) (alpha-equivalent? lhs rhs))
+             (is-defined-simplifier-with-conditionals (list lhs)))
+            ((and (constant? lhs) (constant? rhs)
+                  (numerical-object? (name lhs))
+                  (numerical-object? (name rhs)))
+             (if (numerical-= (name lhs) (name rhs)) truth falsehood))
+            ((or (necessarily-undefined? lhs)
+                 (necessarily-undefined? rhs))
+             falsehood)
+            ((equality-raise-conditional lhs rhs))
+            (else (equality lhs rhs)))))
+
+(define (equality-raise-conditional lhs rhs)
+        (cond
+          ((conditional-with-undefined-limb lhs) =>
+           (lambda (i)
+             (case i
+               ((2)
+                (conjunction (conditional-test lhs)
+                    (equality (conditional-consequent lhs) rhs)))
+               ((1)
+                (conjunction (push-not (conditional-test lhs))
+                    (equality (conditional-alternative lhs) rhs))))))
+          ((conditional-with-undefined-limb rhs) =>
+           (lambda (i)
+             (case i
+               ((2)
+                (conjunction (conditional-test rhs)
+                    (equality lhs (conditional-consequent rhs))))
+               ((1)
+                (conjunction (push-not (conditional-test rhs))
+                    (equality lhs (conditional-alternative rhs)))))))
+          (else value-false)))
+
+(define (quasi-equality-simplifier-with-conditionals quasi-components)
+        (let ((lhs (car quasi-components))
+              (rhs (cadr quasi-components)))
+          (cond
+            ((or (eq? lhs rhs) (alpha-equivalent? lhs rhs)) truth)
+            ((and (necessarily-undefined? lhs)
+                  (necessarily-undefined? rhs))
+             truth)
+            ((or (and (necessarily-defined? lhs)
+                      (necessarily-undefined? rhs))
+                 (and (necessarily-undefined? lhs)
+                      (necessarily-defined? rhs)))
+             falsehood)
+            ((or (necessarily-defined? lhs) (necessarily-defined? rhs))
+             (equality-simplifier-with-conditionals quasi-components))
+            ((necessarily-undefined? lhs)
+             (push-not
+                 (is-defined-simplifier-with-conditionals (list rhs))))
+            ((necessarily-undefined? rhs)
+             (push-not
+                 (is-defined-simplifier-with-conditionals (list lhs))))
+            ((quasi-equality-raise-conditional lhs rhs))
+            (else (quasi-equality lhs rhs)))))
+
+(define (quasi-equality-raise-conditional lhs rhs)
+        (cond
+          ((conditional-with-undefined-limb lhs) =>
+           (lambda (i)
+             (case i
+               ((2)
+                (if-form (conditional-test lhs)
+                         (quasi-equality (conditional-consequent lhs)
+                             rhs)
+                         (negation (is-defined rhs))))
+               ((1)
+                (if-form (conditional-test lhs)
+                         (negation (is-defined rhs))
+                         (quasi-equality (conditional-alternative lhs)
+                             rhs))))))
+          ((conditional-with-defined-limb lhs) =>
+           (lambda (i)
+             (case i
+               ((2)
+                (if-form (conditional-test lhs)
+                         (quasi-equality (conditional-consequent lhs)
+                             rhs)
+                         (equality (conditional-alternative lhs) rhs)))
+               ((1)
+                (if-form (conditional-test lhs)
+                         (equality (conditional-consequent lhs) rhs)
+                         (quasi-equality (conditional-alternative lhs)
+                             rhs))))))
+          ((conditional-with-undefined-limb rhs) =>
+           (lambda (i)
+             (case i
+               ((2)
+                (if-form (conditional-test rhs)
+                         (quasi-equality lhs
+                             (conditional-consequent rhs))
+                         (negation (is-defined lhs))))
+               ((1)
+                (if-form (conditional-test rhs)
+                         (negation (is-defined lhs))
+                         (quasi-equality lhs
+                             (conditional-alternative rhs)))))))
+          ((conditional-with-defined-limb rhs) =>
+           (lambda (i)
+             (case i
+               ((2)
+                (if-form (conditional-test rhs)
+                         (quasi-equality lhs
+                             (conditional-consequent rhs))
+                         (equality lhs (conditional-alternative rhs))))
+               ((1)
+                (if-form (conditional-test rhs)
+                         (equality lhs (conditional-consequent rhs))
+                         (quasi-equality lhs
+                             (conditional-alternative rhs)))))))
+          (else value-false)))
+
+(define (is-defined-simplifier-with-conditionals components)
+        (let ((c (car components)))
+          (cond
+            ((necessarily-defined? c) truth)
+            ((necessarily-undefined? c) falsehood)
+            ((is-defined-raise-conditional c))
+            (else (apply is-defined components)))))
+
+(define (is-defined-raise-conditional c)
+        (cond
+          ((conditional-with-undefined-limb c) =>
+           (lambda (i)
+             (case i
+               ((2)
+                (conjunction (conditional-test c)
+                    (is-defined (conditional-consequent c))))
+               ((1)
+                (conjunction (push-not (conditional-test c))
+                    (is-defined (conditional-alternative c)))))))
+          ((conditional-with-defined-limb c) =>
+           (lambda (i)
+             (case i
+               ((2)
+                (implication (conditional-test c)
+                    (is-defined (conditional-consequent c))))
+               ((1)
+                (implication (push-not (conditional-test c))
+                    (is-defined (conditional-alternative c)))))))
+          (else value-false)))
+
+(define (is-defined-in-sort-simplifier-with-conditionals components)
+        (let ((term (car components))
+              (term-sorting (expression-sorting (car components)))
+              (var-sorting (expression-sorting (cadr components))))
+          (cond
+            ((sort-necessarily-included? term-sorting var-sorting)
+             (is-defined-simplifier-with-conditionals (list term)))
+            ((necessarily-undefined? term) falsehood)
+            ((and (constant? term)
+                  (language-sorting->numerical-type
+                      (home-language term) var-sorting))
+             =>
+             (lambda (num-type)
+               (cond
+                 ((numerical-type? num-type)
+                  (if (funcall (numerical-type-recognizer num-type)
+                               (name term))
+                      truth falsehood))
+                 ((procedure? num-type)
+                  (if (funcall num-type (name term)) truth falsehood))
+                 ((is-defined-in-sort-raise-conditional term
+                      var-sorting))
+                 (else (defined-in term var-sorting)))))
+            ((is-defined-in-sort-raise-conditional term var-sorting))
+            (else (defined-in term var-sorting)))))
+
+(define (is-defined-in-sort-raise-conditional c sort)
+        (cond
+          ((conditional-with-undefined-limb c) =>
+           (lambda (i)
+             (case i
+               ((2)
+                (conjunction (conditional-test c)
+                    (defined-in (conditional-consequent c) sort)))
+               ((1)
+                (conjunction (push-not (conditional-test c))
+                    (defined-in (conditional-alternative c) sort))))))
+          ((conditional-with-sort-defined-limb c sort) =>
+           (lambda (i)
+             (case i
+               ((2)
+                (implication (conditional-test c)
+                    (defined-in (conditional-consequent c) sort)))
+               ((1)
+                (implication (push-not (conditional-test c))
+                    (defined-in (conditional-alternative c) sort))))))
+          (else value-false)))
+
+(define (apply-operator-simplifier-with-conditionals components)
+        (let ((ps (predicate? (car components)))
+              (is (function? (car components)))
+              (crude (apply apply-operator components)))
+          (cond
+            ((and ps (necessarily-undefined? crude)) falsehood)
+            ((and is (necessarily-undefined? crude))
+             (undefined
+                 (higher-sort-range
+                     (expression-sorting (car components)))))
+            ((and ps
+                  (prop-apply-operator-raise-conditional components)))
+            ((and is (ind-apply-operator-raise-conditional components)))
+            (else crude))))
+
+(define (prop-apply-operator-raise-conditional components)
+        (receive (j i)
+                 (iterate iter ((components components) (j 0))
+                          (cond
+                            ((null? components)
+                             (return value-false value-false))
+                            ((conditional-with-undefined-limb
+                                 (car components))
+                             => (lambda (i) (return j i)))
+                            (else (iter (cdr components) (1+ j)))))
+                 (and j
+                      (conjunction
+                          (case i
+                            ((2) (conditional-test (nth components j)))
+                            ((1)
+                             (push-not
+                                 (conditional-test (nth components j)))))
+                          (apply apply-operator
+                                 (ap-op-raise-make-args components j i))))))
+
+(define (ind-apply-operator-raise-conditional components)
+        (receive (j i)
+                 (iterate iter ((components components) (j 0))
+                          (cond
+                            ((null? components)
+                             (return value-false value-false))
+                            ((conditional-with-undefined-limb
+                                 (car components))
+                             => (lambda (i) (return j i)))
+                            (else (iter (cdr components) (1+ j)))))
+                 (and j
+                      (if-term (case i
+                                 ((2)
+                                  (conditional-test (nth components j)))
+                                 ((1)
+                                  (push-not
+                                      (conditional-test
+                                       (nth components j)))))
+                               (apply apply-operator
+                                      (ap-op-raise-make-args components
+                                       j i))
+                               (undefined
+                                   (range-sort (car components)))))))
+
+(define (ap-op-raise-make-args components j i)
+        (iterate iter ((components components) (new-comps nil) (k 0))
+                 (cond
+                   ((null? components) (reverse! new-comps))
+                   ((= k j)
+                    (iter (cdr components)
+                          (cons (case i
+                                  ((2)
+                                   (conditional-consequent
+                                    (car components)))
+                                  ((1)
+                                   (conditional-alternative
+                                    (car components))))
+                                new-comps)
+                          (1+ k)))
+                   (else (iter (cdr components)
+                               (cons (car components) new-comps)
+                               (1+ k))))))
+
+(update-constructor-simplifier equality
+    equality-simplifier-with-conditionals)
+
+(update-constructor-simplifier quasi-equality
+    quasi-equality-simplifier-with-conditionals)
+
+(update-constructor-simplifier is-defined
+    is-defined-simplifier-with-conditionals)
+
+(update-constructor-simplifier is-defined-in-sort
+    is-defined-in-sort-simplifier-with-conditionals)
+
+(update-constructor-simplifier apply-operator
+    apply-operator-simplifier-with-conditionals)

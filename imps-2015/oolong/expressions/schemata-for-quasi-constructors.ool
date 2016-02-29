@@ -1,0 +1,177 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment schemata-for-quasi-constructors)
+
+(define (build-quasi-constructor-from-schema symbol-form
+            schema-components schema fixed-sorts)
+        (or (list? schema-components)
+            (imps-error
+                "BUILD-QUASI-CONSTRUCTOR-FROM-SCHEMA: schema-components must be a list"))
+        (or (symbol? symbol-form)
+            (imps-error
+                "BUILD-QUASI-CONSTRUCTOR-FROM-SCHEMA: ~A is not a symbol"
+                symbol-form))
+        (or (every? sort? fixed-sorts)
+            (imps-error
+                "BUILD-QUASI-CONSTRUCTOR-FROM-SCHEMA: Bad list of fixed sorts."))
+        (or (expression? schema)
+            (imps-error
+                "BUILD-QUASI-CONSTRUCTOR-FROM-SCHEMA: ~A is not an expression."
+                schema))
+        (or (every? variable? schema-components)
+            (imps-error
+                "BUILD-QUASI-CONSTRUCTOR-FROM-SCHEMA: Every schema component must be a variable."))
+        (if (let ((bound (expression-bound-variables schema)))
+              (any? (lambda (var) (memq? var bound)) schema-components))
+            (imps-error
+                "BUILD-QUASI-CONSTRUCTOR-FROM-SCHEMA: schema component occurs bound in expression."))
+        (or (is-set? schema-components)
+            (imps-error
+                "BUILD-QUASI-CONSTRUCTOR-FROM-SCHEMA: Duplicated schema variables."))
+        (let ((constr-proc
+                  (build-qc-constructor-proc symbol-form
+                      schema-components schema fixed-sorts))
+              (inverse-proc
+                  (build-qc-inverse-proc symbol-form schema-components
+                      schema fixed-sorts))
+              (locations
+                  (find-qc-component-locations symbol-form
+                      schema-components schema)))
+          (make-quasi-constructor constr-proc inverse-proc locations
+              symbol-form)))
+
+(define-integrable (return-error-string str) str)
+
+(define (build-qc-constructor-proc symbol-form schema-components schema
+            fixed-sorts)
+        (let ((len (length schema-components)))
+          (lambda (components)
+            (if (not (= len (length components)))
+                (return-error-string
+                    (format nil
+                            "BUILD-QC-CONSTRUCTOR-PROC: Wrong number of components for quasi-constructor ~A."
+                            symbol-form))
+                (let ((sort-alist
+                          (variable-sorts-match-from-lists
+                              schema-components components fixed-sorts)))
+                  (if (succeed? sort-alist)
+                      (let ((translated-schema
+                                (expression-substitute-sorts sort-alist
+                                    schema))
+                            (subst (map
+                                    (lambda (var component)
+                                      (cons
+                                       (expression-substitute-sorts
+                                        sort-alist var)
+                                       component))
+                                    schema-components components)))
+                        (if (and (expression? translated-schema)
+                                 (substitution? subst))
+                            (apply-substitution-fastidiously subst
+                                translated-schema)
+                            (return-error-string
+                                (format nil
+                                        "BUILD-QC-CONSTRUCTOR-PROC: Cannot build expression using quasi-constructor ~A and components ~A."
+                                        symbol-form components))))
+                      (return-error-string
+                          (format nil
+                                  "BUILD-QC-CONSTRUCTOR-PROC: Components ~A do not match the schematic components ~A of quasi-constructor ~A."
+                                  components schema-components
+                                  symbol-form))))))))
+
+(define (build-qc-inverse-proc symbol-form schema-components schema
+            fixed-sorts)
+        (ignore symbol-form)
+        (let* ((free-vars (expression-free-variables schema))
+               (schema-components
+                   (map (lambda (var)
+                          (if (not (memq? var free-vars))
+                              (undefined-or-falselike var) var))
+                        schema-components)))
+          (lambda (expr)
+            (receive (sort-alist subst)
+                     (schematic-match expr schema fixed-sorts)
+                     (if (and (succeed? sort-alist) (succeed? subst))
+                         (let ((comps (catch 'stop
+                                        (map
+                                         (lambda (comp)
+                                           (let
+                                            ((new-comp
+                                              (expression-substitute-sorts
+                                               sort-alist comp)))
+                                             (if (expression? new-comp)
+                                              (apply-substitution-fastidiously
+                                               subst new-comp)
+                                              (throw 'stop value-false))))
+                                         schema-components))))
+                           comps)
+                         value-false)))))
+
+(define (find-qc-component-locations symbol-form schema-components
+            schema)
+        (ignore symbol-form)
+        (map (lambda (var) (paths-to-occurrences schema var -1))
+             schema-components))
+
+(define (build-quasi-constructor-from-lambda-expression symbol-form
+            lambda-expression fixed-theories)
+        (let ((fixed-sorts
+                  (big-u (map theory-sorts-resolved fixed-theories))))
+          (imps-enforce lambda-expression? lambda-expression)
+          (let ((lambda-expression
+                    (if (is-set? (map name
+                                      (variables lambda-expression)))
+                        lambda-expression
+                        (make-bound-variables-unique lambda-expression
+                            nil))))
+            (build-quasi-constructor-from-schema symbol-form
+                (binding-variables lambda-expression)
+                (binding-body lambda-expression) fixed-sorts))))

@@ -1,0 +1,914 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment imps-to-tex)
+
+(define begin-string
+        "\\documentstyle[11pt]{article}
+\\newtheorem{def-constant}{Definition}[section]
+\\newtheorem{def-theorem}[def-constant]{Theorem}
+\\newtheorem{def-lemma}[def-constant]{Lemma}
+% 
+\\newtheorem{def-transported-symbols}{Transported Symbols}[section]
+\\newtheorem{def-recursive-constant}[def-constant]{Definition (Recursive)}
+\\newtheorem{def-atomic-sort}[def-constant]{Sort Definition}
+\\newtheorem{def-cartesian-product}[def-constant]{Cartesian Product Sort}
+\\newtheorem{def-bnf}[def-constant]{Data Type Theory}
+\\newtheorem{def-theory}[def-constant]{Theory}
+\\newtheorem{def-language}[def-constant]{Language}
+\\newtheorem{def-translation}[def-constant]{Translation}
+\\newtheorem{def-inductor}[def-constant]{Inductor}
+\\newtheorem{def-quasi-constructor}[def-constant]{Quasi-constructor}
+\\newtheorem{def-algebraic-processor}[def-constant]{Algebraic Processor}
+\\newtheorem{def-order-processor}[def-constant]{Order Processor}
+\\newtheorem{def-theory-processors}[def-constant]{Theory Processor}
+\\newtheorem{def-theory-ensemble}[def-constant]{Theory Ensemble}
+\\newtheorem{def-theory-instance}[def-constant]{Theory  Instance}
+
+\\newtheorem{def-sequence-sort}[def-constant]{Sequence Sort}
+\\newtheorem{def-interface}[def-constant]{Interface}
+\\title{An Application of IMPS}
+\\author{Francisco Emilio Imps}
+
+\\begin{document}
+\\pagenumbering{roman}
+\\maketitle
+\\tableofcontents
+\\newpage
+
+\\setcounter{page}{1}
+\\pagenumbering{arabic}
+
+")
+
+(define end-string "~%~%\\end{document}")
+
+(define ignore-latex-envs
+        '(def-theory-ensemble-multiple def-schematic-macete def-script
+             def-compound-macete def-overloading
+             def-theory-ensemble-instances
+             def-theory-ensemble-overloadings def-theory-processors
+             def-order-processor define def-algebraic-processor
+             def-parse-syntax def-print-syntax def-renamer))
+
+(define (build-tex-specification-file infile outfile)
+        (let ((pin (open infile '(in)))
+              (pout (output-port->tex-output-port
+                        (open outfile '(out)))))
+          (let ((pin pin) (pout pout))
+            (iterate loop ()
+                     (let ((form (read pin)))
+                       (if (eof? form) value-true
+                           (block (display-def-form form pout) (loop)))))
+            (force-output pout))
+          (close pin)
+          (close pout)))
+
+(define (build-tex-multifile-document infiles outfile
+            . dont-redo-rootfile)
+        (load-imps-files infiles value-false)
+        (let ((infiles (map imps-filespec->string infiles))
+              (outfile (imps-filespec->string outfile)))
+          (let* ((pout (or (car dont-redo-rootfile)
+                           (output-port->tex-output-port
+                               (open (string-append outfile ".tex")
+                                     '(out)))))
+                 (fileindex 0)
+                 (outfiles
+                     (map (lambda (file)
+                            (set fileindex (1+ fileindex))
+                            (string-downcase
+                                (format nil "~A-~A.tex" outfile
+                                        fileindex)))
+                          infiles)))
+            (or (car dont-redo-rootfile)
+                (let ((fileindex 0))
+                  (let ((pout pout))
+                    (xtv-format pout begin-string)
+                    (walk (lambda (ofile)
+                            (set fileindex (1+ fileindex))
+                            (xtv-format pout
+                                "~%~%\\section{Section-~A}~%\\input{~A}"
+                                fileindex ofile))
+                          outfiles)
+                    (xtv-format pout end-string)
+                    (force-output pout))))
+            (close pout)
+            (walk build-tex-specification-file infiles outfiles))))
+
+(define (section-all-filespecs section-name)
+        (let ((section (name->section section-name)))
+          (labels (((remove-dups l)
+                    (cond
+                      ((null? l) l)
+                      ((mem? equal? (car l) (cdr l))
+                       (remove-dups (cdr l)))
+                      (else (cons (car l) (remove-dups (cdr l)))))))
+            (remove-dups
+                (cond
+                  ((section-component-names section) =>
+                   (lambda (names)
+                     (append (apply append
+                                    (map section-all-filespecs names))
+                             (section-filespecs section))))
+                  (else (section-filespecs section)))))))
+
+(define (build-tex-section-document section-name outfile)
+        (build-tex-multifile-document
+            (section-all-filespecs section-name) outfile))
+
+(define-structure-type df-data framed def-form theory language syntax
+    caption)
+
+'(set (table-entry df-print-table 'def-theory)
+      (lambda (df port)
+        (display-theory-in-tex-format (name->theory (cadr df) port))))
+
+'(set (table-entry df-print-table 'def-algebraic-processor)
+      (lambda (df port) (ignore df port) value-false))
+
+(define (assq-1 symb the-list)
+        (iterate loop ((the-list the-list))
+                 (cond
+                   ((null? the-list) value-false)
+                   ((and (list? (car the-list))
+                         (eq? symb (caar the-list)))
+                    (car the-list))
+                   (else (loop (cdr the-list))))))
+
+(define (display-def-form df port)
+        (let ((df-type (string-downcase (format nil "~A" (car df)))))
+          (if (and (list? df) (not (memq (car df) ignore-latex-envs))
+                   (string-equal? (substring df-type 0 3) "def"))
+              (let ((syntax (cadr (assq-1 'syntax df)))
+                    (language-name
+                        (or (cadr (assq-1 'language df))
+                            (if (eq? (car df) 'def-language) (cadr df)
+                                value-false)))
+                    (theory-name
+                        (or (cadr (assq-1 'theory df))
+                            (if (eq? (car df) 'def-theory) (cadr df)
+                                value-false)))
+                    (global-data (make-df-data)))
+                (let ((language
+                          (if (or language-name theory-name)
+                              (cond
+                                ((and language-name
+                                      (name->language language-name)))
+                                (language-name
+                                    (name->theory language-name))
+                                (else (theory-language
+                                       (name->theory theory-name)))))))
+                  (set (df-data-framed global-data) nil)
+                  (set (df-data-caption global-data)
+                       (string-downcase
+                           (if (cadr df)
+                               (if (list? (cadr df))
+                                   (apply string-append
+                                    (map-alternate-insert " "
+                                     remove-special-chars (cadr df)))
+                                   (remove-special-chars (cadr df)))
+                               "anonymous")))
+                  (set (df-data-language global-data) language)
+                  (set (df-data-theory global-data)
+                       (if theory-name (name->theory theory-name)
+                           value-false))
+                  (set (df-data-def-form global-data) df)
+                  (set (df-data-syntax global-data) syntax)
+                  (xtv-format port "~%~%\\begin{~A} " df-type)
+                  (df-display-innards port df global-data)
+                  (df-display-figure port global-data)
+                  (xtv-format port "~%\\end{~A}" df-type)))
+              value-false)
+          (force-output port)))
+
+(define (remove-special-chars x)
+        (iterate loop
+                 ((char-list
+                      (string->list
+                          (if (symbol? x) (symbol->string x) x)))
+                  (accum nil))
+                 (cond
+                   ((null? char-list)
+                    (string-downcase (list->string (reverse! accum))))
+                   ((mem char= (car char-list) '(#\^ #\_ #\$ #\# #\%))
+                    (loop (cdr char-list) accum))
+                   ((mem char= (car char-list) '(#\< #\>))
+                    (loop
+                      (cdr char-list)
+                      (cons '#\$
+                            (cons (car char-list) (cons '#\$ accum)))))
+                   (else (loop
+                           (cdr char-list)
+                           (cons (car char-list) accum))))))
+
+(define df-print-table (make-table 'df-print-table))
+
+(define (df-display-innards port df global-data)
+        (funcall (or (table-entry df-print-table (car df))
+                     df-display-innards-default)
+                 port df global-data))
+
+(define (df-display-innards-default port df global-data)
+        (walk (lambda (entry)
+                (xtv-format port "~%")
+                (display-df-entry entry port global-data))
+              (cdr df)))
+
+(define (display-formula-free-variables expr port)
+        (let ((free (free-variables expr)))
+          (if free
+              (bind ((*use-periods?* value-false))
+                    (block (format port " Let ")
+                      (xtv-format port "$")
+                      (write-sexp-leaves-to-port
+                          (present-tex-parameter-list
+                              (var-list->sexp free))
+                          port)
+                      (xtv-format port ".$")))
+              (xtv-format port
+                  "The expression without free variables:"))))
+
+(set (table-entry df-print-table 'def-constant)
+     (lambda (port df global-data)
+       (let* ((const (build-expression-safely
+                         (format nil "~A" (cadr df))
+                         (df-data-language global-data)
+                         (df-data-syntax global-data)))
+              (expr (build-equation-for-terms const
+                        (build-expression-safely
+                            (format nil "~A" (caddr df))
+                            (df-data-language global-data)
+                            (df-data-syntax global-data)))))
+         (display-formula-free-variables expr port)
+         (bind (((dont-list-free-variables?) value-true))
+               (display-single-formula-in-tex-format expr port)))
+       (walk (lambda (entry)
+               (xtv-format port "~%")
+               (display-df-entry entry port global-data))
+             (cdddr df))))
+
+(set (table-entry df-print-table 'def-recursive-constant)
+     (lambda (port df global-data)
+       (if (symbol? (cadr df))
+           (let ((expr (build-recursive-equation-for-terms
+                           (build-expression-safely
+                               (format nil "~A" (cadr df))
+                               (df-data-language global-data)
+                               (df-data-syntax global-data))
+                           (build-expression-safely
+                               (format nil "~A" (caddr df))
+                               (df-data-language global-data)
+                               (df-data-syntax global-data)))))
+             (display-formula-free-variables expr port)
+             (bind (((dont-list-free-variables?) value-true))
+                   (display-single-formula-in-tex-format expr port)))
+           (block (xtv-format port
+                      "The following functions are defined by mutual recursion")
+             (walk (lambda (x y)
+                     (display-single-formula-in-tex-format
+                         (build-recursive-equation-for-terms
+                             (build-expression-safely
+                                 (format nil "~A" x)
+                                 (df-data-language global-data)
+                                 (df-data-syntax global-data))
+                             (build-expression-safely
+                                 (format nil "~A" y)
+                                 (df-data-language global-data)
+                                 (df-data-syntax global-data)))))
+                   (cadr df) (caddr df))))
+       (walk (lambda (entry)
+               (xtv-format port "~%")
+               (display-df-entry entry port global-data))
+             (cdddr df))))
+
+(set (table-entry df-print-table 'def-theorem)
+     (lambda (port df global-data)
+       (xtv-format port "~%")
+       (display-df-entry (cadr df) port global-data)
+       (xtv-format port "~%")
+       (cond
+         ((symbol? (cadr df))
+          (display-single-formula-in-tex-format
+              (name->theorem (cadr df)) port))
+         ((or (symbol? (caddr df)) (string? (caddr df)))
+          (cond
+            ((assq-1 'translation df) =>
+             (lambda (ans)
+               (let ((trans (name->translation (cadr ans))))
+                 (display-single-formula-in-tex-format
+                     (translate-expression trans
+                         (if (string? (caddr df))
+                             (build-expression-safely (caddr df)
+                                 (theory-language
+                                     (translation-source-theory trans))
+                                 (df-data-syntax global-data))
+                             (name->theorem (caddr df))))
+                     port))))
+            (else (display-single-formula-in-tex-format
+                      (if (string? (caddr df))
+                          (build-expression-safely (caddr df)
+                              (df-data-language global-data)
+                              (df-data-syntax global-data))
+                          (name->theorem (caddr df)))
+                      port)))))
+       (xtv-format port "~%")
+       (display-df-entry (assq-1 'theory df) port global-data)))
+
+(set (table-entry df-print-table 'def-cartesian-product)
+     (lambda (port df global-data)
+       (display-single-formula-in-tex-format
+           (build-sort-safely (format nil "~A" (cadr df))
+               (df-data-language global-data)
+               (df-data-syntax global-data))
+           port)
+       (xtv-format port "~%~%\\noindent{\\em Components}: ")
+       (walk (lambda (x)
+               (display-object-in-tex-format
+                   (build-sort-safely x (df-data-language global-data)
+                       (df-data-syntax global-data))
+                   port)
+               (xtv-format port " \\quad "))
+             (caddr df))
+       (let ((accessors (cdr (assq-1 'accessors (cdddr df))))
+             (constructor (cadr (assq-1 'constructor (cdddr df)))))
+         (xtv-format port "~%~%\\noindent{\\em Accessors: }")
+         (walk (lambda (acc)
+                 (display-object-in-tex-format-without-periods
+                     (build-expression-safely (format nil "~A" acc)
+                         (df-data-language global-data)
+                         (df-data-syntax global-data))
+                     port)
+                 (xtv-format port " \\quad "))
+               accessors)
+         (xtv-format port "~%~%\\noindent{\\em Constructor: }")
+         (display-object-in-tex-format-without-periods
+             (build-expression-safely (format nil "~A" constructor)
+                 (df-data-language global-data)
+                 (df-data-syntax global-data))
+             port))))
+
+(set (table-entry df-print-table 'def-atomic-sort)
+     (lambda (port df global-data)
+       (xtv-format port "{\\em Sort: }")
+       (display-object-in-tex-format
+           (build-sort-safely (format nil "~A" (cadr df))
+               (df-data-language global-data)
+               (df-data-syntax global-data))
+           port)
+       (xtv-format port "~%~%")
+       (bind (((maximum-nesting-for-logical-expressions) 0))
+             (display-object-in-tex-format
+                 (funcall (name->quasi-constructor
+                              'predicate-to-indicator)
+                          (build-expression-safely (caddr df)
+                              (df-data-language global-data)
+                              (df-data-syntax global-data)))
+                 port))))
+
+(set (table-entry df-print-table 'def-transported-symbols)
+     (lambda (port df global-data)
+       (let* ((translation
+                  (name->translation (cadr (assq-1 'translation df))))
+              (source-language
+                  (theory-language
+                      (translation-source-theory translation)))
+              (syntax (df-data-syntax global-data)))
+         (xtv-format port "Transport:")
+         (xtv-format port "~%~%\\noindent")
+         (walk (lambda (x)
+                 (let ((source-object
+                           (build-something-safely (format nil "~A" x)
+                               source-language syntax)))
+                   (display-object-in-tex-format-without-periods
+                       source-object port)
+                   (xtv-format port " $ \\rightarrow $ ")
+                   (display-object-in-tex-format-without-periods
+                       (if (expression? source-object)
+                           (translate-expression translation
+                               source-object)
+                           (translate-sort translation source-object))
+                       port)
+                   (xtv-format port " \\quad ")))
+               (if (symbol? (cadr df)) (list (cadr df)) (cadr df)))
+         (xtv-format port "~%~%\\noindent {\\em Translation:} ~A"
+             (backslash-special-chars (name translation))))))
+
+(set (table-entry df-print-table 'def-quasi-constructor)
+     (lambda (port df global-data)
+       (let* ((expr (build-expression-safely (caddr df)
+                        (df-data-language global-data)
+                        (df-data-syntax global-data)))
+              (body (binding-body expr)))
+         (display-formula-free-variables body port)
+         (xtv-format port "\\begin{description}~%\\item[]")
+         (bind (((dont-list-free-variables?) value-true))
+               (display-object-in-tex-format-without-periods body port)
+               (xtv-format port " expands to ")
+               (bind ((*disabled-quasi-constructors*
+                          (cons (name->quasi-constructor (cadr df))
+                                *disabled-quasi-constructors*)))
+                     (display-object-in-tex-format body port)))
+         (xtv-format port "\\end{description}")
+         (walk (lambda (entry)
+                 (xtv-format port "~%")
+                 (display-df-entry entry port global-data))
+               (cdddr df)))))
+
+(define (df-display-figure port global-data)
+        (if (df-data-framed global-data)
+            (block (xtv-format port
+                       "~%\\begin{figure}~%\\begin{center}
+\\fbox{\\begin{minipage}{4.5in}")
+              (walk (lambda (str) (xtv-format port str))
+                    (df-data-framed global-data))
+              (xtv-format port
+                  "\\end{minipage}}~%\\end{center}~%\\caption{~A}
+\\label{fig:~A}
+\\end{figure}" (df-data-caption global-data)
+                  (df-data-caption global-data)))))
+
+(define (display-df-entry entry port global-data)
+        (let ((language (df-data-language global-data))
+              (syntax (df-data-syntax global-data)))
+          (cond
+            ((string? entry)
+             (display-single-formula-in-tex-format
+                 (build-expression-safely entry language syntax) port))
+            ((symbol? entry)
+             (or (memq entry
+                       '(lemma dont-enrich force-under-quick-load
+                               reverse))
+                 (xtv-format port (backslash-special-chars entry))))
+            ((null? entry)
+             (xtv-format port (backslash-special-chars 'anonymous)))
+            ((list? entry)
+             (funcall (df-entry-print-method (car entry)) entry port
+                      global-data)))))
+
+(define (df-entry-print-method symbol)
+        (or (table-entry df-entry-print-table symbol)
+            df-default-print-method))
+
+(define (df-default-print-method entry port global-data)
+        (if (and (list? entry) (< 0 (length entry)))
+            (block (xtv-format port "~%~%")
+              (xtv-format port
+                  (string-append "~%~%\\noindent {\\em "
+                      (fancy-up-string
+                          (string-downcase
+                              (symbol->string (car entry))))
+                      ":} "))
+              (df-default-print-sexp
+	       (cdr entry)
+	       port
+	       global-data))))
+
+(define (df-default-print-sexp sexp port global-data)
+   (walk (lambda (x)
+	   (if (list? x) 
+	       (df-default-print-sexp x port global-data)
+	       (block (xtv-format port
+				  (backslash-special-chars x))
+		      (xtv-format port " \\quad "))))
+	 sexp))
+
+	   
+
+
+(define df-entry-print-table (make-table 'df-entry-print-table))
+
+(define (build-sort-safely str language syntax-name)
+  (bind (((imps-reader)
+	  (if syntax-name (syntax-read-procedure syntax-name)
+	      (imps-reader)))
+	 ((imps-printer)
+	  (if syntax-name (syntax-print-procedure syntax-name)
+	      (imps-printer))))
+    (bind (((signal-error-procedure)
+	    (lambda (f-string . f-args)
+	      (throw 'imps-error value-false))))
+      (or (catch 'imps-error
+	    (cond
+	     ((string? str)
+	      (string->sort language str))
+	     ((and (list? str)
+		   (eq? (car str) 'pred)
+		   (string? (cadr str)))
+	      (qr (cadr str) language))
+	     (else (list->sort language str))))
+
+	  (catch 'imps-error
+	    (qr str language))))))
+
+(define (build-expression-safely str language syntax-name)
+  (bind (((imps-reader)
+	  (if syntax-name (syntax-read-procedure syntax-name)
+	    (imps-reader)))
+	 ((imps-printer)
+	  (if syntax-name (syntax-print-procedure syntax-name)
+	    (imps-printer))))
+	(bind (((signal-error-procedure)
+		(lambda (f-string .  f-args)
+		  (throw 'imps-error value-false))))
+	      (catch 'imps-error
+		(qr (format nil "~A" str) language)))))
+
+(define build-something-safely build-sort-safely)
+
+(set (table-entry df-entry-print-table 'sort-pairs)
+     (lambda (entry port global-data)
+       (let ((source-language
+                 (theory-language
+                     (name->theory
+                         (cadr (assq-1 'source
+                                       (df-data-def-form global-data))))))
+             (target-language
+                 (theory-language
+                     (name->theory
+                         (cadr (assq-1 'target
+                                       (df-data-def-form global-data))))))
+             (syntax (df-data-syntax global-data)))
+         (xtv-format port "~%~%\\noindent {\\em Sorts:} ")
+         (walk (lambda (pair)
+                 (display-object-in-tex-format
+                     (build-sort-safely (car pair) source-language
+                         syntax)
+                     port)
+                 (xtv-format port " $ \\rightarrow $ ")
+                 (display-object-in-tex-format
+                     (build-sort-safely (cadr pair) target-language
+                         syntax)
+                     port)
+                 (xtv-format port " \\quad "))
+               (cdr entry)))))
+
+(set (table-entry df-entry-print-table 'constant-pairs)
+     (lambda (entry port global-data)
+       (let ((source-language
+                 (theory-language
+                     (name->theory
+                         (cadr (assq-1 'source
+                                       (df-data-def-form global-data))))))
+             (target-language
+                 (theory-language
+                     (name->theory
+                         (cadr (assq-1 'target
+                                       (df-data-def-form global-data))))))
+             (syntax (df-data-syntax global-data)))
+         (xtv-format port "~%~%\\noindent {\\em Constants:} ")
+         (walk (lambda (pair)
+                 (display-object-in-tex-format-without-periods
+                     (build-expression-safely (car pair)
+                         source-language syntax)
+                     port)
+                 (xtv-format port " $ \\rightarrow $ ")
+                 (display-object-in-tex-format-without-periods
+                     (build-expression-safely (cadr pair)
+                         target-language syntax)
+                     port)
+                 (xtv-format port " \\quad "))
+               (cdr entry)))))
+
+'(set (table-entry df-entry-print-table 'source)
+      (lambda (entry port global-data)
+        (xtv-format port "~%~%\\noindent {\\em Source}: ")
+        (xtv-format port (backslash-special-chars (cadr entry)))))
+
+'(set (table-entry df-entry-print-table 'target)
+      (lambda (entry port global-data)
+        (xtv-format port "~%~%\\noindent {\\em Target}: ")
+        (xtv-format port (backslash-special-chars (cadr entry)))))
+
+(set (table-entry df-entry-print-table 'theory-interpretation-check)
+     (lambda (entry port global-data) value-false))
+
+'(set (table-entry df-entry-print-table 'accessors)
+      (lambda (entry port global-data)
+        (xtv-format port "~%~%\\noindent {\\em Accesors}: ")
+        (walk (lambda (x)
+                (xtv-format port (backslash-special-chars x)))
+              (cadr entry))))
+
+'(set (table-entry df-entry-print-table 'constructor)
+      (lambda (entry port global-data)
+        (xtv-format port "~%~%\\noindent {\\em Constructor}: ")
+        (xtv-format port (backslash-special-chars (cadr entry)))))
+
+(set (table-entry df-entry-print-table 'axioms)
+     (lambda (entry port global-data)
+       (let ((theory (df-data-theory global-data)))
+         (xtv-format port
+             "\\newline\\noindent{\\em Axioms:} See Figure~~\\ref{fig:~A}."
+             (df-data-caption global-data))
+         (push (df-data-framed global-data)
+               (with-output-to-string port
+                 (let ((port (output-port->tex-output-port port)))
+                   (let ((axioms (theory-top-level-axioms theory)))
+                     (if (null? axioms)
+                         (format port
+                                 "~%~%\\noindent{\\bf Top level axioms:} There are none.~%~%")
+                         (block (format port
+                                        "~%~%\\noindent{\\bf Top level axioms:} ~%
+\\begin{description}")
+                           (walk (lambda (ax)
+                                   (format port "~%\\item[~A]"
+                                    (backslash-special-chars
+                                     (or (name ax) "anonymous")))
+                                   (format port "{ \\raggedright")
+                                   (let
+                                    ((tree
+                                      (if
+                                       (use-old-apply-operator-form?)
+                                       (expression->sexp ax)
+                                       (drop-apply-operators
+                                        (expression->sexp ax)))))
+                                     (display-sexpression-in-tex-format
+                                      tree port))
+                                   (format port "}"))
+                                 axioms)
+                           (format port "~%\\end{description}~%~%"))))))))))
+
+(set (table-entry df-entry-print-table 'component-theories) df-default-print-method)
+
+(comment
+ (lambda (entry port global-data)
+       (let* ((theory (df-data-theory global-data))
+              (component-theories
+                  (delete-set-element the-kernel-theory
+                      (theory-component-theories theory))))
+         (xtv-format port
+             "~%~%\\noindent{\\em Component Theories:} See Figure~~\\ref{fig:~A}."
+             (df-data-caption global-data))
+         (push (df-data-framed global-data)
+               (with-output-to-string port
+                 (let ((port (output-port->tex-output-port port)))
+                   (cond
+                     ((null? component-theories))
+                     ((null? (cdr component-theories))
+                      (format port
+                              "\\noindent {\\bf Component theory: }~A~%~%"
+                              (backslash-special-chars
+                                  (name (car component-theories)))))
+                     (else (format port
+                                   "\\noindent {\\bf Component theories: }")
+                           (walk (lambda (comp)
+                                   (format port "~A  "
+                                    (backslash-special-chars
+                                     (name comp))))
+                                 component-theories)))))))))
+
+(set (table-entry df-entry-print-table 'component-theory)
+     (table-entry df-entry-print-table 'component-theories))
+
+(set (table-entry df-entry-print-table 'proof)
+     (lambda (entry port global-data) value-false))
+
+'(set (table-entry df-entry-print-table 'theory)
+      (lambda (entry port global-data) value-false))
+
+(set (table-entry df-entry-print-table 'extensible)
+     (lambda (entry port global-data) value-false))
+
+(set (table-entry df-entry-print-table 'witness)
+     (lambda (entry port global-data) value-false))
+
+(set (table-entry df-entry-print-table 'usages)
+     (lambda (entry port global-data) value-false))
+
+(set (table-entry df-entry-print-table 'definition-name)
+     (lambda (entry port global-data) value-false))
+
+'(set (table-entry df-entry-print-table 'language)
+      (lambda (entry port global-data)
+        (xtv-format port "~%~%\\noindent {\\em Language}: ~a"
+            (backslash-special-chars (cadr entry)))))
+
+'(set (table-entry df-entry-print-table 'theory)
+      (lambda (entry port global-data)
+        (xtv-format port "~%~%\\noindent {\\em Theory}: ~a"
+            (backslash-special-chars (cadr entry)))))
+
+'(set (table-entry df-entry-print-table 'embedded-language)
+      (lambda (entry port global-data)
+        (xtv-format port "~%~%\\noindent {\\em Embedded Language}: ~a"
+            (backslash-special-chars (cadr entry)))))
+
+'(set (table-entry df-entry-print-table 'fixed-theories)
+      (lambda (entry port global-data)
+        (walk (lambda (l)
+                (xtv-format port
+                    "~%~%\\noindent {\\em Fixed Theories}: ~a"
+                    (backslash-special-chars l)))
+              (cdr entry))))
+
+'(set (table-entry df-entry-print-table 'embedded-languages)
+      (lambda (entry port global-data)
+        (walk (lambda (l)
+                (xtv-format port
+                    "~%~%\\noindent {\\em Embedded Languages}: ~a"
+                    (backslash-special-chars l)))
+              (cdr entry))))
+
+(set (table-entry df-entry-print-table 'constants)
+     (lambda (entry port global-data)
+       (let ((language (df-data-language global-data))
+             (syntax (df-data-syntax global-data)))
+         (let ((fns nil) (preds nil) (sets nil) (inds nil))
+           (walk (lambda (pair)
+                   (let ((expr (build-expression-safely
+                                   (format nil "~A" (car pair))
+                                   language syntax)))
+                     (cond
+                       ((predicate? expr)
+                        (push preds (beta-unreduce expr)))
+                       ((higher-sort? (expression-sorting expr))
+                        (if (and (eq? (higher-sort-range
+                                       (expression-sorting expr))
+                                      unit%sort)
+                                 (= (length
+                                     (higher-sort-domains
+                                      (expression-sorting expr)))
+                                    1))
+                            (push sets
+                                  (cons expr (expression-sorting expr)))
+                            (push fns
+                                  (cons (beta-unreduce expr)
+                                        (higher-sort-range
+                                         (expression-sorting expr))))))
+                       (else (push inds
+                                   (cons expr
+                                    (expression-sorting expr)))))))
+                 (cdr entry))
+           (bind (((maximum-nesting-for-logical-expressions) 0))
+                 (if preds
+                     (block (xtv-format port
+                                "~%~%\\noindent  {\\em  Predicate Constants:} ")
+                       (xtv-format port "~%\\begin{itemize}~%")
+                       (walk (lambda (pair)
+                               (xtv-format port "~%\\item[]")
+                               (display-object-in-tex-format-without-periods
+                                   pair port))
+                             preds)
+                       (xtv-format port "~%\\end{itemize}~%")))
+                 (if sets
+                     (block (xtv-format port
+                                "~%~%\\noindent  {\\em  Indicator Constants:} ")
+                       (xtv-format port "~%\\begin{itemize}~%")
+                       (walk (lambda (pair)
+                               (xtv-format port "~%\\item[]")
+                               (display-object-in-tex-format-without-periods
+                                   (car pair) port)
+                               (xtv-format port " in ")
+                               (display-object-in-tex-format (cdr pair)
+                                   port))
+                             sets)
+                       (xtv-format port "~%\\end{itemize}~%")))
+                 (if fns
+                     (block (xtv-format port
+                                "~%~%\\noindent  {\\em  Function Constants:} ")
+                       (xtv-format port "~%\\begin{itemize}~%")
+                       (walk (lambda (pair)
+                               (xtv-format port "~%\\item[]")
+                               (display-object-in-tex-format-without-periods
+                                   (car pair) port)
+                               (xtv-format port " with values in ")
+                               (display-object-in-tex-format (cdr pair)
+                                   port))
+                             fns)
+                       (xtv-format port "~%\\end{itemize}~%")))
+                 (if inds
+                     (block (xtv-format port
+                                "~%~%\\noindent  {\\em  Individual Constants:} ")
+                       (xtv-format port "~%\\begin{itemize}~%")
+                       (walk (lambda (pair)
+                               (xtv-format port "~%\\item[]")
+                               (display-object-in-tex-format-without-periods
+                                   (car pair) port)
+                               (xtv-format port " in ")
+                               (display-object-in-tex-format (cdr pair)
+                                   port))
+                             inds)
+                       (xtv-format port "~%\\end{itemize}~%"))))))))
+
+(set (table-entry df-entry-print-table 'sorts)
+     (lambda (entry port global-data)
+       (let ((language (df-data-language global-data))
+             (syntax (df-data-syntax global-data)))
+         (xtv-format port "~%~%\\noindent  {\\em  Sorts:} ")
+         (walk (lambda (pair)
+                 (let ((sort (build-sort-safely
+                                 (format nil "~A" (car pair)) language
+                                 syntax)))
+                   (xtv-format port " ")
+                   (display-object-in-tex-format sort port)
+                   (xtv-format port "$ \\ll $")
+                   (display-object-in-tex-format (enclosing-sort sort)
+                       port)
+                   (xtv-format port " \\quad")))
+               (cdr entry)))))
+
+(set (table-entry df-entry-print-table 'base-types)
+     (lambda (entry port global-data)
+       (let ((language (df-data-language global-data))
+             (syntax (df-data-syntax global-data)))
+         (xtv-format port "~%~%\\noindent  {\\em  Base Types:} ")
+         (walk (lambda (pair)
+                 (let ((sort (build-sort-safely (format nil "~A" pair)
+                                 language syntax)))
+                   (xtv-format port " ")
+                   (display-object-in-tex-format sort port)))
+               (cdr entry)))))
+
+(define (build-equation-for-terms term defn)
+        (cond
+          ((lambda-expression? defn)
+           (if (eq? (higher-sort-range (expression-sorting defn))
+                    unit%sort)
+               (equality term defn)
+               (let ((vars (binding-variables defn))
+                     (expr (binding-body defn)))
+                 (funcall (if (expression-of-category-ind? term)
+                              equality biconditional)
+                          (apply apply-operator term vars) expr))))
+          (else (equality term defn))))
+
+(define (build-recursive-equation-for-terms term rec-defn)
+        (let ((vars (binding-variables rec-defn)))
+          (if (< 1 (length vars))
+              (let ((defn (beta-reduce-recklessly
+                              (apply apply-operator rec-defn
+                                     (apply apply-operator term
+                                      (cdr vars))
+                                     (cdr vars)))))
+                (build-equation-for-terms
+                    (apply apply-operator term (cdr vars)) defn))
+              (let ((defn (beta-reduce (apply-operator rec-defn term))))
+                (build-equation-for-terms term defn)))))
+
+(define (beta-unreduce expr)
+        (if (higher-sort? (expression-sorting expr))
+            (let ((vars (sorts->new-variables
+                            (higher-sort-domains
+                                (expression-sorting expr))
+                            'v nil)))
+              (apply imps-lambda (apply apply-operator expr vars) vars))
+            expr))
+
+(define (fancy-up-string str)
+        (let ((cap? value-true))
+          (map-string!
+              (lambda (char)
+                (cond
+                  ((char= char #\-) (set cap? value-true) #\Space)
+                  (cap? (set cap? value-false) (char-upcase char))
+                  (else char)))
+              str)
+          str))

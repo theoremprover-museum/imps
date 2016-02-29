@@ -1,0 +1,380 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment (inference syllogistic-inference))
+
+(define (self-contrapose context assertion)
+        (let ((assumptions (context-assumptions context)))
+          (let ((victim (or (any (lambda (a)
+                                   (and
+                                    (or (negated-equation? a)
+                                     (negated-convergence? a))
+                                    a))
+                                 assumptions)
+                            (any (lambda (a)
+                                   (and
+                                    (or (negated-equation? a)
+                                     (negated-convergence? a))
+                                    a))
+                                 (ultimate-conjuncts assumptions))
+                            (any (lambda (a) (and (negation? a) a))
+                                 assumptions)
+                            (any identity assumptions))))
+            (if (expression? victim)
+                (return
+                  (context-add-assumption
+                      (context-omit-assumption context victim)
+                      (push-not assertion))
+                  (push-not victim))
+                (return context assertion)))))
+
+(define (context-simplify-assumptions context)
+        (if (context-assumptions-already-simplified? context) (return)
+            (iterate iter
+                     ((asses (context-assumptions context))
+                      (current-context context))
+                     (cond
+                       ((null? asses)
+                        (set (context-assumptions-already-simplified?
+                                 context)
+                             value-true)
+                        (return))
+                       ((memq? (car asses)
+                               (context-assumptions current-context))
+                        (iter asses
+                              (context-predecessor current-context)))
+                       (else (add-context-entry context
+                                 (context-insistently-simplify
+                                     current-context (car asses)
+                                     (context-simplification-persistence)))
+                             (iter (cdr asses) current-context))))))
+
+(define (syllogistic-inference-get-reduced-conjuncts expr exoscopes)
+        (make-set
+            (reduce-conjunctions-and-universals
+                (list (make-bound-variables-unique expr exoscopes))
+                exoscopes)))
+
+(define syllogistic-forwardchain-persistence
+        (make-simple-switch 'syllogistic-forwardchain-persistence
+            integer? 2))
+
+(define (syllogistic-forwardchain context entry)
+        (if (or (not (context-contains-entry? context entry))
+                (not-positive? (syllogistic-forwardchain-persistence)))
+            (return)
+            (bind (((syllogistic-forwardchain-persistence)
+                    (-1+ (syllogistic-forwardchain-persistence)))
+                   ((simplify-non-virgins?) value-false))
+                  (cond
+                    ((or (convergence? entry)
+                         (convergence-in-sort? entry))
+                     (context-simplify context (convergence-term entry)
+                         (syllogistic-forwardchain-persistence)))
+                    ((disjunctive-formula? entry)
+                     (syllogistic-forwardchain-simplify-disjuncts
+                         context entry))
+                    ((let ((red (context-recursively-seek-formal-symbols
+                                    context entry)))
+                       (and (not (eq? entry red)) red))
+                     =>
+                     (lambda (red)
+                       (add-context-entry context red)
+                       (context-simplify context red
+                           (syllogistic-forwardchain-persistence))))
+                    (else (let ((reduced-conjuncts
+                                    (syllogistic-inference-get-reduced-conjuncts
+                                     entry
+                                     (context-free-variables context))))
+                            (walk (lambda (e)
+                                    (if (disjunctive-formula? e)
+                                     (syllogistic-forwardchain-simplify-disjuncts
+                                      context e)))
+                                  reduced-conjuncts)))))))
+
+(define (syllogistic-forwardchain-simplify-disjuncts context entry)
+        (let ((conjunctive-component-lists
+                  (map (lambda (d-c) (conjunctive-components d-c))
+                       (disjunctive-components entry))))
+          (if (not (null? conjunctive-component-lists))
+              (add-context-entries context
+                  (big-cap conjunctive-component-lists)))
+          (let ((reduced-disjuncts
+                    (simplify-components-in-context disjunction
+                        (disjunctive-components entry) context
+                        (syllogistic-forwardchain-persistence)
+                        context-simplify)))
+            (add-context-entry context
+                (disjunction-simplifier reduced-disjuncts)))))
+
+(define (syllogistic-forwardchain-through-context context)
+        (if (or (context-assumptions-already-simplified? context)
+                (not-positive? (syllogistic-forwardchain-persistence)))
+            (return)
+            (block (walk (lambda (a)
+                           (syllogistic-forwardchain context a))
+                         (context-assumptions context))
+              (set (context-assumptions-already-simplified? context)
+                   value-true))))
+
+(define (enrich-context context seeds)
+        (if (not (list? seeds)) (syllogistic-enrichment context)
+            (syllogistic-enrichment context)))
+
+(define (syllogistic-enrichment context)
+        (syllogistic-forwardchain-through-context context))
+
+(define (context-add-assumptions-and-enrich context new-assumptions)
+        (let ((context (context-add-assumptions context
+                           new-assumptions)))
+          (enrich-context context new-assumptions)
+          (walk (lambda (a) (syllogistic-forwardchain context a))
+                new-assumptions)
+          context))
+
+(define (context-add-assumption-and-enrich context new-assumption)
+        (context-add-assumptions-and-enrich context
+            (list new-assumption)))
+
+(define (context-entails-context? context-1 context-2)
+        (or (eq? context-1 context-2)
+            (every? (lambda (f) (context-entails? context-1 f))
+                    (set-difference (context-assumptions context-2)
+                        (context-assumptions context-1)))))
+
+(define (enriched-context-entails? context formula)
+        (enrich-context context value-true)
+        (context-entails? context formula))
+
+(define (enriched-context-simplify context expr)
+        (enrich-context context value-true)
+        (context-insistently-simplify context expr
+            (context-simplification-persistence)))
+
+(define (context-syllogistically-entails? context formula)
+        (truth? (syllogistic-inference-simplify context formula)))
+
+(define (syllogistic-inference-simplify context formula)
+        (if (formula? formula)
+            (let ((easy? (or (memq? formula
+                                    (context-assumptions context))
+                             (context-immediately-entails? context
+                                 formula))))
+              (if easy? truth
+                  (let ((simp (enriched-context-simplify context
+                                  formula)))
+                    (if (sequent-entailed? (build-sequent context simp)
+                            value-true)
+                        truth simp))))
+            (syllogistic-inference-simplify-non-formula context
+                formula)))
+
+(define (syllogistic-inference-simplify-non-formula context formula)
+        (enriched-context-simplify context formula))
+
+(define *sequent-entailment-cycling-tracer* (make-table))
+
+(define (sequent-entailed? seq . strongly?)
+        (if (table-entry *sequent-entailment-cycling-tracer* seq)
+            value-false
+            (bind (((table-entry *sequent-entailment-cycling-tracer*
+                        seq)
+                    value-true))
+                  (let ((entailed? (sequent-entailed-1? seq strongly?)))
+                    (if entailed?
+                        (add-context-entry (sequent-context seq)
+                            (sequent-assertion seq)))
+                    entailed?))))
+
+(define (sequent-entailed-1? seq strongly?) (ignore strongly?)
+        (if (sequent-entailment-flag seq) value-true
+            (let ((context (sequent-context seq))
+                  (assertion (sequent-assertion seq)))
+              (let ((simp (context-insistently-simplify context
+                              assertion
+                              (context-simplification-persistence))))
+                (cond
+                  ((or (truth? simp)
+                       (immediate-backchaining-opportunity context
+                           simp))
+                   (make-sequent-entailed seq) value-true)
+                  ((receive (contra-context new-assertion)
+                            (self-contrapose context simp)
+                            (context-trivially-entails? contra-context
+                                new-assertion))
+                   (make-sequent-entailed seq) value-true)
+                  (else value-false))))))
+
+(define (sequent-entails-sequent? premise conclusion)
+        (or (eq? premise conclusion)
+            (and (eq? (sequent-assertion premise)
+                      (sequent-assertion conclusion))
+                 (every? (lambda (a)
+                           (context-contains-entry?
+                               (sequent-context conclusion) a))
+                         (sequent-assumptions premise)))
+            (sequent-entailed? conclusion)
+            (let ((concl-context (sequent-context conclusion))
+                  (prem-context (sequent-context premise)))
+              (and (context-entails-context? concl-context
+                       prem-context)
+                   (sequent-entailed?
+                       (build-sequent
+                           (context-add-assumption concl-context
+                               (apply forall
+                                      (sequent-assertion premise)
+                                      (set-difference
+                                       (free-variables
+                                        (sequent-assertion premise))
+                                       (free-variables prem-context))))
+                           (sequent-assertion conclusion)))))))
+
+(define (formula-entails-sequent? formula sequent)
+        (let ((formula (expression-change-free-variables formula
+                           (set-intersection (free-variables formula)
+                               (free-variables sequent)))))
+          (let ((combined-sequent
+                    (sequent-add-assumption sequent formula)))
+            (sequent-entailed? combined-sequent))))
+
+(define (sequent-add-assumption-and-enrich sequent assumption)
+        (build-sequent
+            (context-add-assumption-and-enrich
+                (sequent-context sequent) assumption)
+            (sequent-assertion sequent)))
+
+(define (run-proc-with-minor-premises proc)
+  (bind (((undischarged-minor-premises) value-false)
+;	 ((dont-taint-contexts) (push (dont-taint-contexts) context))
+	 ((accumulate-undischarged-minor-premises?) value-true))
+	(let ((val (funcall proc)))
+	  (return val (make-set (undischarged-minor-premises))))))
+
+(define (simplify-with-minor-premises context assertion)
+        (receive (simp minors)
+                 (run-proc-with-minor-premises
+;		  context
+                     (lambda ()
+                       (enriched-context-simplify context assertion)))
+                 (let ((persist (context-simplification-persistence)))
+                   (iterate iter
+                            ((cooked-premises nil) (minors minors))
+                            (if (null? minors)
+                                (if (and (formula? simp)
+                                     (sequent-entailed?
+                                      (build-sequent context simp)))
+                                    (return truth cooked-premises)
+                                    (return simp cooked-premises))
+                                (let* ((seq (car minors))
+                                       (assertion
+                                        (context-simplify
+                                         (sequent-context seq)
+                                         (sequent-assertion seq)
+                                         persist)))
+                                  (if (truth? assertion)
+                                      (iter cooked-premises
+                                       (cdr minors))
+                                      (iter
+                                       (add-set-element
+                                        (build-sequent
+                                         (sequent-context seq)
+                                         assertion)
+                                        cooked-premises)
+                                       (cdr minors)))))))))
+
+(define (enrich-by-matching-instances context constr lead hot-terms)
+        (let ((exoscopes (free-variables context)) (new-entries nil))
+          (labels (((enricher expr)
+                    (let ((substs (enrich-by-matching-get-substitutions
+                                      context expr hot-terms exoscopes)))
+                      (walk (lambda (subst)
+                              (push new-entries
+                                    (apply-substitution subst expr)))
+                            substs))))
+            (context-walk-entries-constructor-and-first-lead #'enricher
+                context constr lead)
+            (add-context-entries context new-entries))))
+
+(define (enrich-by-matching-get-substitutions context expr hot-terms
+            exoscopes)
+        (let ((substs nil))
+          (iterate iter ((hot-terms hot-terms))
+                   (if (null? hot-terms) substs
+                       (let ((new-substs
+                                 (match-pattern-within-host-under-exoscopes
+                                     (car hot-terms) expr exoscopes
+                                     value-false)))
+                         (walk (lambda (subst)
+                                 (if (and (succeed? subst)
+                                      (context-entails-substitution-defined?
+                                       context subst)
+                                      (not
+                                       (any?
+                                        (lambda (subst2)
+                                          (substitutions-equal? subst
+                                           subst2))
+                                        substs)))
+                                     (push substs subst)))
+                               new-substs)
+                         (iter (cdr hot-terms)))))))
+
+(define (context-generate-instance context generality substitution)
+        (if (or (not (context-entails? context generality))
+                (not (context-strongly-entails-substitution-defined?
+                         context substitution
+                         (context-simplification-persistence))))
+            value-false
+            (let ((instance
+                      (apply-subst-to-exp-with-exoscopes substitution
+                          (universal-matrix generality
+                              (context-free-variables context))
+                          (context-free-variables context))))
+              (add-context-entry context instance)
+              value-true)))

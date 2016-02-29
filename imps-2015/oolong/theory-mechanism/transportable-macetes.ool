@@ -1,0 +1,192 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment transportable-macetes)
+
+(define-predicate transportable-macete?)
+
+(define-operation (transportable-macete-lhs soi))
+
+(define-operation (transportable-macete-rhs soi))
+
+(define-operation (transportable-macete-source-theory soi))
+
+(define *transportable-macetes* (make-table '*transportable-macetes*))
+
+(define (retrieve-transportable-macete-from-formula formula)
+        (table-entry *transportable-macetes* formula))
+
+(define (build-transportable-macete formula source-theory the-name safe?)
+        (cond
+          ((two-d-table-entry *transportable-macetes* formula
+               source-theory)
+           => (lambda (mac) (set (macete-name mac) the-name) mac))
+          (else (receive (source target requirements bidirectional?)
+                         (formula-source-target-requirements-bidirectional
+                             formula)
+                         (let ((macete (build-transportable-macete-internal
+                                        source target requirements
+                                        formula source-theory the-name
+                                        safe? bidirectional?)))
+                           (set (two-d-table-entry
+                                    *transportable-macetes* formula
+                                    source-theory)
+                                macete)
+                           macete)))))
+
+(define (build-transportable-macete-internal source target requirements
+            formula source-theory the-name safe? bidirectional?)
+        (let* ((jointly-exposed-vars
+                   (if bidirectional?
+                       (jointly-exposed-variables source target)
+                       (exposed-variables target)))
+               (matcher (lambda (target-theory context expr)
+                          (translation-and-substitution-match
+                              source-theory target-theory
+                              (context-assumptions context)
+                              (select-common-sub-theories source-theory
+                                  target-theory (fixed-theories-set))
+                              source expr safe?)))
+               (replacement-constructor
+                   (lambda (target-theory context expr)
+                     (receive (translation subst)
+                              (funcall matcher target-theory context
+                                       expr)
+                              (if (or (fail? translation)
+                                      (fail? subst))
+                                  (return (fail) nil)
+                                  (let* ((translated-target
+                                          (translate-expression
+                                           translation target))
+                                         (substed
+                                          (if safe?
+                                           (apply-substitution-fastidiously
+                                            subst translated-target)
+                                           (apply-substitution-unsafe
+                                            subst translated-target)))
+                                         (req-substed
+                                          (map
+                                           (lambda (req)
+                                             (let
+                                              ((translated-req
+                                                (translate-expression
+                                                 translation req)))
+                                               (apply-substitution
+                                                subst translated-req)))
+                                           requirements)))
+                                    (if
+                                     (or (null? substed)
+                                      (any? null? req-substed))
+                                     (return (fail) nil)
+                                     (return
+                                       substed
+                                       (if safe?
+                                        (append
+                                         (restricted-substitution-definedness-conditions
+                                          subst
+                                          (map
+                                           (lambda (var)
+                                             (translate-expression
+                                              translation var))
+                                           jointly-exposed-vars))
+                                         req-substed)
+                                        req-substed))))))))
+               (local-macete
+                   (syntactic-procedure->macete replacement-constructor
+                       bidirectional? the-name))
+               (sound? (and safe?
+                            (theory-theorem? source-theory formula))))
+          (join (object nil ((transportable-macete? soi) value-true)
+                        ((macete-sound-in-theory? soi theory)
+                         (ignore theory) sound?)
+                        ((macete-requirements soi) requirements)
+                        ((macete->formula soi) formula)
+                        ((macete-replacement-constructor soi)
+                         replacement-constructor)
+                        ((macete-name soi) (macete-name local-macete))
+                        ((transportable-macete-lhs soi) source)
+                        ((transportable-macete-rhs soi) target)
+                        ((transportable-macete-source-theory soi)
+                         source-theory)
+                        ((print soi port)
+                         (format port "#{Transportable-macete ~a ~a}"
+                                 (object-hash soi) (macete-name soi))))
+                local-macete)))
+
+(comment (define (install-transportable-macete theorem)
+                 (let ((the-name
+                           (if (not (null? (theorem-name theorem)))
+                               (symbol-append 'tr%
+                                   (theorem-name theorem))
+                               value-false))
+                       (formula (theorem-formula theorem)))
+                   (add-macete
+                       (build-transportable-macete formula
+                           (theorem-home-theory theorem) the-name
+                           value-true)))))
+
+(define (theory-install-transportable-macete theory theorem)
+        (let ((the-name
+                  (if (not (null? (theorem-name theorem)))
+                      (symbol-append 'tr% (theorem-name theorem)) nil))
+              (formula (theorem-formula theorem)))
+          (or (and the-name (name->macete-raise-no-error the-name)
+                   (sub-theory?
+                       (transportable-macete-source-theory
+                           (name->macete the-name))
+                       theory))
+              (add-macete
+                  (build-transportable-macete formula theory the-name
+                      value-true)))))
+
+(define (add-unsafe-transportable-macete the-name formula theory)
+        (add-macete
+            (build-transportable-macete formula theory the-name
+                value-false)))

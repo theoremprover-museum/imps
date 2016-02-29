@@ -1,0 +1,58 @@
+# Use: 
+# cd ~/sys/oolong
+# gawk -f changem.awk PWD=`pwd DUMP=$DUMP EMACS=$EMACS GCL=$GCL el/*.el bin/* 
+# FILENAME1 contains modified file.
+
+BEGIN { i=1 }
+
+# Finish Off old business from previous file:
+
+FNR == 1 { 
+
+  print FILENAME "..";
+  FILENAME1= FILENAME "copy1" ;
+  print "Making temporary file..." FILENAME1;
+  if (1<i) {
+    close(LFILENAME1);
+    close(LFILENAME);
+    system("cp " LFILENAME1 " " LFILENAME);
+    system("rm -f " LFILENAME1); 
+    print "Removed temporary file." LFILENAME1  ;
+  }
+  LFILENAME=FILENAME;
+  LFILENAME1=FILENAME1;
+  i++;
+}
+# This destructively modifies $0.
+
+
+/^[ \t]*\(defvar imps-source-files/ {$0="(defvar imps-source-files (substitute-in-file-name \"" PWD "/oolong/\"))" }
+
+/^[ \t]*\(defvar imps-theory-files/ {$0="(defvar imps-theory-files \"" OldImps "/\")"}
+
+/^[ \t]*IMPS=/ {$0="IMPS=" PWD}
+
+/^[ \t]*DUMP=/ {$0="DUMP=" DUMP }
+
+/^[ \t]*IMPS_EMACS=/ {$0="IMPS_EMACS=" EMACS}
+
+/^[ \t]*CL=/ {$0="CL=" CL}
+
+/^[ \t]*LispProg=/ { $0="LispProg=" LispProg }
+
+/^[ \t]*OldImps=/ { $0="OldImps=" OldImps}
+
+/^[ \t]*LispProg=/ {$0="LispProg=" LispProg}
+
+/^[ \t]*;*[ \t]*\(imps-load-init-files\)/ && (LispProg == "allegro2" || LispProg == "allegro" || LispProg == "cmu" || LispProg == "cmulinux") {$0="(imps-load-init-files)"}
+
+/^[ \t]*;*[ \t]*\(imps-load-init-files\)/ && (LispProg == "clisp" || LispProg == "gcl") {$0=";;;(imps-load-init-files)"}
+
+{print $0 > FILENAME1}
+
+END {  
+    if (1<i) {
+      system("cp " LFILENAME1 " " LFILENAME);
+      system("rm " LFILENAME1);
+    }
+}

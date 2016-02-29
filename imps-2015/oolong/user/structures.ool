@@ -1,0 +1,324 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+(in-package "TEA")
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(numerical-type-coercion-function numerical-type-recognizer
+          numerical-type-identifier))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(base-sort-name base-sort-category base-sort-type
+          base-sort-enclosing-sort base-sort-numerical?
+          base-sort-alpha-hash))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(higher-sort-name higher-sort-range higher-sort-domains
+          higher-sort-category higher-sort-type
+          higher-sort-enclosing-sort higher-sort-level
+          higher-sort-bases higher-sort-numerical?
+          higher-sort-alpha-hash))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(expression-name expression-components expression-constructor
+          expression-qcs expression-free-variables
+          expression-bound-variables expression-newly-bound-variables
+          expression-variables expression-constants
+          expression-lead-constant expression-var-name-conflict?
+          expression-sorting expression-home expression-height
+          expression-hash expression-pushed-not expression-flushed-not
+          expression-necessarily-undefined?
+          expression-hereditarily-prop-free? expression-alpha-hash
+          expression-alpha-root expression-descriptor-hash))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(gct-entry-sexp-decoder gct-entry-sexp-builder
+          gct-entry-local-context-incrementer gct-entry-simplifier
+          gct-entry-parity gct-entry-direct-inference
+          gct-entry-antecedent-inference
+          gct-entry-syllogistic-inference gct-entry-truth-value-seeker
+          gct-entry-logical-transform))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(compound-language-basic-languages compound-language-base-sorts
+          compound-language-constants
+          compound-language-default-sorting-alist
+          compound-language-resolver compound-language-extra-resolver
+          compound-language-name compound-language-table-hash
+          compound-language-defining-form))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(d-r-handler-name d-r-handler-everywhere-defined-fns
+          d-r-handler-everywhere-defined-coercions
+          d-r-handler-nowhere-defined-coercions
+          d-r-handler-conditionally-defined-coercions
+          d-r-handler-definedness-alist
+          d-r-handler-sort-definedness-alist
+          d-r-handler-undefinedness-alist d-r-handler-value-alist
+          d-r-handler-closure-alist d-r-handler-fn-defined-sort-alist
+          d-r-handler-summarily-defined d-r-handler-theory))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(definition-home-theory definition-constant
+          definition-defining-expr definition-axiom definition-theorems
+          definition-usage-list definition-implicit?
+          definition-implicit-unfolding-macete))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(recursive-definition-name recursive-definition-home-theory
+          recursive-definition-constant-list
+          recursive-definition-functional-list
+          recursive-definition-defining-expr-list
+          recursive-definition-rec-defining-expr-list
+          recursive-definition-equation-axioms
+          recursive-definition-minimality-axiom
+          recursive-definition-totality-axioms
+          recursive-definition-theorems
+          recursive-definition-usage-list))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(sort-definition-home-theory sort-definition-sort
+          sort-definition-quasi-sort sort-definition-axiom
+          sort-definition-theorems sort-definition-usage-list))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(mc-extension-home-theory mc-extension-name mc-extension-sorts
+          mc-extension-constants mc-extension-language
+          mc-extension-axioms mc-extension-kind))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(history-event-item history-event-name history-event-sexp-form))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(event-history-validation event-history-events))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(theory-subsorting-type-table theory-subsorting-table
+          theory-subsorting-theory))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(theory-name theory-component-theories theory-language
+          theory-original-language-name theory-axioms
+          theory-top-level-axioms theory-definitions
+          theory-recursive-definitions theory-sort-definitions
+          theory-mc-extensions theory-theorem-hash-table
+          theory-transform-table theory-valid-processors
+          theory-domain-range-handler theory-distinct-constant-table
+          theory-equivalence-relations theory-distinct-constant-list
+          theory-history theory-subsorting-structure theory-table-hash))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(theory-ensemble-name theory-ensemble-base-theory
+          theory-ensemble-fixed-theories-set
+          theory-ensemble-replica-renamer
+          theory-ensemble-theory-replica-alist
+          theory-ensemble-theory-multiple-alist
+          theory-ensemble-canonical-translations-alist
+          theory-ensemble-initial-movable-sorts
+          theory-ensemble-initial-movable-constants
+          theory-ensemble-nontranslating-defined-constants
+          theory-ensemble-nontranslating-defined-sorts
+          theory-ensemble-maximum-multiple))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(section-name section-component-names section-filespecs
+          section-aux-filespec section-loaded? section-obarray-entries))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(imps-obarray-entry-name imps-obarray-entry-kind
+          imps-obarray-entry-directory imps-obarray-entry-file
+          imps-obarray-entry-line imps-obarray-entry-def-name
+          imps-obarray-entry-section-name))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(q-class-forward? q-class-expr-or-next q-class-defined?))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(context-theory-slot context-assumptions context-q-classes
+          context-q-hashes context-partially-simplified
+          context-term-sorts context-free-variables
+          context-bound-variables context-variables
+          context-assumption-variables context-absurd-flag
+          context-predecessor context-assumptions-already-simplified?
+          context-sequents))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(sequent-context sequent-assertion sequent-free-variables
+          sequent-bound-variables sequent-entailment-flag))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(sequent-node-graph sequent-node-out-arrows
+          sequent-node-in-arrows sequent-node-grounded?
+          sequent-node-level sequent-node-sequent sequent-node-hidden?
+          sequent-node-number))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(inference-rule inference-name inference-hypotheses
+          inference-conclusion
+          inference-context-simplification-persistence))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(inference-node-graph inference-node-grounded?
+          inference-node-level inference-node-inference
+          inference-node-hypotheses inference-node-conclusion))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(deduction-graph-goal deduction-graph-sequent-nodes
+          deduction-graph-inference-nodes
+          deduction-graph-immediately-grounded deduction-graph-theory
+          deduction-graph-foci deduction-graph-history
+          deduction-graph-last-index
+          deduction-graph-unended-block-count))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(dg-history-entry-graph dg-history-entry-command
+          dg-history-entry-sequent-node dg-history-entry-arguments
+          dg-history-entry-previous-entry
+          dg-history-entry-nodes-grounded
+          dg-history-entry-last-index-before
+          dg-history-entry-last-index-after
+          dg-history-entry-jump-from-previous-expectation
+          dg-history-entry-first-unsupported-relative
+          dg-history-entry-annotation-before
+          dg-history-entry-annotation-after dg-history-entry-comments))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(special-inference-name special-inference-generator
+          special-inference-sideformula-condition
+          special-inference-comment))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(token-sexpression-label token-null-call-method
+          token-left-call-method token-binding-power))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(sexpression-label-presentation-format
+          sexpression-label-presentation-method
+          sexpression-label-binding-power))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(tex-summary-port tex-summary-relevant-sequent-nodes
+          tex-summary-graph tex-summary-goal-seen?
+          tex-summary-seen-sequent-nodes
+          tex-summary-seen-assertion-sqn-alist
+          tex-summary-seen-context-sqn-alist))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(algebraic-processor-language algebraic-processor-scalars-type
+          algebraic-processor-exponent-processor
+          algebraic-processor-coefficient-processor
+          algebraic-processor-numeral-to-term-function
+          algebraic-processor-constant-recognizer-function
+          algebraic-processor-term-to-numeral-function
+          algebraic-processor-faithful-numeral-representation?
+          algebraic-processor--r algebraic-processor-+r
+          algebraic-processor-*r algebraic-processor-^r
+          algebraic-processor-sub-r algebraic-processor-/r
+          algebraic-processor-reduced-terms
+          algebraic-processor-handled-operators
+          algebraic-processor-commutes algebraic-processor-expand
+          algebraic-processor-cancellation-valid?
+          algebraic-processor-sum-partitioner
+          algebraic-processor-rewrite-rules))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(processor-parameters-context processor-parameters-requirements
+          processor-parameters-persistence))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(tally-chart-scalar tally-chart-scalar-accumulator
+          tally-chart-label-accumulator tally-chart-label-equivalence
+          tally-chart-comparator tally-chart-object-list))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(order-processor-<=r order-processor-<r
+          order-processor-discrete-sorts
+          order-processor-sum-partitioner
+          order-processor-algebraic-processor
+          order-processor-handled-operators
+          order-processor-reduced-terms))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(linear-inequality-form linear-inequality-constant
+          linear-inequality-pred))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(separator-neutral separator-lhs separator-rhs))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(strategy-parameters-node-list strategy-parameters-persistence
+          strategy-parameters-do-simplification?
+          strategy-parameters-weaken
+          strategy-parameters-avoid-assumptions))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(inductor-name inductor-base-case-hook
+          inductor-induction-step-hook inductor-matcher
+          inductor-universal-matrix-matcher
+          inductor-induction-variables inductor-induction-macete
+          inductor-induction-step
+          inductor-induction-step-instantiations
+          inductor-induction-step-matcher inductor-dont-unfold))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(bnf-name bnf-language bnf-component-theory bnf-theory
+          bnf-primary-type bnf-sorts bnf-atoms bnf-constructors
+          bnf-selector-lists bnf-semantic-inclusions
+          bnf-constructor-definedness-axioms bnf-induction-axiom
+          bnf-disjointness-axioms bnf-selector-constructor-axioms
+          bnf-selector-undefinedness-axioms bnf-sort-inclusion-axioms
+          bnf-sort-case-axioms bnf-auxiliary-theorems bnf-inductor
+          bnf-primitive-recursive-iota-theorem
+          bnf-primitive-recursive-unfolding-theorem
+          bnf-primitive-recursive-definition-type bnf-generic-type
+          bnf-generic-theory))
+
+(walk (lambda (x) (t-impl::annotate-setf-method x))
+     '(translation-name translation-nickname translation-source-theory
+          translation-target-theory translation-assumptions
+          translation-fixed-theories translation-fixed-sorts
+          translation-fixed-constants translation-sort-alist
+          translation-constant-alist translation-free-variables
+          translation-defined-sort-alist
+          translation-defined-constant-alist translation-enrich?
+          translation-obligations translation-theory-interpretation?
+          translation-default-renamer))

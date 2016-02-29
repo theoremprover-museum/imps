@@ -1,0 +1,98 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+(in-package "TEA")
+
+(let ((rt (make-read-table standard-read-table 'imps-read-table)))
+  (set (read-table-entry rt #\)
+       (lambda (port ch rt)
+	 (ignore port ch rt)
+	 eof))
+  (set (port-read-table (standard-input)) rt))
+
+
+(reset-comm-file)
+
+;;When dump is made, (symbol-pathname 'oolong-compiled) is set.
+
+;;(set (default-pathname) (symbol-pathname 'oolong-compiled))
+
+(set (user) (unix-getenv "USER"))
+(print-objects-verbosely)
+(bind (((default-pathname) "/tmp/"))
+
+      (define imps-tex-file
+	(->filename (format nil "~A-imps.tex" (user))))
+      (define dg-file-name 
+	(->filename (format nil "~A-dg-file.dg" (user))))
+      (define sqn-file-name 
+	(->filename (format nil "~A-dg-file.sqn" (user))))
+      (define cmpn-file-name 
+	(->filename (format nil "~A-dg-file.cmpn" (user))))
+      (define sqn-edit-file-name
+	(->filename (format nil "~A-sqn-edit-file.sqn" (user))))
+      (define imps-command-file
+	(->filename (format nil "~A-imps-command-file" (user))))
+;;;      (define imps-commands-file
+;;;	(->filename (format nil "~A-imps-command-file" (user))))
+      (define imps-theorems-file
+	(->filename (format nil "~A-imps-theory-theorems" (user))))
+      (define imps-macetes-file
+	(->filename (format nil "~A-imps-theory-macetes" (user))))
+      (define imps-definitions-file
+	(->filename (format nil "~A-imps-theory-definitions" (user))))
+      (define imps-recursive-definitions-file
+	(->filename (format nil "~A-imps-theory-recursive-definitions" (user))))
+      (define imps-theory-interpretations-file
+	(->filename (format nil "~A-imps-theory-interpretations" (user))))
+      (define imps-error-file
+	(->filename (format nil "~A-imps-errors" (user))))
+      
+      )
+
+(block 
+ (format t "~%IMPS Version 2.0~%Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer~%~%Current Theory: ~A" 
+	 (name (current-theory))) 
+ (force-output (standard-output)))
+
+(t-e-write-commands) 
+'user-imps-init-done 

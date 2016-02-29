@@ -1,0 +1,201 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment record-theories)
+
+(define (make-record-theory base-theory type-name fieldname-sort-list)
+        (enforce theory? base-theory) (enforce symbol? type-name)
+        (enforce pair? fieldname-sort-list)
+        (receive (language constructor accessors)
+                 (make-record-language-and-constants
+                     (theory-language base-theory) type-name
+                     fieldname-sort-list)
+                 (let ((record-theory
+                           (build-theory (list base-theory) language
+                               (make-record-axioms language
+                                   (name->sort language type-name)
+                                   constructor accessors)
+                               nil
+                               (concatenate-symbol type-name '_records))))
+                   (record-theory-make-theorems record-theory
+                       (name->sort language type-name) constructor
+                       accessors)
+                   record-theory)))
+
+(define (make-record-language-and-constants base-language type-name
+            fieldname-sort-list)
+        (let* ((resolver
+                   (join-sort-resolvers
+                       (list (make-type-resolver (list type-name) nil)
+                             base-language)))
+               (new-type (name->sort resolver type-name))
+               (constructor
+                   (make-formal-symbol constant?
+                       (build-maximal-higher-sort
+                           (map cadr fieldname-sort-list) new-type)
+                       (concatenate-symbol 'make_ type-name)))
+               (accessors
+                   (map (lambda (fieldname-sort)
+                          (destructure
+                              (((fieldname sort) fieldname-sort))
+                              (or (possible-symbol-form? fieldname)
+                                  (imps-error
+                                      "make-record-theory: What kind of a name is ~S??"
+                                      fieldname))
+                              (make-formal-symbol constant?
+                                  (build-maximal-higher-sort
+                                      (list new-type) sort)
+                                  (concatenate-symbol type-name '_
+                                      fieldname))))
+                        fieldname-sort-list)))
+          (return
+            (extend-language base-language (cons constructor accessors)
+                resolver)
+            constructor
+            accessors)))
+
+(define (make-record-axioms language record-sort constructor accessors)
+        (let ((record-var (find-variable 'r record-sort))
+              (field-vars
+                  (sorts->new-variables
+                      (expression-domains constructor) 'x nil))
+              (alt-field-vars
+                  (sorts->new-variables
+                      (expression-domains constructor) 'y nil)))
+          (let ((no-junk (build-theorem nil
+                             (forall (apply forsome
+                                      (equality record-var
+                                       (apply apply-operator
+                                        constructor field-vars))
+                                      field-vars)
+                                     record-var)
+                             (concatenate-symbol (name record-sort)
+                                 '%no-junk)
+                             '(transportable-macete)))
+                (no-confusion
+                    (build-theorem nil
+                        (apply forall
+                               (biconditional
+                                   (equality
+                                    (apply apply-operator constructor
+                                     field-vars)
+                                    (apply apply-operator constructor
+                                     alt-field-vars))
+                                   (conjunction-simplifier
+                                    (map
+                                     (lambda (fv afv)
+                                       (equality fv afv))
+                                     field-vars alt-field-vars)))
+                               (append field-vars alt-field-vars))
+                        (concatenate-symbol (name record-sort)
+                            '%no-confusion)
+                        '(rewrite transportable-macete))))
+            (cons* no-junk no-confusion
+                   (build-theorem nil
+                       (forall (equality
+                                   (apply apply-operator constructor
+                                    (map
+                                     (lambda (accessor)
+                                       (apply-operator accessor
+                                        record-var))
+                                     accessors))
+                                   record-var)
+                               record-var)
+                       (concatenate-symbol (name constructor)
+                           '%representation)
+                       '(rewrite transportable-macete))
+                   (map (lambda (accessor var)
+                          (build-theorem nil
+                              (apply forall
+                                     (equality
+                                      (apply-operator accessor
+                                       (apply apply-operator
+                                        constructor field-vars))
+                                      var)
+                                     field-vars)
+                              (concatenate-symbol (name accessor)
+                                  '%make- (name record-sort))
+                              '(rewrite transportable-macete)))
+                        accessors field-vars)))))
+
+(define (record-theory-make-theorems record-theory record-sort
+            constructor accessors)
+        (theory-add-theorem record-theory
+            (total? constructor constructor) nil 'd-r-convergence
+            'transportable-macete)
+        (let ((vars (sorts->new-variables
+                        (expression-domains constructor) 'x nil)))
+          (theory-add-theorem record-theory
+              (apply forall
+                     (defined-in
+                         (apply apply-operator constructor vars)
+                         record-sort)
+                     vars)
+              (concatenate-symbol (name constructor) '-in-sort)
+              'rewrite 'transportable-macete 'd-r-convergence))
+        (walk (lambda (accessor)
+                (and (function? accessor)
+                     (theory-add-theorem record-theory
+                         (total? accessor accessor)
+                         (concatenate-symbol (name accessor)
+                             '-totality)
+                         'transportable-macete 'd-r-convergence)))
+              accessors))
+
+(define (make-record-theory-with-sortnames base-theory type-name
+            fieldname-sortname-list)
+        (let ((resolver (theory-language base-theory)))
+          (make-record-theory base-theory type-name
+              (map (lambda (fieldname-sortname)
+                     (destructure
+                         (((fieldname sortname) fieldname-sortname))
+                         (list fieldname
+                               (string->sort resolver sortname))))
+                   fieldname-sortname-list))))

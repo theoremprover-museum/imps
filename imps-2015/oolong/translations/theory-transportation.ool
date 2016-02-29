@@ -1,0 +1,429 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment theory-transportation)
+
+(define (transport-theory translation source-theory target-theory
+            fixed-theories renamer new-trans-name new-trans-nickname
+            new-theory-name)
+        (let ((fixed-theories
+                  (compress-theories
+                      (set-union fixed-theories
+                          (translation-fixed-theories translation)))))
+          (check-arguments-for-transport-theory translation
+              source-theory target-theory fixed-theories renamer
+              new-trans-name new-trans-nickname new-theory-name)
+          (transport-all-defined-sorts-and-constants translation
+              renamer)
+          (let* ((new-translation
+                     (transport-theory-aux translation source-theory
+                         target-theory fixed-theories renamer
+                         new-trans-name new-trans-nickname
+                         new-theory-name))
+                 (unfixed-source-theory-defined-sorts
+                     (set-diff (theory-defined-sorts source-theory)
+                         (big-u (cons (theory-defined-sorts
+                                       (translation-source-theory
+                                        translation))
+                                      (map theory-sorts-resolved
+                                       fixed-theories)))))
+                 (unfixed-source-theory-defined-constants
+                     (set-diff (theory-defined-constants source-theory)
+                         (big-u (cons (theory-defined-constants
+                                       (translation-source-theory
+                                        translation))
+                                      (map theory-constants
+                                       fixed-theories)))))
+                 (sort-const-set
+                     (set-union unfixed-source-theory-defined-sorts
+                         unfixed-source-theory-defined-constants)))
+            (tt-transport-defined-sorts-and-constants new-translation
+                sort-const-set renamer)
+            (or (theory-interpretation-check-using-simplification
+                    new-translation)
+                (imps-error "TRANSPORT-THEORY: ~A ~S ~A."
+                    "the resulting translation" new-translation
+                    "is not known to be a theory interpretation"))
+            new-translation)))
+
+(define (transport-theory-aux translation source-theory target-theory
+            fixed-theories renamer new-trans-name new-trans-nickname
+            new-theory-name)
+        (let* ((trans-source-theory
+                   (translation-source-theory translation))
+               (trans-target-theory
+                   (translation-target-theory translation))
+               (trans-fixed-theories
+                   (translation-fixed-theories translation))
+               (little-language-translation
+                   (build-language-translation
+                       (theory-language trans-source-theory)
+                       (theory-language trans-target-theory)
+                       (map theory-language trans-fixed-theories)
+                       (set-union (translation-sort-alist translation)
+                           (translation-defined-sort-alist translation))
+                       (set-union
+                           (translation-constant-alist translation)
+                           (translation-defined-constant-alist
+                               translation))
+                       value-false value-false))
+               (big-language-translation
+                   (transport-language little-language-translation
+                       (theory-language source-theory)
+                       (theory-language target-theory)
+                       (map theory-language fixed-theories) renamer))
+               (new-language
+                   (theory-language
+                       (translation-target-theory
+                           big-language-translation)))
+               (theorem-namer
+                   (lambda (the-name)
+                     (default-binary-namer new-trans-nickname the-name)))
+               (sorts (set-separate
+                          (lambda (sort)
+                            (and (not (sort-is-type? sort))
+                                 (not (sort?
+                                       (translate-sort
+                                        big-language-translation sort)))))
+                          (set-diff
+                              (sorts-resolved
+                                  (theory-language source-theory))
+                              (sorts-resolved
+                                  (theory-language trans-source-theory)))))
+               (the-constants
+                   (set-separate
+                       (lambda (const)
+                         (not (sort? (translate-sort
+                                      big-language-translation
+                                      (expression-sorting const)))))
+                       (set-diff
+                           (language-constants
+                               (theory-language source-theory))
+                           (language-constants
+                               (theory-language trans-source-theory)))))
+               (axioms (set-diff (theory-axioms source-theory)
+                           (big-u (cons (theory-axioms
+                                         trans-source-theory)
+                                        (map theory-axioms
+                                         fixed-theories)))))
+               (new-axioms
+                   (big-u (list (tt-sort-enclosure-axioms
+                                    big-language-translation sorts)
+                                (tt-constant-sort-axioms
+                                    big-language-translation the-constants)
+                                (set-map (lambda (ax)
+                                           (translate-theorem
+                                            big-language-translation ax
+                                            theorem-namer))
+                                         axioms))))
+               (distinct-constants
+                   (set-diff
+                       (theory-distinct-constant-list source-theory)
+                       (theory-distinct-constant-list
+                           trans-source-theory)))
+               (new-distinct-constants
+                   (map (lambda (l)
+                          (map (lambda (c)
+                                 (translate-constant
+                                     big-language-translation c))
+                               l))
+                        distinct-constants))
+               (new-theory
+                   (build-theory
+                       (cons target-theory
+                             (set-separate
+                                 (lambda (th)
+                                   (not (sub-theory? th target-theory)))
+                                 fixed-theories))
+                       new-language new-axioms new-distinct-constants
+                       new-theory-name))
+               (sort-alist
+                   (translation-sort-alist big-language-translation))
+               (constant-alist
+                   (translation-constant-alist
+                       big-language-translation)))
+          (build-translation source-theory new-theory the-empty-set
+              fixed-theories sort-alist constant-alist new-trans-name
+              new-trans-nickname value-true)))
+
+(define (check-arguments-for-transport-theory translation source-theory
+            target-theory fixed-theories renamer new-trans-name
+            new-trans-nickname new-theory-name)
+        (or (theory? source-theory)
+            (imps-error "CHECK-ARGUMENTS-FOR-TRANSPORT-THEORY: ~S ~A."
+                source-theory "is not a theory"))
+        (or (theory? target-theory)
+            (imps-error "CHECK-ARGUMENTS-FOR-TRANSPORT-THEORY: ~S ~A."
+                target-theory "is not a theory"))
+        (or (and (list? fixed-theories)
+                 (every? theory? fixed-theories))
+            (imps-error "CHECK-ARGUMENTS-FOR-TRANSPORT-THEORY: ~S ~A."
+                fixed-theories "is not a list of theories"))
+        (or (procedure? renamer)
+            (imps-error "CHECK-ARGUMENTS-FOR-TRANSPORT-THEORY: ~S ~A."
+                renamer "is a bad renamer"))
+        (or (not new-trans-name) (symbol? new-trans-name)
+            (imps-error "CHECK-ARGUMENTS-FOR-TRANSPORT-THEORY: ~S ~A."
+                new-trans-name "is a bad translation name"))
+        (or (not new-trans-nickname)
+            (possible-symbol-form? new-trans-nickname)
+            (imps-error "CHECK-ARGUMENTS-FOR-TRANSPORT-THEORY: ~S ~A."
+                new-trans-nickname "is a bad nickname"))
+        (or (not new-theory-name) (symbol? new-theory-name)
+            (imps-error "CHECK-ARGUMENTS-FOR-TRANSPORT-THEORY: ~S ~A."
+                new-theory-name "is a bad theory name"))
+        (quick-theory-interpretation-check translation)
+        (let ((trans-source-theory
+                  (translation-source-theory translation))
+              (trans-target-theory
+                  (translation-target-theory translation)))
+          (or (sub-theory? trans-source-theory source-theory)
+              (imps-error
+                  "CHECK-ARGUMENTS-FOR-TRANSPORT-THEORY: ~S ~A ~S."
+                  trans-source-theory "is not a subtheory of"
+                  source-theory))
+          (or (sub-theory? trans-target-theory target-theory)
+              (imps-error
+                  "CHECK-ARGUMENTS-FOR-TRANSPORT-THEORY: ~S ~A ~S."
+                  trans-target-theory "is not a subtheory of"
+                  target-theory))
+          (or (empty-set? (translation-assumptions translation))
+              (imps-error
+                  "CHECK-ARGUMENTS-FOR-TRANSPORT-THEORY: ~A ~S ~A."
+                  "the set of assumptions of" translation
+                  "is not empty"))
+          (or (empty-set? (translation-free-variables translation))
+              (imps-error
+                  "CHECK-ARGUMENTS-FOR-TRANSPORT-THEORY: ~A ~S ~A."
+                  "the set of free variables of" translation
+                  "is not empty"))
+          (every? (lambda (th)
+                    (or (sub-theory? th source-theory)
+                        (imps-error
+                            "CHECK-ARGUMENTS-FOR-TRANSPORT-THEORY: ~S ~A ~S."
+                            th "is not a sub-theory of" source-theory)))
+                  fixed-theories)
+          (map (lambda (th)
+                 (or (and (every? (lambda (sort)
+                                    (or
+                                     (not
+                                      (theory-resolved-sort?
+                                       trans-source-theory sort))
+                                     (eq? sort
+                                      (translate-sort translation sort))))
+                                  (theory-sorts-resolved th))
+                          (every? (lambda (const)
+                                    (or
+                                     (not
+                                      (theory-constant?
+                                       trans-source-theory const))
+                                     (eq? const
+                                      (translate-constant translation
+                                       const))))
+                                  (theory-constants th)))
+                     (imps-error
+                         "CHECK-ARGUMENTS-FOR-TRANSPORT-THEORY: ~S ~A ~S."
+                         th "is not fixed by" translation)))
+               fixed-theories)))
+
+(define (tt-sort-enclosure-axioms translation sorts)
+        (let ((home-theory (translation-target-theory translation)))
+          (set-map (lambda (sort)
+                     (let ((sort-trans
+                               (translate-sort translation sort))
+                           (enclosing-sort-trans
+                               (translate-sort translation
+                                   (enclosing-sort sort))))
+                       (build-theorem home-theory
+                           (make-enclosure-formula sort-trans
+                               enclosing-sort-trans)
+                           (concatenate-symbol (name sort-trans)
+                               '-enclosure-axiom)
+                           nil)))
+                   sorts)))
+
+(define (tt-constant-sort-axioms translation the-constants)
+        (let ((home-theory (translation-target-theory translation)))
+          (set-map (lambda (const)
+                     (let ((const-trans
+                               (translate-constant translation const))
+                           (sort-trans
+                               (translate-sort translation
+                                   (expression-sorting const))))
+                       (build-theorem home-theory
+                           (make-sorting-formula const-trans
+                               sort-trans)
+                           (concatenate-symbol (name const-trans)
+                               '-sort-axiom)
+                           nil)))
+                   the-constants)))
+
+(define (tt-transport-defined-sorts-and-constants translation
+            sort-const-set renamer)
+        (let* ((source-theory (translation-source-theory translation))
+               (def-set (set-map (lambda (x)
+                                   (cond
+                                     ((theory-get-sort-definition
+                                       source-theory (name x)))
+                                     ((theory-get-definition
+                                       source-theory (name x)))
+                                     ((theory-get-recursive-definition
+                                       source-theory (name x)))
+                                     (else
+                                      (imps-error
+                                       "TT-TRANSPORT-DEFINED-SORTS-AND-CONSTANTS: ~S ~A."
+                                       x
+                                       "is not a defined sort or constant"))))
+                                 sort-const-set))
+               (ordered-def-list
+                   (theory-order-definitions source-theory def-set)))
+          (walk (lambda (def)
+                  (cond
+                    ((sort-definition? def)
+                     (tt-transport-sort-definition translation def))
+                    ((definition? def)
+                     (tt-transport-definition translation def))
+                    ((recursive-definition? def)
+                     (tt-transport-recursive-definition translation def
+                         renamer))
+                    (else (imps-error
+                              "TT-TRANSPORT-DEFINED-SORTS-AND-CONSTANTS: ~S ~A."
+                              def
+                              "is not a sort, direct, or recursive definition"))))
+                ordered-def-list)
+          (enrich-translation translation)))
+
+(define (tt-transport-sort-definition translation definition)
+        (let* ((target-theory (translation-target-theory translation))
+               (sort (sort-definition-sort definition))
+               (trans-sort (translate-sort translation sort))
+               (trans-quasi-sort
+                   (translate-expression-and-beta-reduce translation
+                       (sort-definition-quasi-sort definition)))
+               (usage-list (sort-definition-usage-list definition)))
+          (bind (((preserve-theory-language?) value-true))
+                (apply theory-build-sort-definition-without-checking-nonemptyness
+                       target-theory (name trans-sort) trans-quasi-sort
+                       usage-list))))
+
+(define (tt-transport-definition translation definition)
+        (let* ((target-theory (translation-target-theory translation))
+               (constant (definition-constant definition))
+               (trans-constant
+                   (translate-constant translation constant))
+               (trans-sort (expression-sorting trans-constant))
+               (trans-defining-expr
+                   (translate-expression-and-beta-reduce translation
+                       (definition-defining-expr definition)))
+               (usage-list (definition-usage-list definition)))
+          (bind (((preserve-theory-language?) value-true))
+                (theory-build-definition-without-checking-definedness
+                    target-theory (name trans-constant)
+                    trans-defining-expr trans-sort usage-list))))
+
+(define (tt-transport-recursive-definition translation definition
+            renamer)
+        (let* ((target-theory (translation-target-theory translation))
+               (constant-list
+                   (recursive-definition-constant-list definition))
+               (trans-constant-list
+                   (map (lambda (c)
+                          (translate-constant translation c))
+                        constant-list))
+               (trans-funct-list
+                   (map (lambda (e)
+                          (translate-expression-and-beta-reduce
+                              translation e))
+                        (recursive-definition-functional-list
+                            definition)))
+               (new-name
+                   (funcall renamer
+                            (recursive-definition-name definition)))
+               (usage-list
+                   (recursive-definition-usage-list definition)))
+          (bind (((preserve-theory-language?) value-true))
+                (apply theory-build-recursive-definition-without-checking-monotonicity
+                       target-theory (map name trans-constant-list)
+                       trans-funct-list new-name usage-list))))
+
+(define (replicate-theory theory target-theory fixed-theories nickname
+            new-translation-name new-theory-name . renamer)
+        (imps-enforce possible-symbol-form? nickname)
+        (let ((renamer (if (null? renamer) (default-namer nickname)
+                           (car renamer))))
+          (transport-theory the-kernel-translation theory target-theory
+              fixed-theories renamer new-translation-name nickname
+              new-theory-name)))
+
+(define (poly-replicate-theory theory fixed-theories nickname-list
+            new-theory-name)
+        (let* ((translations
+                   (map (lambda (nickname)
+                          (replicate-theory theory the-kernel-theory
+                              fixed-theories nickname
+                              (concatenate-symbol (name theory) '-to-
+                                  nickname '- (name theory))
+                              (concatenate-symbol nickname '-
+                                  (name theory))))
+                        nickname-list))
+               (theories (map translation-target-theory translations)))
+          (return
+            translations
+            (theory-union theories new-theory-name))))
+
+(define (default-binary-namer nickname symbol)
+        (cond
+          ((eq? symbol 'prop) 'prop)
+          ((not symbol) value-false)
+          (nickname (concatenate-symbol nickname '% symbol))
+          (else (concatenate-symbol '% symbol))))
+
+(define (default-namer nickname)
+        (lambda (the-name) (default-binary-namer nickname the-name)))

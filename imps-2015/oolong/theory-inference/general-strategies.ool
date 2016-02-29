@@ -1,0 +1,1182 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment general-strategies)
+
+(define deduction-graph-strategy-simplification-procedure
+        (make-simple-switch
+            'deduction-graph-strategy-simplification-procedure
+            procedure? dg-primitive-inference-simplification))
+
+(define (inference-node-simplify-minor-hypotheses infn)
+        (if (succeed-without-grounding? infn)
+            (walk dg-primitive-inference-simplification
+                  (cdr (inference-node-hypotheses infn))))
+        (return))
+
+(define (deduction-graph-direct-inference-to-satisfaction pred sqn)
+        (iterate loop ((last-inference (fail)) (sqn sqn))
+                 (if (funcall pred (sequent-node-assertion sqn))
+                     (return last-inference sqn)
+                     (let ((new-inference
+                               (dg-primitive-inference-direct-inference
+                                   sqn)))
+                       (if (fail? new-inference)
+                           (return last-inference sqn)
+                           (iterate march
+                                    ((hyps
+                                      (inference-node-hypotheses
+                                       new-inference)))
+                                    (cond
+                                      ((null? hyps)
+                                       (return (fail) sqn))
+                                      ((subexpression-satisfies? pred
+                                        (sequent-node-assertion
+                                         (car hyps)))
+                                       (loop new-inference (car hyps)))
+                                      (else (march (cdr hyps))))))))))
+
+(define (deduction-graph-direct-inference-to-match matcher sqn strict?)
+        (deduction-graph-direct-inference-to-satisfaction
+            (lambda (x) (expression-matches? matcher x strict?)) sqn))
+
+(define (deduction-graph-universal-and-implication-direct-inferences-for-cf
+            sqn-node)
+        (iterate loop ((sqn sqn-node) (last-inference (fail)))
+                 (if (or (universal? (sequent-node-assertion sqn))
+                         (implication? (sequent-node-assertion sqn)))
+                     (let ((inf (dg-primitive-inference-direct-inference
+                                    sqn)))
+                       (if (succeed-without-grounding? inf)
+                           (loop
+                             (inference-node-1st-hypothesis inf)
+                             inf)
+                           last-inference))
+                     last-inference)))
+
+(define (deduction-graph-conjunctive-and-existential-antecedent-inferences
+            sqn-node)
+        (iterate loop ((sqn sqn-node) (last-inference (fail)))
+                 (let ((inf (any (lambda (x)
+                                   (and
+                                    (or (conjunction? x)
+                                     (existential? x))
+                                    (let
+                                     ((inf
+                                       (dg-primitive-inference-antecedent-inference
+                                        sqn x)))
+                                      (if
+                                       (succeed-without-grounding? inf)
+                                       inf value-false))))
+                                 (sequent-node-assumptions sqn))))
+                   (if inf
+                       (loop (inference-node-1st-hypothesis inf) inf)
+                       last-inference))))
+
+(define (deduction-graph-inferences-for-cross-fertilization sqn)
+        (let* ((inf1 (deduction-graph-universal-and-implication-direct-inferences-for-cf
+                         sqn))
+               (sqn1 (if (succeed-without-grounding? inf1)
+                         (inference-node-1st-hypothesis inf1) sqn)))
+          (let ((inf2 (deduction-graph-conjunctive-and-existential-antecedent-inferences
+                          sqn1)))
+            (if (succeed-without-grounding? inf2) inf2 inf1))))
+
+(define (deduction-graph-cross-fertilize sqn)
+        (let* ((inf (deduction-graph-inferences-for-cross-fertilization
+                        sqn))
+               (sqn (if (succeed? inf)
+                        (inference-node-1st-hypothesis inf) sqn)))
+          (iterate iter
+                   ((sqn sqn) (infn (fail))
+                    (assumptions (sequent-node-assumptions sqn)))
+                   (if (null? assumptions) infn
+                       (let ((new-infn
+                                 (if (backchain-equivalence?
+                                      (car assumptions))
+                                     (dg-primitive-inference-backchain-inference
+                                      sqn (car assumptions))
+                                     (fail))))
+                         (if (succeed-without-grounding? new-infn)
+                             (iter (inference-node-1st-hypothesis
+                                    new-infn)
+                                   new-infn (cdr assumptions))
+                             (iter sqn infn (cdr assumptions))))))))
+
+(define (series-strategy-constructor procs)
+        (lambda (sqn)
+          (iterate loop
+                   ((procs procs) (last-inference (fail)) (sqn sqn))
+                   (if (null? procs) last-inference
+                       (let* ((next-inference
+                                  (funcall (car procs) sqn))
+                              (sqn-1 (if
+                                      (succeed-without-grounding?
+                                       next-inference)
+                                      (inference-node-1st-hypothesis
+                                       next-inference)
+                                      sqn)))
+                         (if (immediately-grounded? sqn-1)
+                             next-inference
+                             (loop
+                               (cdr procs)
+                               (if (succeed? next-inference)
+                                   next-inference last-inference)
+                               sqn-1)))))))
+
+(define (repeat-strategy-constructor-aux procs sqn)
+  (iterate loop ((procs procs) (last-inference (fail)) (sqn sqn))
+    (if (null? procs) last-inference
+	(let* ((next-inference
+		(funcall (car procs) sqn))
+	       (sqn-1
+		(if
+		 (succeed-without-grounding?
+		  next-inference)
+		 (inference-node-1st-hypothesis
+		  next-inference)
+		 sqn)))
+	  (if (immediately-grounded? sqn-1)
+	      next-inference
+	      (loop
+	       (cdr procs)
+	       (if (succeed? next-inference)
+		   next-inference last-inference)
+	       sqn-1))))))
+
+(define (repeat-strategy-constructor procs)
+  (lambda (sqn)
+    (iterate loop ((sqn sqn) (last-inference (fail)))
+      (let ((inf (repeat-strategy-constructor-aux procs sqn)))
+	(if (succeed? inf)
+	    (loop
+	     (inference-node-1st-hypothesis inf)
+	     inf)
+	    last-inference)))))
+
+(define (sequential-strategy-constructor procs)
+        (lambda (sqn)
+          (iterate loop
+                   ((sqn sqn) (last-inference (fail)) (procs procs))
+                   (cond
+                     ((null? procs) last-inference)
+                     (else (let ((new-inf (funcall (car procs) sqn)))
+                             (if (succeed-without-grounding? new-inf)
+                                 (loop
+                                   (inference-node-1st-hypothesis
+                                    new-inf)
+                                   new-inf
+                                   (cdr procs))
+                                 last-inference)))))))
+
+(define (parallel-strategy-constructor procs)
+        (lambda (sqn)
+          (iterate loop ((procs procs))
+                   (if (null? procs) (fail)
+                       (let ((new-inf (funcall (car procs) sqn)))
+                         (if (succeed? new-inf) new-inf
+                             (loop (cdr procs))))))))
+
+(define (deduction-graph-apply-in-sequence procs sqn)
+        (funcall (series-strategy-constructor procs) sqn))
+
+(define global-strategy-persistence
+        (make-simple-switch 'global-strategy-persistence number? 3))
+
+(define-structure-type strategy-parameters node-list persistence
+    do-simplification? weaken avoid-assumptions)
+
+(set (strategy-parameters-node-list
+         (stype-master strategy-parameters-stype))
+     nil)
+
+(set (strategy-parameters-weaken
+         (stype-master strategy-parameters-stype))
+     nil)
+
+(set (strategy-parameters-do-simplification?
+         (stype-master strategy-parameters-stype))
+     value-true)
+
+(set (strategy-parameters-persistence
+         (stype-master strategy-parameters-stype))
+     (global-strategy-persistence))
+
+(set (strategy-parameters-avoid-assumptions
+         (stype-master strategy-parameters-stype))
+     nil)
+
+(define (set-strategy-persistence new-value)
+        (set (strategy-parameters-persistence
+                 (stype-master strategy-parameters-stype))
+             new-value))
+
+(define (failed-or-redundant-inference? inf params)
+        (cond
+          ((fail? inf) value-true)
+          ((null? (inference-node-hypotheses inf)) value-false)
+          (else (let ((hyps (inference-node-hypotheses inf)))
+                  (if (or (subset? hyps
+                                   (strategy-parameters-node-list
+                                    params))
+                          (any? (lambda (sqn)
+                                  (falsehood?
+                                      (sequent-node-assertion sqn)))
+                                hyps))
+                      value-true value-false)))))
+
+(define (mark-as-visited sqn params)
+        (set (strategy-parameters-node-list params)
+             (add-set-element sqn
+                 (strategy-parameters-node-list params)))
+        sqn)
+
+(define (inference-ultimately-succeeds-for-strategy? proc sqn inf
+            params)
+        (mark-as-visited sqn params)
+        (cond
+          ((immediately-grounded? sqn) value-true)
+          ((failed-or-redundant-inference? inf params) value-false)
+          (else (every? (lambda (x) (funcall proc x params))
+                        (inference-node-hypotheses inf)))))
+
+(define (prove-by-raising-conditionals-and-simplification sqn params)
+        (cond
+          ((immediately-grounded? sqn))
+          ((memq? sqn (strategy-parameters-node-list params)) value-false)
+          ((and (strategy-parameters-do-simplification? params)
+                (bind (((strategy-parameters-do-simplification? params)
+                        value-false))
+                      (inference-ultimately-succeeds-for-strategy?
+                          prove-by-raising-conditionals-and-simplification
+                          sqn
+                          (funcall (deduction-graph-strategy-simplification-procedure)
+                                   sqn)
+                          params))))
+          ((inference-ultimately-succeeds-for-strategy?
+               prove-by-raising-conditionals-and-simplification sqn
+               (dg-primitive-inference-direct-inference sqn) params))
+          (else (bind (((strategy-parameters-do-simplification? params)
+                        value-true))
+                      (inference-ultimately-succeeds-for-strategy?
+                          prove-by-raising-conditionals-and-simplification
+                          sqn
+                          (deduction-graph-raise-conditional-and-direct-inference
+                              sqn)
+                          params)))))
+
+(build-universal-command
+    (lambda (sqn persistence)
+      (let ((params (make-strategy-parameters)))
+        (set (strategy-parameters-persistence params) persistence)
+        (prove-by-logic-and-simplification sqn params)))
+    'prove-by-logic-and-simplification (always value-true)
+    'persistence-request-retrieval-protocol)
+
+(define (prove-by-logic-and-simplification sqn params)
+        (let ((assumptions (sequent-node-assumptions sqn)))
+          (cond
+            ((immediately-grounded? sqn))
+            ((memq? sqn (strategy-parameters-node-list params))
+             value-false)
+            ((and (strategy-parameters-do-simplification? params)
+                  (bind (((strategy-parameters-do-simplification?
+                              params)
+                          value-false))
+                        (inference-ultimately-succeeds-for-strategy?
+                            prove-by-logic-and-simplification sqn
+                            (funcall (deduction-graph-strategy-simplification-procedure)
+                                     sqn)
+                            params))))
+            ((and (> (strategy-parameters-persistence params) 0)
+                  (any? (lambda (x)
+                          (bind (((strategy-parameters-do-simplification?
+                                      params)
+                                  value-true)
+                                 ((strategy-parameters-persistence
+                                      params)
+                                  (fx- (strategy-parameters-persistence
+                                        params)
+                                       1)))
+                                (inference-ultimately-succeeds-for-strategy?
+                                    prove-by-logic-and-simplification
+                                    sqn
+                                    (dg-primitive-inference-backchain-through-formula-inference
+                                     sqn x)
+                                    params)))
+                        assumptions)))
+            ((any? (lambda (antecedent-formula)
+                     (and (or (existential? antecedent-formula)
+                              (conjunction? antecedent-formula))
+                          (inference-ultimately-succeeds-for-strategy?
+                              prove-by-logic-and-simplification sqn
+                              (dg-primitive-inference-antecedent-inference
+                                  sqn antecedent-formula)
+                              params)))
+                   assumptions))
+            ((inference-ultimately-succeeds-for-strategy?
+                 prove-by-logic-and-simplification sqn
+                 (dg-primitive-inference-direct-inference sqn) params))
+            ((bind (((strategy-parameters-do-simplification? params)
+                     value-true))
+                   (any? (lambda (antecedent-formula)
+                           (and (not (existential? antecedent-formula))
+                                (not (conjunction? antecedent-formula))
+                                (inference-ultimately-succeeds-for-strategy?
+                                    prove-by-logic-and-simplification
+                                    sqn
+                                    (dg-primitive-inference-antecedent-inference
+                                     sqn antecedent-formula)
+                                    params)))
+                         assumptions)))
+            ((and (> (strategy-parameters-persistence params) 0)
+                  (any? (lambda (x)
+                          (bind (((strategy-parameters-do-simplification?
+                                      params)
+                                  value-true)
+                                 ((strategy-parameters-persistence
+                                      params)
+                                  (fx- (strategy-parameters-persistence
+                                        params)
+                                       1)))
+                                (inference-ultimately-succeeds-for-strategy?
+                                    prove-by-logic-and-simplification
+                                    sqn
+                                    (dg-primitive-inference-backchain-inference
+                                     sqn x)
+                                    params)))
+                        assumptions)))
+            ((inference-ultimately-succeeds-for-strategy?
+                 prove-by-logic-and-simplification sqn
+                 (dg-primitive-inference-sort-definedness sqn) params))
+            ((inference-ultimately-succeeds-for-strategy?
+                 prove-by-logic-and-simplification sqn
+                 (dg-primitive-inference-definedness sqn) params))
+            ((bind (((strategy-parameters-do-simplification? params)
+                     value-true))
+                   (inference-ultimately-succeeds-for-strategy?
+                       prove-by-logic-and-simplification sqn
+                       (dg-primitive-inference-extensionality sqn)
+                       params)))
+            (else (bind (((strategy-parameters-do-simplification?
+                              params)
+                          value-true))
+                        (inference-ultimately-succeeds-for-strategy?
+                            prove-by-logic-and-simplification sqn
+                            (deduction-graph-raise-conditional-and-direct-inference
+                                sqn)
+                            params))))))
+
+(define (deduction-graph-raise-conditional-and-direct-inference sqn)
+        (let* ((inf (deduction-graph-raise-conditional sqn))
+               (sqn-1 (if (succeed-without-grounding? inf)
+                          (inference-node-1st-hypothesis inf) value-false))
+               (inf-1 (if sqn-1
+                          (dg-primitive-inference-direct-inference
+                              sqn-1)
+                          (fail))))
+          (if sqn-1 (if (succeed? inf-1) inf-1 inf) (fail))))
+
+(define (sort-expression-list-by-constructor exprs constructors)
+        (let* ((expression-weight
+                   (lambda (expr)
+                     (length (memq (expression-constructor expr)
+                                   constructors))))
+               (proc (lambda (a b)
+                       (> (funcall expression-weight a)
+                          (funcall expression-weight b)))))
+          (sort exprs proc)))
+
+(define (generalize-existential-assertion sqn generalize)
+        (let* ((assert (sequent-node-assertion sqn))
+               (graph (sequent-node-graph sqn))
+               (subst (existential-generalization? sqn assert
+                          generalize)))
+          (if (succeed? subst)
+              (let ((sqn (precede-by-direct-or-antecedent-inferences
+                             sqn subst)))
+                (let* ((seq (build-sequent (sequent-node-context sqn)
+                                generalize))
+                       (new-sqn (post seq graph))
+                       (generalization-inference
+                           (dg-primitive-inference-existential-generalization
+                               sqn new-sqn)))
+                  (if (succeed? generalization-inference)
+                      (walk (lambda (x)
+                              (funcall (deduction-graph-strategy-simplification-procedure)
+                                       x))
+                            (cdr (inference-node-hypotheses
+                                     generalization-inference))))
+                  generalization-inference))
+              (fail))))
+
+(define (deduction-graph-universal-direct-inferences sqn)
+        (iterate loop ((sqn sqn) (last-inference (fail)))
+                 (if (let ((assertion (sequent-node-assertion sqn)))
+                       (or (universal? assertion)
+                           (and (implication? assertion)
+                                (or (convergence?
+                                     (implication-antecedent assertion))
+                                    (convergence-in-sort?
+                                     (implication-antecedent assertion))))))
+                     (let ((next-inference
+                               (dg-primitive-inference-direct-inference
+                                   sqn)))
+                       (if (succeed? next-inference)
+                           (loop
+                             (inference-node-1st-hypothesis
+                                 next-inference)
+                             next-inference)
+                           last-inference))
+                     last-inference)))
+
+(define (deduction-graph-existential-antecedent-inferences assum sqn)
+        (iterate loop ((sqn sqn) (assum assum) (last-inference (fail)))
+                 (if (and (formula? assum) (existential? assum))
+                     (let* ((next-inference
+                                (dg-primitive-inference-antecedent-inference
+                                    sqn assum))
+                            (next-sqn
+                                (inference-node-1st-hypothesis
+                                    next-inference))
+                            (next-assum
+                                (car (set-difference
+                                      (sequent-node-assumptions
+                                       next-sqn)
+                                      (sequent-node-assumptions sqn)))))
+                       (loop
+                         (inference-node-1st-hypothesis next-inference)
+                         next-assum
+                         next-inference))
+                     last-inference)))
+
+(define (precede-by-direct-or-antecedent-inferences sqn subst)
+        (let* ((vars (set-difference
+                         (big-u (map (lambda (x)
+                                       (free-variables (substitution-replacement x)))
+                                     subst))
+                         (sequent-free-variables
+                             (sequent-node-sequent sqn))))
+               (assums nil)
+               (assertion
+                   (let ((formula (sequent-node-assertion sqn)))
+                     (if (and (universal? formula)
+                              (set-intersection
+                                  (nested-quantified-variables formula)
+                                  vars))
+                         formula value-false))))
+          (walk (lambda (x)
+                  (if (and (existential? x)
+                           (set-intersection
+                               (nested-quantified-variables x) vars))
+                      (push assums x)))
+                (sequent-node-assumptions sqn))
+          (let* ((direct-inference
+                     (if assertion
+                         (deduction-graph-universal-direct-inferences
+                             sqn)
+                         (fail)))
+                 (sqn1 (if (succeed? direct-inference)
+                           (inference-node-1st-hypothesis
+                               direct-inference)
+                           sqn)))
+            (iterate loop
+                     ((sqn* sqn1) (last-inference (fail))
+                      (assums assums))
+                     (if (null? assums)
+                         (if (fail? last-inference) sqn1
+                             (inference-node-1st-hypothesis
+                                 last-inference))
+                         (let ((next-inference
+                                   (deduction-graph-existential-antecedent-inferences
+                                    (car assums) sqn*)))
+                           (loop
+                             (inference-node-1st-hypothesis
+                                 next-inference)
+                             next-inference
+                             (cdr assums))))))))
+
+(define (existential-generalization? sqn f1 f2)
+        (if (existential? f1)
+            (match-under-exoscopes (existential-matrix f2 nil)
+                (existential-matrix f1
+                    (sequent-free-variables (sequent-node-sequent sqn)))
+                (set-difference
+                    (sequent-free-variables (sequent-node-sequent sqn))
+                    (newly-bound-variables f1)))
+            (fail)))
+
+(define (universal-instantiation? sqn f1 f2)
+        (if (universal? f1)
+            (match-under-exoscopes (universal-matrix f2 nil)
+                (universal-matrix f1
+                    (sequent-free-variables (sequent-node-sequent sqn)))
+                (set-difference
+                    (sequent-free-variables (sequent-node-sequent sqn))
+                    (newly-bound-variables f1)))
+            (fail)))
+
+(define (instantiate-existential-strategy sqn term-or-term-strings)
+        (let ((terms (map (lambda (str)
+                            (sqn-coerce-to-expression sqn str))
+                          term-or-term-strings)))
+          (instantiate-existential sqn terms)))
+
+(build-universal-command instantiate-existential-strategy
+    'instantiate-existential (always value-true)
+    'instantiate-existential-retrieval-protocol)
+
+(define (instantiate-universal-antecedent-multiply-strategy sqn
+            assum-str-or-num term-or-term-strings-s)
+        (let ((assumption
+                  (sqn-coerce-to-assumption sqn assum-str-or-num))
+              (terms-s (map (lambda (term-strings)
+                              (map (lambda (str)
+                                     (sqn-coerce-to-expression sqn str))
+                                   term-strings))
+                            term-or-term-strings-s)))
+          (instantiate-universal-antecedent-multiply sqn assumption
+              terms-s)))
+
+(build-universal-command
+    instantiate-universal-antecedent-multiply-strategy
+    'instantiate-universal-antecedent-multiply (always value-true)
+    'instantiate-universal-multiply-retrieval-protocol)
+
+(define (instantiate-universal-antecedent-strategy sqn assum-str-or-num
+            term-or-term-strings)
+        (let ((terms (map (lambda (str)
+                            (sqn-coerce-to-expression sqn str))
+                          term-or-term-strings)))
+          (let ((assumption
+                    (sqn-coerce-to-assumption sqn assum-str-or-num)))
+            (instantiate-universal-antecedent-once sqn assumption
+                terms))))
+
+(build-universal-command instantiate-universal-antecedent-strategy
+    'instantiate-universal-antecedent (always value-true)
+    'instantiate-universal-retrieval-protocol)
+
+(define (simplify-antecedent-strategy sqn assum-str-or-num)
+        (let ((assumption
+                  (sqn-coerce-to-assumption sqn assum-str-or-num)))
+          (let ((infn (dg-primitive-inference-contraposition sqn
+                          assumption)))
+            (if (fail? infn) (fail)
+                (let ((infn2 (funcall (deduction-graph-strategy-simplification-procedure)
+                                      (car
+                                       (inference-node-hypotheses infn)))))
+                  (if (fail? infn2) (fail)
+                      (if (succeed-without-grounding? infn2)
+                          (let ((sqn2 (car
+                                       (inference-node-hypotheses
+                                        infn2))))
+                            (dg-primitive-inference-contraposition sqn2
+                                (nth (sequent-node-assumptions sqn2) 0)))
+                          infn2)))))))
+
+(build-universal-command simplify-antecedent-strategy
+    'simplify-antecedent (always value-true)
+    'simplify-antecedent-retrieval-protocol)
+
+(define (beta-reduce-antecedent-strategy sqn assum-str-or-num)
+        (let ((assumption
+                  (sqn-coerce-to-assumption sqn assum-str-or-num)))
+          (beta-reduce-antecedent-strategy-aux-1 sqn assumption)))
+
+(define (beta-reduce-antecedent-strategy-aux-1 sqn assumption)
+        (let ((infn (dg-primitive-inference-implication-elimination sqn
+                        assumption)))
+          (if (fail? infn) (fail)
+              (let ((infn2 (deduction-graph-beta-reduce-repeatedly
+                               (car (inference-node-hypotheses infn)))))
+                (if (fail? infn2) (fail)
+                    (if (succeed-without-grounding? infn2)
+                        (let ((sqn2 (car
+                                     (inference-node-hypotheses infn2))))
+                          (dg-primitive-inference-direct-inference
+                              sqn2))
+                        infn2))))))
+
+(define (beta-reduce-antecedent-strategy-aux-2 sqn assumption)
+        (let ((assertion (sequent-node-assertion sqn))
+              (infn (dg-primitive-inference-contraposition sqn
+                        assumption)))
+          (if (fail? infn) (fail)
+              (let ((infn2 (deduction-graph-beta-reduce-repeatedly
+                               (car (inference-node-hypotheses infn)))))
+                (if (fail? infn2) (fail)
+                    (if (succeed-without-grounding? infn2)
+                        (let ((sqn2 (car
+                                     (inference-node-hypotheses infn2))))
+                          (dg-primitive-inference-contraposition sqn2
+                              (push-not assertion)))
+                        infn2))))))
+
+(build-universal-command beta-reduce-antecedent-strategy
+    'beta-reduce-antecedent (always value-true)
+    'simplify-antecedent-retrieval-protocol)
+
+(define (instantiate-theorem-strategy sqn thm-or-thm-name
+            term-or-term-strings)
+        (let ((terms (map (lambda (str)
+                            (sqn-coerce-to-expression sqn str))
+                          term-or-term-strings)))
+          (instantiate-theorem sqn (coerce-to-theorem thm-or-thm-name)
+              terms)))
+
+(build-universal-command instantiate-theorem-strategy
+    'instantiate-theorem (always value-true)
+    'theorem-instantiation-retrieval-protocol)
+
+(define (transport-and-instantiate-theorem-strategy sqn thm-or-thm-name
+            trans-or-trans-name terms-or-term-strings)
+        (let ((terms (map (lambda (str)
+                            (sqn-coerce-to-expression sqn str))
+                          terms-or-term-strings))
+              (thm (coerce-to-theorem thm-or-thm-name)))
+          (if trans-or-trans-name
+              (let ((translation
+                        (coerce-to-translation trans-or-trans-name)))
+                (instantiate-theorem sqn
+                    (transport-theorem translation thm) terms))
+              (auto-transport-and-instantiate-theorem-strategy sqn thm
+                  terms))))
+
+(build-universal-command transport-and-instantiate-theorem-strategy
+    'instantiate-transported-theorem (always value-true)
+    'instantiate-transported-theorem-retrieval-protocol)
+
+(define (auto-transport-and-instantiate-theorem-strategy sqn theorem
+            terms)
+        (let* ((vars (if (binding-expression? (theorem-formula theorem))
+			 (binding-variables (theorem-formula theorem))
+			 value-false))
+               (source-theory (theorem-home-theory theorem))
+               (target-theory
+                   (sequent-theory (sequent-node-sequent sqn)))
+               (translation
+                   (translation-match-variables
+                       (theorem-home-theory theorem) target-theory
+                       the-empty-set
+                       (select-common-sub-theories source-theory
+                           target-theory (fixed-theories-set))
+                       vars terms)))
+          (if (translation? translation)
+              (instantiate-theorem sqn
+                  (bind (((omit-theorem-usage-hooks) value-true))
+                        (transport-theorem translation theorem))
+                  terms)
+              (fail))))
+
+(build-universal-command
+    (lambda (sqn)
+      (prove-by-direct-inference sqn (make-strategy-parameters)))
+    'direct-inference-strategy (always value-true))
+
+(build-universal-command
+    (lambda (sqn)
+      (prove-by-insistent-direct-inference sqn
+          (make-strategy-parameters)))
+    'insistent-direct-inference-strategy (always value-true))
+
+(define (prove-by-direct-inference sqn params)
+        (cond
+          ((immediately-grounded? sqn))
+          ((memq? sqn (strategy-parameters-node-list params)) value-false)
+          ((inference-ultimately-succeeds-for-strategy?
+               prove-by-direct-inference sqn
+               (dg-primitive-inference-direct-inference sqn) params))
+          (else value-true)))
+
+(define (prove-by-insistent-direct-inference sqn params)
+        (cond
+          ((immediately-grounded? sqn))
+          ((memq? sqn (strategy-parameters-node-list params)) value-false)
+          ((inference-ultimately-succeeds-for-strategy?
+               prove-by-insistent-direct-inference sqn
+               (dg-primitive-inference-insistent-direct-inference sqn)
+               params))
+          (else value-true)))
+
+(define (selective-antecedent-inferences sqn params)
+        (let ((assumptions (sequent-node-assumptions sqn)))
+          (cond
+            ((immediately-grounded? sqn))
+            ((memq? sqn (strategy-parameters-node-list params))
+             value-false)
+            ((any? (lambda (antecedent-formula)
+                     (inference-ultimately-succeeds-for-strategy?
+                         selective-antecedent-inferences sqn
+                         (dg-primitive-inference-antecedent-inference
+                             sqn antecedent-formula)
+                         params))
+                   (set-difference assumptions
+                       (strategy-parameters-avoid-assumptions params))))
+            (else value-true))))
+
+(define (selective-antecedent-inferences-strategy sqn
+            assumptions-assumption-strings-or-indices)
+        (let ((assumptions
+                  (map (lambda (x) (sqn-coerce-to-assumption sqn x))
+                       assumptions-assumption-strings-or-indices)))
+          (let ((params (make-strategy-parameters)))
+            (set (strategy-parameters-avoid-assumptions params)
+                 (set-difference (sequent-node-assumptions sqn)
+                     assumptions))
+            (selective-antecedent-inferences sqn params))))
+
+(build-universal-command selective-antecedent-inferences-strategy
+    'antecedent-inference-strategy (always value-true)
+    'selective-antecedent-inference-rp)
+
+(define (transport-and-assume-theorem-strategy sqn thm-or-thm-name
+            trans-or-trans-name)
+        (let ((formula (theorem-formula
+                           (transport-theorem
+                               (coerce-to-translation
+                                   trans-or-trans-name)
+                               (coerce-to-theorem thm-or-thm-name)))))
+          (dg-primitive-inference-theorem-assumption sqn formula)))
+
+(build-universal-command transport-and-assume-theorem-strategy
+    'assume-transported-theorem (always value-true)
+    'assume-transported-theorem-retrieval-protocol)
+
+(define (case-split sqn assertions-or-assertion-strings)
+        (let ((assertions
+                  (map (lambda (x) (sqn-coerce-to-expression sqn x))
+                       assertions-or-assertion-strings)))
+          (if (null? assertions) (fail)
+              (let* ((assertion-negation-pairs
+                         (map (lambda (x) (list x (negation x)))
+                              assertions))
+                     (list-of-conjunction-components
+                         (big-product assertion-negation-pairs))
+                     (big-disjunction
+                         (apply disjunction
+                                (map (lambda (x)
+                                       (conjunction-simplifier x))
+                                     list-of-conjunction-components)))
+                     (new-sqn (post (build-sequent
+                                     (sequent-node-context sqn)
+                                     big-disjunction)
+                                    (sequent-node-graph sqn))))
+                (dg-primitive-inference-simplification new-sqn)
+                (dg-primitive-inference-disjunction-elimination sqn
+                    new-sqn)))))
+
+(define case-split-strategy case-split)
+
+(build-universal-command case-split-strategy 'case-split
+    (always value-true) 'case-split-retrieval-protocol)
+
+(define (local-definition-strategy sqn var-name val-string)
+        (let* ((sequent (sequent-node-sequent sqn))
+               (context (sequent-context sequent))
+               (assertion (sequent-assertion sequent))
+               (value (sequent-read sequent val-string))
+               (var (find-variable var-name (expression-sorting value)))
+               (existential (forsome (equality var value) var)))
+          (let ((cut-infn
+                    (dg-primitive-inference-cut sqn
+                        (post (build-sequent
+                                  (context-add-assumption context
+                                      existential)
+                                  assertion)
+                              (sequent-node-graph sqn)))))
+            (if (fail? cut-infn) (fail)
+                (destructure
+                    (((cut-major cut-minor)
+                      (inference-node-hypotheses cut-infn)))
+                    (let ((exist-infn
+                              (dg-primitive-inference-existential-generalization
+                                  cut-minor
+                                  (post (build-sequent context
+                                         (equality value value))
+                                        (sequent-node-graph sqn)))))
+                      (if (fail? exist-infn) (fail)
+                          (walk (deduction-graph-strategy-simplification-procedure)
+                                (inference-node-hypotheses exist-infn))))
+                    (dg-primitive-inference-antecedent-inference
+                        cut-major existential))))))
+
+(define (instantiate-theorem-with-sequent-free-variables sqn thm)
+        (if (and (universal? thm)
+                 (= (length (binding-variables thm)) 1))
+            (let ((terms (sequent-free-variables
+                             (sequent-node-sequent sqn)))
+                  (sort (expression-sorting
+                            (car (binding-variables thm)))))
+              (iterate loop
+                       ((terms terms) (sqn sqn)
+                        (last-inference (fail)))
+                       (if (null? terms) last-inference
+                           (let ((next-inference
+                                     (if
+                                      (eq?
+                                       (expression-sorting (car terms))
+                                       sort)
+                                      (instantiate-theorem sqn thm
+                                       (list (car terms)))
+                                      (fail))))
+                             (if (succeed-without-grounding?
+                                     next-inference)
+                                 (loop
+                                   (cdr terms)
+                                   (inference-node-1st-hypothesis
+                                    next-inference)
+                                   next-inference)
+                                 (loop (cdr terms) sqn last-inference))))))
+            (fail)))
+
+(define (use-definitions sqn def-names)
+        (let* ((theory (context-theory (sequent-node-context sqn)))
+               (graph (sequent-node-graph sqn))
+               (defs (map (lambda (x)
+                            (theory-get-definition theory x))
+                          def-names))
+               (assums nil))
+          (walk (lambda (x)
+                  (if (not (null? x))
+                      (push assums (definition-axiom x))))
+                defs)
+          (let* ((new-sqn (post (build-sequent
+                                    (context-add-assumptions
+                                     (sequent-node-context sqn) assums)
+                                    (sequent-node-assertion sqn))
+                                graph))
+                 (inf (dg-primitive-inference-cut sqn new-sqn)))
+            inf)))
+
+(build-universal-command use-definitions 'use-definitions
+    (always value-true) 'definition-names-retrieval-protocol)
+
+(define (case-split-on-conditionals sqn occurrences)
+        (let* ((assertion (sequent-node-assertion sqn))
+               (sorted-paths
+                   (sort-paths!
+                       (paths-to-satisfying-virtual-occurrences
+                           assertion conditional-term? -1))))
+          (if (null? sorted-paths) (fail)
+              (invoke-if-necessary
+                  (case-split sqn
+                              (map (lambda (path)
+                                     (conditional-test
+                                      (follow-virtual-path assertion
+                                       path)))
+                                   (choose-list-entries sorted-paths
+                                    occurrences)))
+                  (lambda (infn)
+                    (map dg-primitive-inference-simplification
+                         (inference-node-hypotheses infn)))))))
+
+(build-universal-command case-split-on-conditionals
+    'case-split-on-conditionals (always value-true)
+    'locations-in-formula-retrieval-protocol)
+
+(define (direct-and-antecedent-inference-strategy sqn)
+        (let ((original-assumptions (sequent-node-assumptions sqn)))
+          (iterate iter ((sqn sqn) (params (make-strategy-parameters)))
+                   (let ((assumptions (sequent-node-assumptions sqn)))
+                     (cond
+                       ((immediately-grounded? sqn))
+                       ((memq? sqn
+                               (strategy-parameters-node-list params))
+                        value-false)
+                       ((inference-ultimately-succeeds-for-strategy?
+                            #'iter sqn
+                            (dg-primitive-inference-direct-inference
+                                sqn)
+                            params))
+                       ((any? (lambda (antecedent-formula)
+                                (inference-ultimately-succeeds-for-strategy?
+                                    #'iter sqn
+                                    (dg-primitive-inference-antecedent-inference
+                                     sqn antecedent-formula)
+                                    params))
+                              (set-difference assumptions
+                                  original-assumptions)))
+                       (else value-true))))))
+
+(define (insistent-direct-and-antecedent-inference-strategy sqn)
+        (let ((original-assumptions (sequent-node-assumptions sqn)))
+          (iterate iter ((sqn sqn) (params (make-strategy-parameters)))
+                   (let ((assumptions (sequent-node-assumptions sqn)))
+                     (cond
+                       ((immediately-grounded? sqn))
+                       ((memq? sqn
+                               (strategy-parameters-node-list params))
+                        value-false)
+                       ((inference-ultimately-succeeds-for-strategy?
+                            #'iter sqn
+                            (dg-primitive-inference-insistent-direct-inference
+                                sqn)
+                            params))
+                       ((any? (lambda (antecedent-formula)
+                                (inference-ultimately-succeeds-for-strategy?
+                                    #'iter sqn
+                                    (dg-primitive-inference-antecedent-inference
+                                     sqn antecedent-formula)
+                                    params))
+                              (set-difference assumptions
+                                  original-assumptions)))
+                       (else value-true))))))
+
+(define (direct-and-antecedent-inference-strategy-with-simplification
+            sqn)
+        (continue-terminal-command-with-command
+            direct-and-antecedent-inference-strategy sqn nil
+            dg-primitive-inference-simplification))
+
+(build-universal-command direct-and-antecedent-inference-strategy
+    'direct-and-antecedent-inference-strategy (always value-true))
+
+(build-universal-command
+    insistent-direct-and-antecedent-inference-strategy
+    'insistent-direct-and-antecedent-inference-strategy
+    (always value-true))
+
+(build-universal-command
+    direct-and-antecedent-inference-strategy-with-simplification
+    'direct-and-antecedent-inference-strategy-with-simplification
+    (always value-true))
+
+(define (sort-definedness-and-conditionals sqn)
+        (invoke-if-necessary
+            (dg-primitive-inference-sort-definedness sqn)
+            (lambda (infn)
+              (let ((infn2 (dg-primitive-inference-macete-application-at-paths
+                               (major-premise infn) '(())
+                               *beta-reduce-repeatedly-macete*)))
+                (let ((major (major-premise
+                                 (if (succeed-without-grounding? infn2)
+                                     infn2 infn))))
+                  (continue-terminal-command-with-command
+                      prove-by-insistent-direct-inference major
+                      (list (make-strategy-parameters))
+                      (lambda (sqn)
+                        (let ((infn2 (dg-primitive-inference-macete-application-at-paths
+                                      sqn '(())
+                                      *beta-reduce-repeatedly-macete*)))
+                          (let ((major (if
+                                        (succeed-without-grounding?
+                                         infn2)
+                                        (major-premise infn2) sqn)))
+                            (continue-terminal-command-with-command
+                                case-split-on-conditionals major '((0))
+                                dg-primitive-inference-simplification))))))))))
+
+(build-universal-command sort-definedness-and-conditionals
+    'sort-definedness-and-conditionals (always value-true))
+
+(define (deduction-graph-eliminate-defined-iota-expression sqn
+            iota-expr-index new-var-name)
+        (or (name->theory 'pure-generic-theory-1)
+            (imps-error
+                "DEDUCTION-GRAPH-ELIMINATE-DEFINED-IOTA-EXPRESSION: ~A"
+                "The theory PURE-GENERIC-THEORY-1 is not loaded."))
+        (let* ((pure-generic-theory-1
+                   (name->theory 'pure-generic-theory-1))
+               (sequent (sequent-node-sequent sqn))
+               (assertion (sequent-node-assertion sqn))
+               (paths (sort-paths!
+                          (paths-to-satisfying-virtual-occurrences
+                              assertion iota-expression? -1)))
+               (iota-expression
+                   (if (<= (length paths) iota-expr-index)
+                       (imps-error
+                           "DEDUCTION-GRAPH-ELIMINATE-DEFINED-IOTA-EXPRESSION: ~A ~D ~A."
+                           "the index" iota-expr-index "is too big")
+                       (follow-virtual-path assertion
+                           (nth paths iota-expr-index))))
+               (iota-variable
+                   (car (binding-variables iota-expression)))
+               (predicate
+                   (imps-lambda (binding-body iota-expression)
+                       iota-variable))
+               (ind-1-sort
+                   (name->sort (theory-language pure-generic-theory-1)
+                       'ind_1))
+               (new-j-variable (find-variable new-var-name ind-1-sort))
+               (subst (list (cons (find-variable 'i ind-1-sort)
+                                  (find-variable (name iota-variable)
+                                      ind-1-sort))
+                            (cons (find-variable 'j ind-1-sort)
+                                  new-j-variable)
+                            (cons (find-variable 'j_1 ind-1-sort)
+                                  (find-variable
+                                      (concatenate-symbol new-var-name
+                                       '|_1|)
+                                      ind-1-sort))))
+               (theorem (apply-variable-renaming subst
+                            (name->theorem
+                                'defined-iota-expression-full-existence)))
+               (fixed-theories
+                   (select-common-sub-theories pure-generic-theory-1
+                       (sequent-theory sequent) (fixed-theories-set)))
+               (translation
+                   (build-translation pure-generic-theory-1
+                       (sequent-theory sequent) the-empty-set
+                       fixed-theories
+                       (list (cons ind-1-sort
+                                   (expression-sorting iota-variable)))
+                       nil value-false value-false value-true))
+               (new-variable
+                   (translate-expression translation new-j-variable))
+               (new-theorem (transport-theorem translation theorem))
+               (inf1 (instantiate-theorem sqn new-theorem
+                         (list predicate) 'no-antecedent-infs))
+               (instance
+                   (apply-substitution
+                       (list (cons (car
+                                    (binding-variables new-theorem))
+                                   predicate))
+                       (binding-body new-theorem)))
+               (beta-reduced-instance
+                   (context-beta-reduce
+                       (theory-null-context (sequent-theory sequent))
+                       instance))
+               (instance-conjunction
+                   (binding-body
+                       (expression-rhs beta-reduced-instance)))
+               (instance-first-conjunct
+                   (car (expression-components instance-conjunction))))
+          (if (fail? inf1) (fail)
+              (let ((inf2 (beta-reduce-antecedent-strategy-aux-2
+                              (inference-node-1st-hypothesis inf1)
+                              instance)))
+                (if (fail? inf2) (fail)
+                    (let ((inf3 (dg-primitive-inference-antecedent-inference
+                                    (inference-node-1st-hypothesis
+                                     inf2)
+                                    beta-reduced-instance)))
+                      (if (fail? inf3) inf2
+                          (let ((inf4 (dg-primitive-inference-antecedent-inference
+                                       (inference-node-2nd-hypothesis
+                                        inf3)
+                                       (expression-rhs
+                                        beta-reduced-instance))))
+                            (if (fail? inf4) inf3
+                                (let ((inf5
+                                       (dg-primitive-inference-antecedent-inference
+                                        (inference-node-1st-hypothesis
+                                         inf4)
+                                        instance-conjunction)))
+                                  (if (fail? inf5) inf4
+                                      (let*
+                                       ((hyp-sqn
+                                         (inference-node-1st-hypothesis
+                                          inf5))
+                                        (assert
+                                         (sequent-node-assertion
+                                          hyp-sqn))
+                                        (iota-expr-paths
+                                         (paths-to-satisfying-virtual-occurrences
+                                          assert
+                                          (lambda (expr)
+                                            (eq? expr iota-expression))
+                                          -1))
+                                        (inf6
+                                         (deduction-graph-force-substitution-at-virtual-paths
+                                          hyp-sqn new-variable
+                                          iota-expr-paths)))
+                                        (if (fail? inf6) inf5
+                                         (block
+                                          (let
+                                           ((inf7
+                                             (dg-primitive-inference-contraposition
+                                              (inference-node-1st-hypothesis
+                                               inf3)
+                                              (expression-lhs
+                                               beta-reduced-instance))))
+                                            (if (fail? inf7) (fail)
+                                             (dg-primitive-inference-simplification
+                                              (inference-node-1st-hypothesis
+                                               inf7))))
+                                           (walk
+                                            dg-primitive-inference-simplification
+                                            (cdr
+                                             (inference-node-hypotheses
+                                              inf6)))
+                                           (let
+                                            ((inf8
+                                              (dg-primitive-inference-weakening
+                                               (inference-node-1st-hypothesis
+                                                inf6)
+                                               (list
+                                                instance-first-conjunct))))
+                                             (if (fail? inf8) inf6
+                                              inf8))))))))))))))))
+
+(build-universal-command
+    deduction-graph-eliminate-defined-iota-expression
+    'eliminate-defined-iota-expression (always value-true)
+    'eliminate-defined-iota-expression-retrieval-protocol)
+
+(define (backchain-repeatedly sqn formulas-formula-strings-or-indices)
+        (let ((assumptions
+                  (map (lambda (x) (sqn-coerce-to-assumption sqn x))
+                       formulas-formula-strings-or-indices)))
+          (labels (((do-backchain sqn)
+                    (any (lambda (a)
+                           (let ((infn (dg-primitive-inference-backchain-inference
+                                        sqn a)))
+                             (and (succeed? infn) infn)))
+                         assumptions)))
+            (iterate iter ((sqn sqn) (last-infn (fail)))
+                     (let ((infn-or-nil (do-backchain sqn)))
+                       (if infn-or-nil
+                           (iter (major-premise infn-or-nil)
+                                 infn-or-nil)
+                           last-infn))))))
+
+(build-universal-command backchain-repeatedly 'backchain-repeatedly
+    (always value-true) 'repeated-backchain-rp)

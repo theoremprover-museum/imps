@@ -1,0 +1,818 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment languages)
+
+(define-predicate basic-language?)
+
+(define-operation (language-constants l))
+
+(define sort-symbols base-sorts)
+
+(define-settable-operation (language-default-sortings language))
+
+(define-settable-operation (language-defining-form l))
+
+(define-predicate self-extending?)
+
+(define-operation (predicate-sorting-alist->sexp language) value-false)
+
+(define-operation (language-predicate-sorting-alist language) value-false)
+
+(define-operation (language-numerical-type->sorting language num-type))
+
+(define-operation (language-sorting->numerical-type language sorting)
+    value-false)
+
+(define-structure-type compound-language basic-languages base-sorts
+    constants default-sorting-alist resolver extra-resolver name
+    table-hash defining-form
+    (((two-d-table-hash self)
+      (let ((hash (compound-language-table-hash self)))
+        (if (uncomputed? hash)
+            (let ((hash (descriptor-hash self)))
+              (set (compound-language-table-hash self) hash)
+              hash)
+            hash)))
+     ((name self) (compound-language-name self))
+     ((print self port)
+      (format port "#{IMPS-compound-language ~S: ~S}"
+              (object-hash self) (name self)))
+     ((base-sorts self) (compound-language-base-sorts self))
+     ((language-constants self)
+      (if (not (compound-language-constants self))
+          (let ((c (collect-set language-constants
+                       (compound-language-basic-languages self))))
+            (set (compound-language-constants self) c)
+            c)
+          (let ((self-extending-languages
+                    (compound-language-self-extending-languages self)))
+            (if self-extending-languages
+                (let ((c (set-union
+                             (collect-set language-constants
+                                 self-extending-languages)
+                             (compound-language-constants self))))
+                  (set (compound-language-constants self) c)
+                  c)
+                (compound-language-constants self)))))
+     ((sort-resolver? self) value-true)
+     ((sort-names-resolved self)
+      (sort-names-resolved (compound-language-resolver self)))
+     ((sorts-resolved self)
+      (sorts-resolved (compound-language-resolver self)))
+     ((name-sort-alist self)
+      (name-sort-alist (compound-language-resolver self)))
+     ((name->sort self symbol)
+      (name->sort (compound-language-resolver self) symbol))
+     ((language-numerical-type->sorting self num-type)
+      (any (lambda (basic)
+             (language-numerical-type->sorting basic num-type))
+           (compound-language-basic-languages self)))
+     ((language-sorting->numerical-type self sort)
+      (any (lambda (basic)
+             (language-sorting->numerical-type basic sort))
+           (compound-language-basic-languages self)))
+     ((language-default-sortings self)
+      (compound-language-default-sorting-alist self))
+     (((setter language-default-sortings) self new-value)
+      (set (compound-language-default-sorting-alist self) new-value))
+     ((language-defining-form self)
+      (compound-language-defining-form self))
+     (((setter language-defining-form) self new-value)
+      (set (compound-language-defining-form self) new-value))))
+
+(at-top-level
+    (block (set (compound-language-constants
+                    (stype-master compound-language-stype))
+                nil)
+      (set (compound-language-name
+               (stype-master compound-language-stype))
+           nil)
+      (set (compound-language-table-hash
+               (stype-master compound-language-stype))
+           (uncomputed))
+      (set (compound-language-default-sorting-alist
+               (stype-master compound-language-stype))
+           nil)))
+
+(define (language? l) (or (basic-language? l) (compound-language? l)))
+
+(define (basic-languages language)
+        (if (basic-language? language) (list language)
+            (compound-language-basic-languages language)))
+
+(define (sub-language? sub-lang lang)
+        (and (subset? (basic-languages sub-lang)
+                      (basic-languages lang))
+             (subset? (sorts-resolved sub-lang) (sorts-resolved lang))))
+
+(define-operation (find-constant language the-name)
+    (iterate iter ((sub (basic-languages language)))
+             (and sub
+                  (or (find-constant (car sub) the-name) (iter (cdr sub))))))
+
+(define (find-constant-with-warning language constant-name)
+        (let ((constant (find-constant language constant-name)))
+          (if (null? constant)
+              (let ((real-names
+                        (language-find-constants language
+                            constant-name)))
+                (if (= (length real-names) 1) (car real-names)
+                    (if real-names
+                        (imps-error
+                            "FIND-CONSTANT-WITH-WARNING: ~A is actually an overloaded symbol name. Use one of the constant names ~A:"
+                            constant-name real-names)
+                        (imps-error
+                            "FIND-CONSTANT-WITH-WARNING: ~A is not a constant in the language ~A."
+                            constant-name language))))
+              constant)))
+
+(define (compute-home-language components)
+        (let* ((const-homes
+                   (set-map home-language
+                            (collect-set constants components)))
+               (new-var-sorts
+                   (set-difference
+                       (collect-set collect-named-sorts
+                           (map expression-sorting
+                                (collect-set variables components)))
+                       (collect-set sorts-resolved const-homes)))
+               (resolver
+                   (iterate loop
+                            ((resolver null-sort-resolver)
+                             (sorts new-var-sorts))
+                            (if (null? sorts) resolver
+                                (loop
+                                  (extend-sort-resolver resolver
+                                      (name (car sorts)) (car sorts))
+                                  (cdr sorts))))))
+          (or (every? language? const-homes)
+              (imps-error
+                  "COMPUTE-HOME-LANGUAGE: homeless constant in ~S"
+                  components))
+          (if (and const-homes (null? (cdr const-homes))
+                   (null? new-var-sorts))
+              (car const-homes)
+              (compound-language const-homes resolver))))
+
+(define (contains-expression? language expression)
+        (let ((home (home-language expression)))
+          (if (language? home) (sub-language? home language)
+              (and (every-set-element?
+                       (lambda (sort) (contains-sort? language sort))
+                       (set-map expression-sorting
+                                (variables expression)))
+                   (let ((homes (set-map home-language
+                                         (constants expression))))
+                     (every? (lambda (home)
+                               (sub-language? home language))
+                             homes))))))
+
+(define (language-contains-sorting? language sorting)
+        (subset? (base-sorts sorting) (base-sorts language)))
+
+(define (compound-expression constructor components)
+        (apply constructor components))
+
+(define name->language
+        (settable-symbol-alist language? 'warn-on-redefining))
+
+(define (make-basic-language symbol-form new-constants resolver)
+        (if (and (not (symbol? symbol-form))
+                 (not (eq? symbol-form nil)))
+            (imps-error "MAKE-BASIC-LANGUAGE: unsuitable name ~A"
+                symbol-form))
+        (if (and (null? new-constants)
+                 (subset? (sort-names-resolved resolver)
+                          (list ind prop)))
+            the-null-language
+            (let* ((constant-chart
+                       (install-constants-in-chart new-constants))
+                   (default-sorting-alist nil)
+                   (table-hash (descriptor-hash constant-chart))
+                   (defining-form nil))
+              (let ((obj (make-object)))
+                (labels (((fun-17 self) value-true)
+                         ((fun-18 self) symbol-form)
+                         ((fun-19 self port)
+                          (format port "#{IMPS-basic-language ~S: ~S}"
+                                  (object-hash self) symbol-form))
+                         ((fun-20 self) table-hash)
+                         ((fun-21 self) (base-sorts resolver))
+                         ((fun-22 self)
+                          (glean-formal-symbols-from-chart
+                              constant-chart))
+                         ((fun-23 self the-name)
+                          (retrieve-formal-symbol constant-chart
+                              the-name))
+                         ((fun-24 self symbol)
+                          (name->sort resolver symbol))
+                         ((fun-25 self) value-true)
+                         ((fun-26 self) (sort-names-resolved resolver))
+                         ((fun-27 self) (sorts-resolved resolver))
+                         ((fun-28 self) (name-sort-alist resolver))
+                         ((fun-29 self) default-sorting-alist)
+                         ((fun-30 self new-value)
+                          (set default-sorting-alist new-value))
+                         ((fun-31 self) defining-form)
+                         ((fun-32 self new-value)
+                          (set defining-form new-value)))
+                  (refurnish-object obj nil (basic-language? fun-17)
+                      (name fun-18) (print fun-19)
+                      (two-d-table-hash fun-20) (base-sorts fun-21)
+                      (language-constants fun-22)
+                      (find-constant fun-23) (name->sort fun-24)
+                      (sort-resolver? fun-25)
+                      (sort-names-resolved fun-26)
+                      (sorts-resolved fun-27) (name-sort-alist fun-28)
+                      (language-default-sortings fun-29)
+                      ((setter language-default-sortings) fun-30)
+                      (language-defining-form fun-31)
+                      ((setter language-defining-form) fun-32))
+                  (walk (lambda (constant)
+                          (if (home-language constant)
+                              (imps-error
+                                  "MAKE-LANGUAGE:  Constant ~A is not new"
+                                  constant)
+                              (set (expression-home constant) obj)))
+                        new-constants)
+                  (set (find-language (list obj)
+                           (sorts-resolved resolver))
+                       obj)
+                  (if (symbol? symbol-form)
+                      (set (name->language symbol-form) obj))
+                  obj)))))
+
+(define (make-self-extending-basic-language symbol-form new-constants
+            resolver predicate-sorting-alist)
+        (if (and (not (symbol? symbol-form))
+                 (not (eq? symbol-form nil)))
+            (imps-error
+                "make-self-extending-basic-language: unsuitable name ~A"
+                symbol-form))
+        (walk (lambda (pair)
+                (let ((sort (cdr pair)))
+                  (if (base-sort? sort)
+                      (set (base-sort-numerical? sort) (car pair))
+                      (set (higher-sort-numerical? sort) (car pair)))))
+              predicate-sorting-alist)
+        (let* ((constant-chart
+                   (install-constants-in-chart new-constants))
+               (default-sorting-alist nil)
+               (table-hash (descriptor-hash constant-chart))
+               (defining-form nil))
+          (let ((obj (make-object)))
+            (labels (((fun-33 self) value-true) ((fun-34 self) value-true)
+                     ((fun-35 self) symbol-form)
+                     ((fun-36 self port)
+                      (format port "#{IMPS-basic-language ~S: ~S}"
+                              (object-hash self) symbol-form))
+                     ((fun-37 self) table-hash)
+                     ((fun-38 self) (base-sorts resolver))
+                     ((fun-39 self)
+                      (glean-formal-symbols-from-chart constant-chart))
+                     ((fun-40 self the-name)
+                      (let ((sorting (self-extending-language-const-name->sorting
+                                      the-name predicate-sorting-alist)))
+                        (retrieve-or-add-formal-symbol self
+                            constant-chart the-name sorting)))
+                     ((fun-41 self symbol)
+                      (name->sort resolver symbol))
+                     ((fun-42 self) value-true)
+                     ((fun-43 self) (sort-names-resolved resolver))
+                     ((fun-44 self) (sorts-resolved resolver))
+                     ((fun-45 self) (name-sort-alist resolver))
+                     ((fun-46 self num-type)
+                      (let ((pair (assq num-type
+                                        predicate-sorting-alist)))
+                        (and (pair? pair) (cdr pair))))
+                     ((fun-47 self sort)
+                      (let ((pair (ass-lq sort predicate-sorting-alist)))
+                        (and (pair? pair) (car pair))))
+                     ((fun-48 self) predicate-sorting-alist)
+                     ((fun-49 self)
+                      (map (lambda (pair)
+                             (cons (procedure-name (car pair))
+                                   (cdr pair)))
+                           predicate-sorting-alist))
+                     ((fun-50 self) default-sorting-alist)
+                     ((fun-51 self new-value)
+                      (set default-sorting-alist new-value))
+                     ((fun-52 self) defining-form)
+                     ((fun-53 self new-value)
+                      (set defining-form new-value)))
+              (refurnish-object obj nil (basic-language? fun-33)
+                  (self-extending? fun-34) (name fun-35) (print fun-36)
+                  (two-d-table-hash fun-37) (base-sorts fun-38)
+                  (language-constants fun-39) (find-constant fun-40)
+                  (name->sort fun-41) (sort-resolver? fun-42)
+                  (sort-names-resolved fun-43) (sorts-resolved fun-44)
+                  (name-sort-alist fun-45)
+                  (language-numerical-type->sorting fun-46)
+                  (language-sorting->numerical-type fun-47)
+                  (language-predicate-sorting-alist fun-48)
+                  (predicate-sorting-alist->sexp fun-49)
+                  (language-default-sortings fun-50)
+                  ((setter language-default-sortings) fun-51)
+                  (language-defining-form fun-52)
+                  ((setter language-defining-form) fun-53))
+              (walk (lambda (constant)
+                      (if (home-language constant)
+                          (imps-error
+                              "MAKE-LANGUAGE:  Constant ~A is not new"
+                              constant)
+                          (set (expression-home constant) obj)))
+                    new-constants)
+              (set (find-language (list obj) (sorts-resolved resolver))
+                   obj)
+              (if (symbol? symbol-form)
+                  (set (name->language symbol-form) obj))
+              obj))))
+
+(define (self-extending-language-const-name->sorting the-name
+            the-alist)
+        (iterate iter ((the-alist the-alist))
+                 (if (null? the-alist) value-false
+                     (let ((first (caar the-alist)))
+                       (cond
+                         ((and (numerical-type? first)
+                               (funcall (numerical-type-recognizer
+                                         first)
+                                        the-name))
+                          (cdar the-alist))
+                         ((and (procedure? first)
+                               (funcall first the-name))
+                          (cdar the-alist))
+                         (else (iter (cdr the-alist))))))))
+
+(define (compound-language-self-extending-languages language)
+        (or (compound-language? language)
+            (imps-error
+                "COMPOUND-LANGUAGE-SELF-EXTENDING-LANGUAGES: ~A ~S."
+                language "is not a compound language"))
+        (set-separate self-extending?
+            (compound-language-basic-languages language)))
+
+(define (compound-language languages extra-resolver . symbol-form)
+        (if (and symbol-form (not (symbol? (car symbol-form))))
+            (imps-error "COMPOUND-LANGUAGE: unsuitable name ~A"
+                symbol-form))
+        (let ((consts (collect-set constants languages))
+              (resolvers
+                  (if (sort-resolver? extra-resolver)
+                      (cons extra-resolver languages) languages)))
+          (cond
+            ((compound-language-constant-name-conflict? consts) =>
+             (lambda (the-name)
+               (imps-error "COMPOUND-LANGUAGE: overloaded name ~A"
+                   the-name)))
+            ((compound-language-sort-name-conflict? resolvers) =>
+             (lambda (the-name)
+               (imps-error "COMPOUND-LANGUAGE: overloaded sort name ~A"
+                   the-name))))
+          (let ((resolver (join-sort-resolvers resolvers))
+                (symbol-form (car symbol-form)))
+            (cond
+              ((find-language languages (sorts-resolved resolver)) =>
+               (lambda (l)
+                 (if (and symbol-form
+                          (not (eq? (name->language symbol-form) l)))
+                     (set (name->language symbol-form) l))
+                 l))
+              (else (let ((sublangs
+                              (collect-set basic-languages languages))
+                          (lang (make-compound-language)))
+                      (set (compound-language-basic-languages lang)
+                           sublangs)
+                      (set (compound-language-base-sorts lang)
+                           (base-sorts resolver))
+                      (set (compound-language-constants lang) consts)
+                      (set (compound-language-resolver lang) resolver)
+                      (set (compound-language-name lang) symbol-form)
+                      (set (compound-language-extra-resolver lang)
+                           extra-resolver)
+                      (set (find-language sublangs
+                               (sorts-resolved resolver))
+                           lang)
+                      (if symbol-form
+                          (set (name->language symbol-form) lang))
+                      lang))))))
+
+(define *compound-language-constant-name-conflict-table*
+        (make-table '*compound-language-constant-name-conflict-table*))
+
+(define (compound-language-constant-name-conflict? consts)
+        (let ((table *compound-language-constant-name-conflict-table*))
+          (iterate name-conflict? ((consts consts))
+                   (if (null? consts) value-false
+                       (let ((name-1 (name (car consts))))
+                         (or (table-entry table name-1)
+                             (bind (((table-entry table name-1) name-1))
+                                   (name-conflict? (cdr consts)))))))))
+
+(define *compound-language-sort-name-conflict-table*
+        (make-table '*compound-language-sort-name-conflict-table*))
+
+(define (compound-language-sort-name-conflict? resolvers)
+        (let ((table *compound-language-sort-name-conflict-table*))
+          (iterate name-conflict? ((resolvers resolvers))
+                   (if (null? resolvers) value-false
+                       (iterate insert
+                                ((sorts (sorts-resolved
+                                         (car resolvers))))
+                                (if (null? sorts)
+                                    (name-conflict? (cdr resolvers))
+                                    (let*
+                                     ((sort-1 (car sorts))
+                                      (entry
+                                       (table-entry table
+                                        (name sort-1))))
+                                      (or
+                                       (and (not (eq? entry sort-1))
+                                        entry)
+                                       (bind
+                                        (((table-entry table
+                                           (name sort-1))
+                                          sort-1))
+                                        (insert (cdr sorts)))))))))))
+
+(let ((language-alist (list '*language-alist*)))
+  (define find-language
+    (operation
+     (lambda (lang-set sort-set)
+       (let* ((sort-set
+	       (or sort-set
+		   (collect-set sorts-resolved
+				lang-set)))
+	      (basics (if
+		       (every? basic-language? lang-set)
+		       lang-set
+		       (collect-set basic-languages
+				    lang-set)))
+	      (sublist (cdr
+			(ass equal-sets? basics
+			     (cdr language-alist)))))
+	 (cond
+	  ((ass equal-sets? sort-set sublist) => cdr)
+	  (else value-false))))
+     ((setter self)
+      (lambda (lang-set sort-set new-value)
+	(let* ((sort-set
+		(or sort-set
+		    (collect-set sorts-resolved
+				 lang-set)))
+	       (basics (if
+			(every? basic-language? lang-set)
+			lang-set
+			(collect-set basic-languages
+				     lang-set)))
+	       (sublist (cdr
+			 (ass equal-sets? basics
+			      (cdr language-alist)))))
+	  (cond
+	   ((ass equal-sets? sort-set sublist) =>
+	    (lambda (pair) (set (cdr pair) new-value)))
+	   (sublist (let ((rem (cdr sublist)))
+		      (set (cdr sublist)
+			   (cons (cons sort-set new-value)
+				 rem))))
+	   (else (let ((rem (cdr language-alist)))
+		   (set (cdr language-alist)
+			(cons
+			 (cons basics
+			       (list
+				(cons sort-set new-value)))
+			 rem))))))))))
+  
+  (define (list-languages)
+    (collect-set
+     (lambda (sublist) (map-set cdr (cdr sublist)))
+     (cdr language-alist))))
+
+(define the-null-language
+        (compound-language nil nil 'the-null-language))
+
+(define (extend-language language new-consts resolver . symbol-form)
+        (cond
+          ((set-separate (lambda (e) (not (home-language e)))
+               new-consts)
+           =>
+           (lambda (homeless)
+             (make-basic-language nil homeless resolver))))
+        (let ((langs (add-set-element language
+                         (set-map home-language new-consts))))
+          (apply compound-language langs resolver symbol-form)))
+
+(define (language-union languages . symbol-form)
+        (if (every? language? languages)
+            (apply compound-language languages null-sort-resolver
+                   symbol-form)
+            (imps-error
+                "LANGUAGE-UNION: ~A is not a list of languages."
+                languages)))
+
+(define (rename-in-basic-language language renamer)
+        (let ((self-extending? (funcall self-extending? language))
+              (resolver (rename-sort-resolver language renamer))
+              (new-constants
+                  (map (lambda (c)
+                         (let ((s (expression-sorting c))
+                               (n (expression-name c)))
+                           (make-formal-symbol constant?
+                               (rename-sort s renamer)
+                               (funcall renamer n))))
+                       (language-constants language))))
+          (if self-extending?
+              (make-self-extending-basic-language nil new-constants
+                  resolver
+                  (map (lambda (pair)
+                         (cons (car pair)
+                               (rename-sort (cdr pair) resolver)))
+                       (language-predicate-sorting-alist language)))
+              (make-basic-language nil new-constants resolver))))
+
+(define (rename-in-compound-language language fixed renamer)
+        (let ((basics (map (lambda (l)
+                             (if (any? (lambda (f)
+                                         (sub-language? l f))
+                                       fixed)
+                                 l
+                                 (rename-in-basic-language l renamer)))
+                           (compound-language-basic-languages language)))
+              (extra-resolver
+                  (rename-sort-resolver
+                      (compound-language-extra-resolver language)
+                      renamer)))
+          (compound-language basics extra-resolver)))
+
+(define (rename-in-language language fixed renamer)
+        (cond
+          ((compound-language? language)
+           (rename-in-compound-language language fixed renamer))
+          ((sub-language? language fixed) language)
+          ((basic-language? language)
+           (rename-in-basic-language language renamer))
+          (else (imps-error "rename-in-language:  wierdo language ~S."
+                    language))))
+
+(define (language-difference lang1 lang2 . symbol-form)
+        (apply compound-language
+               (set-difference (basic-languages lang1)
+                   (basic-languages lang2))
+               (subtract-sort-resolvers lang1 lang2) symbol-form))
+
+(define (language-from-definition form)
+        (let ((the-name (car form))
+              (embedded
+                  (or (assq-val 'embedded-language (cdr form))
+                      (assq-val 'embedded-languages (cdr form))))
+              (self-extending-alist (assq-val 'extensible (cdr form))))
+          (let ((language
+                    (cond
+                      ((and embedded self-extending-alist)
+                       (imps-error
+                           "LANGUAGE-FROM-DEFINITION: If an embedded language is present, the language can not be extensible."))
+                      (embedded
+                          (complex-language-from-definition
+                              (map (lambda (n)
+                                     (or (name->language n)
+                                      (theory-language
+                                       (name->theory n))))
+                                   embedded)
+                              (cdr form) the-name))
+                      (self-extending-alist
+                          (self-extending-language-from-definition
+                              self-extending-alist (cdr form) the-name))
+                      (else (basic-language-from-definition (cdr form)
+                                the-name)))))
+            (set (language-defining-form language) form)
+            language)))
+
+(define (sort-resolver-from-definition embedded-languages form)
+        (let ((floaters
+                  (cond
+                    ((assq 'base-types form) => cdr)
+                    ((assq 'floater-types form) => cdr)
+                    (else nil)))
+              (prop-floaters
+                  (cond
+                    ((assq 'propositional-floater-types form) => cdr)
+                    (else nil))))
+          (or (null? prop-floaters)
+              (imps-warning "sort-resolver-from-definition: ~A ~S~%"
+                  "Propositional floating types are now obsolete"
+                  prop-floaters))
+          (iterate iter
+                   ((resolver
+                        (join-sort-resolvers
+                            (cons (make-type-resolver floaters
+                                      prop-floaters)
+                                  embedded-languages)))
+                    (sorting-specs
+                        (cond
+                          ((assq 'named-sorts form) => cdr)
+                          ((assq 'atomic-sorts form) => cdr)
+                          ((assq 'sorts form) => cdr)
+                          (else nil))))
+                   (if (null? sorting-specs) resolver
+                       (iter (sort-resolver-from-definition-process-spec
+                                 resolver (car sorting-specs))
+                             (cdr sorting-specs))))))
+
+(define (sort-resolver-from-definition-process-spec resolver spec)
+        (let* ((sort-name (car spec))
+               (enclosing-sort
+                   (string-or-list->sort resolver (cadr spec)))
+               (new-sort
+                   (if (base-sort? enclosing-sort)
+                       (build-base-sort sort-name
+                           (sort-category enclosing-sort) value-false
+                           enclosing-sort)
+                       (build-higher-sort
+                           (higher-sort-domains enclosing-sort)
+                           (higher-sort-range enclosing-sort) sort-name
+                           enclosing-sort))))
+          (extend-sort-resolver resolver sort-name new-sort)))
+
+(define (make-language-constants constant-specs resolver)
+        (map (lambda (sym-spec)
+               (destructure (((the-name sorting-spec) sym-spec))
+                   (let ((sorting (string-or-list->sort resolver
+                                      sorting-spec)))
+                     (or (possible-symbol-form? the-name)
+                         (imps-error
+                             "MAKE-LANGUAGE-CONSTANTS: formal symbol may not be named ~A"
+                             name))
+                     (or sorting
+                         (imps-error
+                             "MAKE-LANGUAGE-CONSTANTS: sort ~A unreadable in language being defined."
+                             sorting-spec))
+                     (make-formal-symbol constant? sorting the-name))))
+             constant-specs))
+
+(define (complex-language-from-definition embedded-languages form the-name)
+        (let* ((resolver
+                   (sort-resolver-from-definition embedded-languages
+                       form))
+               (the-constants
+                   (cond
+                     ((assq 'constants form) =>
+                      (lambda (constant-clause)
+                        (make-language-constants (cdr constant-clause)
+                            resolver)))
+                     (else nil))))
+          (extend-language (language-union embedded-languages)
+              the-constants resolver the-name)))
+
+(define (self-extending-language-from-definition self-extending-alist
+            form the-name)
+        (let* ((resolver (sort-resolver-from-definition nil form))
+               (the-constants
+                   (cond
+                     ((assq 'constants form) =>
+                      (lambda (constant-clause)
+                        (make-language-constants (cdr constant-clause)
+                            resolver)))
+                     (else nil)))
+               (alist (map (lambda (pair)
+                             (cons (eval (car pair))
+                                   (list->sort resolver (cadr pair))))
+                           self-extending-alist)))
+          (make-self-extending-basic-language the-name the-constants resolver
+              alist)))
+
+(define (basic-language-from-definition form the-name)
+        (let* ((resolver (sort-resolver-from-definition nil form))
+               (the-constants
+                   (cond
+                     ((assq 'constants form) =>
+                      (lambda (constant-clause)
+                        (make-language-constants (cdr constant-clause)
+                            resolver)))
+                     (else nil))))
+          (make-basic-language the-name the-constants resolver)))
+
+(define (make-formal-constant-in-new-language resolver sorting the-name)
+        (let ((new-const (make-formal-symbol constant? sorting the-name))
+              (language-name
+                  (retrieve-unused-name name->language 'new-constant)))
+          (make-basic-language language-name (list new-const) resolver)
+          new-const))
+
+(define (make-formal-constants-in-new-language resolver sorting-list
+            name-list)
+        (let ((new-constants
+                  (iterate iter
+                           ((s-list sorting-list) (n-list name-list)
+                            (c-list nil))
+                           (if (null? s-list) (reverse c-list)
+                               (let ((new-const
+                                      (make-formal-symbol constant?
+                                       (car s-list) (car n-list))))
+                                 (iter (cdr s-list) (cdr n-list)
+                                       (cons new-const c-list))))))
+              (language-name
+                  (retrieve-unused-name name->language 'new-constants)))
+          (make-basic-language language-name new-constants resolver)
+          new-constants))
+
+(define (find-basic-language language constant)
+        (iterate loop ((basics (basic-languages language)))
+                 (cond
+                   ((null? basics) value-false)
+                   ((element-of-set? constant
+                        (language-constants (car basics)))
+                    (car basics))
+                   (else (loop (cdr basics))))))
+
+(define (shrink-language language the-constants named-sorts)
+        (let ((constants-basic-languages
+                  (map (lambda (const)
+                         (find-basic-language language const))
+                       the-constants))
+              (named-sorts-resolver
+                  (make-sort-resolver-from-named-sorts named-sorts)))
+          (compound-language
+              (set-difference (basic-languages language)
+                  constants-basic-languages)
+              (subtract-sort-resolvers language named-sorts-resolver))))
+
+(define (make-sublanguage the-name superlanguage-name language-names
+            sort-names constant-names)
+        (or superlanguage-name
+            (imps-error
+                "MAKE-SUBLANGUAGE: The superlanguage name is empty."))
+        (or language-names sort-names constant-names
+            (imps-error
+                "MAKE-SUBLANGUAGE: There are no language, sort, or constant names given."))
+        (let* ((superlanguage
+                   (or (name->language superlanguage-name)
+                       (theory-language
+                           (name->theory superlanguage-name))))
+               (languages
+                   (map (lambda (l-name)
+                          (or (name->language l-name)
+                              (theory-language (name->theory l-name))))
+                        language-names))
+               (sorts (map (lambda (the-name)
+                             (name->sort superlanguage the-name))
+                           sort-names))
+               (the-constants
+                   (map (lambda (the-name)
+                          (find-constant superlanguage the-name))
+                        constant-names)))
+          (every? (lambda (lang)
+                    (or (sub-language? lang superlanguage)
+                        (imps-error "MAKE-SUBLANGUAGE: ~A ~S ~A ~S."
+                            "The language" lang
+                            "is not a sublanguage of" superlanguage)))
+                  languages)
+          (extend-language (language-union languages) the-constants
+              (make-sort-resolver-from-named-sorts sorts) the-name)))

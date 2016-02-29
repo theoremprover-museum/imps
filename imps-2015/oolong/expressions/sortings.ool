@@ -1,0 +1,692 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment sortings)
+
+(define-operation (name x)
+    (imps-error "NAME:  Operation not handled by ~S." x))
+
+(define-operation (base-sorts sorting-or-expression-or-language)
+    (imps-error "BASE-SORTS: Operation not handled by ~S."
+        sorting-or-expression-or-language))
+
+(define-structure-type base-sort name category type enclosing-sort
+    numerical? alpha-hash
+    (((print self port) (print (base-sort-name self) port))
+     ((base-sorts self) (list self))
+     ((name self) (base-sort-name self))
+     ((two-d-table-hash self) (base-sort-alpha-hash self))))
+
+(set (base-sort-numerical? (stype-master base-sort-stype)) value-false)
+
+(define base-sort-table (make-two-d-table 'base-sort-table))
+
+(define (retrieve-base-sort the-name category is-type? enclosing-sort)
+        (let ((entry-list
+                  (two-d-table-entry base-sort-table the-name category)))
+          (if entry-list
+              (any (lambda (s)
+                     (and (if is-type? (eq? s (base-sort-type s))
+                              (and (not (eq? s (base-sort-type s)))
+                                   (eq? enclosing-sort
+                                    (base-sort-enclosing-sort s))))
+                          s))
+                   entry-list)
+              value-false)))
+
+(define (build-base-sort the-name category is-type? enclosing-sort)
+        (cond
+          ((or (eq? the-name 'ind) (eq? the-name 'prop))
+           (imps-error "build-base-sort: Reserved name ~S" the-name))
+          ((and (not (symbol? the-name)) (not (anonymous-name? the-name)))
+           (imps-error
+               "build-base-sort: name must be a symbol or anonymous-name, not ~S"
+               the-name))
+          ((not (boolean? is-type?))
+           (imps-error
+               "build-base-sort: is-type? must be a boolean, not ~S"
+               is-type?))
+          ((and (not (eq? category ind)) (not (eq? category prop)))
+           (imps-error
+               "build-base-sort: category must be IND or PROP, not ~S"
+               category))
+          ((and (not is-type?) (not (base-sort? enclosing-sort)))
+           (imps-error
+               "build-base-sort: enclosing-sort must be a sort, not ~S"
+               enclosing-sort)))
+        (or (retrieve-base-sort the-name category is-type? enclosing-sort)
+            (let* ((s (make-base-sort))
+                   (type (if is-type? s
+                             (retrieve-base-sort
+                                 (base-sort-name
+                                     (base-sort-type enclosing-sort))
+                                 category value-true value-true))))
+              (or type
+                  (imps-error "build-base-sort: can't find type ~S"
+                      (base-sort-type enclosing-sort)))
+              (set (base-sort-name s) the-name)
+              (set (base-sort-category s) category)
+              (set (base-sort-type s) type)
+              (set (base-sort-enclosing-sort s) enclosing-sort)
+              (set (base-sort-alpha-hash s) (descriptor-hash s))
+              (let ((entry-list
+                        (two-d-table-entry base-sort-table the-name
+                            category)))
+                (if entry-list
+                    (set (two-d-table-entry base-sort-table the-name
+                             category)
+                         (cons s entry-list))
+                    (set (two-d-table-entry base-sort-table the-name
+                             category)
+                         (list s))))
+              s)))
+
+(define (build-base-type the-name category)
+        (build-base-sort the-name category value-true value-true))
+
+(define ind
+        (let ((s (make-base-sort)))
+          (set (base-sort-name s) 'ind)
+          (set (base-sort-category s) s)
+          (set (base-sort-type s) s)
+          (set (base-sort-enclosing-sort s) value-true)
+          (set (base-sort-alpha-hash s) (descriptor-hash s))
+          (set (two-d-table-entry base-sort-table 'ind s) (list s))
+          s))
+
+(define prop
+        (let ((s (make-base-sort)))
+          (set (base-sort-name s) 'prop)
+          (set (base-sort-category s) s)
+          (set (base-sort-type s) s)
+          (set (base-sort-enclosing-sort s) value-true)
+          (set (base-sort-alpha-hash s) (descriptor-hash s))
+          (set (two-d-table-entry base-sort-table 'prop s) (list s))
+          s))
+
+(define (base-sort-is-type? s) (eq? s (base-sort-type s)))
+
+(define (base-sort-floats? s)
+        (and (not (eq? (base-sort-type s) ind))
+             (not (eq? (base-sort-type s) prop))))
+
+(define (rename-base-sort s renamer)
+        (let ((the-name (funcall renamer (base-sort-name s)))
+              (category (base-sort-category s))
+              (is-type? (base-sort-is-type? s))
+              (enclosing-sort (base-sort-enclosing-sort s)))
+          (build-base-sort the-name category is-type?
+              (or is-type? (rename-base-sort enclosing-sort rethe-namer)))))
+
+(define-structure-type higher-sort name range domains category type
+    enclosing-sort level bases numerical? alpha-hash
+    (((print self port)
+      (if (print-sorts-verbosely?)
+          (format port "#{IMPS-higher-sort ~A (~S -> ~S) ~S}"
+                  (or (higher-sort-name self) "")
+                  (higher-sort-domains self) (higher-sort-range self)
+                  (object-hash self))
+          (print (or (higher-sort-name self)
+                     (reverse (cons (higher-sort-range self)
+                                    (reverse
+                                     (higher-sort-domains self)))))
+                 port)))
+     ((base-sorts self) (higher-sort-bases self))
+     ((name self) (higher-sort-name self))
+     ((two-d-table-hash self) (higher-sort-alpha-hash self))))
+
+(set (higher-sort-numerical? (stype-master higher-sort-stype)) value-false)
+
+(define (sort-level s) (if (base-sort? s) 0 (higher-sort-level s)))
+
+(define (higher-sort-is-type? s) (eq? s (higher-sort-type s)))
+
+(define (sort? s) (or (base-sort? s) (higher-sort? s)))
+
+(define (sort-category s)
+        (if (base-sort? s) (base-sort-category s)
+            (higher-sort-category s)))
+
+(define (sort-is-type? s)
+        (if (base-sort? s) (base-sort-is-type? s)
+            (higher-sort-is-type? s)))
+
+(define (type-of-sort s)
+        (if (base-sort? s) (base-sort-type s) (higher-sort-type s)))
+
+(define (numerical? s)
+        (if (base-sort? s) (base-sort-numerical? s)
+            (higher-sort-numerical? s)))
+
+(define (sort-alpha-hash s)
+        (if (base-sort? s) (base-sort-alpha-hash s)
+            (higher-sort-alpha-hash s)))
+
+(define (floating-sort? s)
+        (if (base-sort? s) (base-sort-floats? s)
+            (any? base-sort-floats? (base-sorts s))))
+
+(define (prop-sorting? s) (eq? (sort-category s) prop))
+
+(define (ind-sorting? s) (eq? (sort-category s) ind))
+
+(define (rename-sort s renamer)
+        (if (base-sort? s) (rename-base-sort s renamer)
+            (rename-higher-sort s renamer)))
+
+(define (rename-higher-sort s renamer)
+        (let ((domains (map (lambda (s) (rename-sort s renamer))
+                            (higher-sort-domains s)))
+              (range (rename-sort (higher-sort-range s) renamer))
+              (the-name (funcall renamer (higher-sort-name s)))
+              (enclosing-sort
+                  (rename-sort (higher-sort-enclosing-sort s) renamer)))
+          (build-higher-sort domains range the-name enclosing-sort)))
+
+(define higher-sort-table (make-two-d-table 'higher-sort-table))
+
+(define (retrieve-higher-sort domains range the-name)
+        (let ((entry-list (table-entry higher-sort-table range)))
+          (if entry-list
+              (any (lambda (s)
+                     (and (eq? the-name (higher-sort-name s))
+                          (equal? domains (higher-sort-domains s)) s))
+                   entry-list)
+              value-false)))
+
+(define (non-nullary-and-domains-are-sorts? domains)
+        (and (not (null? domains)) (every? sort? domains)))
+
+(define (build-maximal-higher-sort domains range)
+        (imps-enforce sort? range)
+        (imps-enforce non-nullary-and-domains-are-sorts? domains)
+        (or (retrieve-higher-sort domains range value-false)
+            (let ((s (make-higher-sort)))
+              (set (higher-sort-name s) value-false)
+              (set (higher-sort-range s) range)
+              (set (higher-sort-domains s) domains)
+              (set (higher-sort-bases s)
+                   (set-union (base-sorts range)
+                       (collect-set base-sorts domains)))
+              (set (higher-sort-category s) (sort-category range))
+              (set (higher-sort-type s)
+                   (if (and (sort-is-type? range)
+                            (every? sort-is-type? domains))
+                       s
+                       (build-maximal-higher-sort
+                           (map type-of-sort domains)
+                           (type-of-sort range))))
+              (set (higher-sort-enclosing-sort s) s)
+              (set (higher-sort-level s)
+                   (1+ (apply max (sort-level range)
+                              (map sort-level domains))))
+              (set (higher-sort-alpha-hash s) (descriptor-hash s))
+              (push (table-entry higher-sort-table range) s)
+              s)))
+
+(define (build-higher-sort domains range the-name enclosing-sort)
+        (imps-enforce sort? range)
+        (imps-enforce non-nullary-and-domains-are-sorts? domains)
+        (imps-enforce
+            (lambda (n) (or (not n) (symbol? n) (anonymous-name? n)))
+            the-name)
+        (imps-enforce higher-sort? enclosing-sort)
+        (or (and (eq? range (higher-sort-range enclosing-sort))
+                 (equal? domains (higher-sort-domains enclosing-sort)))
+            (imps-error
+                "build-higher-sort: Mis-matched enclosing sort ~S;~%Domains ~S;~%Range~S~%"
+                enclosing-sort domains range))
+        (or (retrieve-higher-sort domains range the-name)
+            (let ((s (make-higher-sort)))
+              (set (higher-sort-name s) the-name)
+              (set (higher-sort-range s) range)
+              (set (higher-sort-domains s) domains)
+              (set (higher-sort-bases s)
+                   (set-union (base-sorts range)
+                       (collect-set base-sorts domains)))
+              (set (higher-sort-category s) (sort-category range))
+              (set (higher-sort-type s)
+                   (cond
+                     (the-name (build-maximal-higher-sort
+                               (map type-of-sort domains)
+                               (type-of-sort range)))
+                     ((and (sort-is-type? range)
+                           (every? sort-is-type? domains))
+                      s)
+                     (else (build-maximal-higher-sort
+                               (map type-of-sort domains)
+                               (type-of-sort range)))))
+              (set (higher-sort-enclosing-sort s) enclosing-sort)
+              (set (higher-sort-level s)
+                   (1+ (apply max (sort-level range)
+                              (map sort-level domains))))
+              (set (higher-sort-alpha-hash s) (descriptor-hash s))
+              (push (table-entry higher-sort-table range) s)
+              s)))
+
+(define (higher-sort-exhausts-domains->range? s)
+        (false? (higher-sort-name s)))
+
+(define print-sorts-verbosely?
+        (make-simple-switch 'print-sorts-verbosely? boolean? value-false))
+
+(define sorting? sort?)
+
+(define *sorting-lubs* (make-two-d-table '*sorting-lubs*))
+
+(define (sorting-lub sort1 sort2)
+        (if (not (eq? (type-of-sort sort1) (type-of-sort sort2)))
+            (imps-error
+                "sorting-lub  Attempt to take LUB of incomparable sorts ~S~&~S."
+                sort1 sort2))
+        (let ((value (or (two-d-table-entry *sorting-lubs* sort1 sort2)
+                         (two-d-table-entry *sorting-lubs* sort2 sort1))))
+          (or value
+              (let ((value (compute-sorting-lub sort1 sort2)))
+                (set (two-d-table-entry *sorting-lubs* sort1 sort2)
+                     value)
+                value))))
+
+(define (sorting-leq sort1 sort2)
+        (and (eq? (type-of-sort sort1) (type-of-sort sort2))
+             (eq? sort2 (sorting-lub sort1 sort2))))
+
+(define (compute-sorting-lub sort1 sort2)
+        (cond
+          ((eq? sort1 sort2) sort1)
+          ((sort-is-type? sort1) sort1)
+          ((sort-is-type? sort2) sort2)
+          ((and (name sort1) (name sort2))
+           (let ((e1 (immediately-enclosing-sorts sort1))
+                 (e2 (immediately-enclosing-sorts sort2)))
+             (iterate iter ((e1 e1))
+                      (cond
+                        ((memq? (car e1) e2) (car e1))
+                        ((null? (cdr e1))
+                         (sorting-lub (car e1) (last e2)))
+                        (else (iter (cdr e1)))))))
+          ((name sort1) (sorting-lub (enclosing-sort sort1) sort2))
+          ((name sort2) (sorting-lub sort1 (enclosing-sort sort2)))
+          (else (let ((domains (map sorting-lub
+                                    (higher-sort-domains sort1)
+                                    (higher-sort-domains sort2)))
+                      (range (sorting-lub (higher-sort-range sort1)
+                                 (higher-sort-range sort2))))
+                  (build-maximal-higher-sort domains range)))))
+
+(define (immediately-enclosing-sorts sort1)
+        (if (and (not (sort-is-type? sort1)) (name sort1))
+            (cons sort1
+                  (immediately-enclosing-sorts (enclosing-sort sort1)))
+            (list sort1)))
+
+(define sort-necessarily-included? sorting-leq)
+
+(define (sorts-may-overlap? sort1 sort2)
+        (eq? (type-of-sort sort1) (type-of-sort sort2)))
+
+(define (sorts-necessarily-disjoint? sort1 sort2)
+        (not (sorts-may-overlap? sort1 sort2)))
+
+(define-integrable (equal-sortings? s1 s2) (eq? s1 s2))
+
+(define sortings-equal? equal-sortings?)
+
+(define (collect-named-sorts sort)
+        (iterate iter ((sorts (list sort)) (named-sorts nil))
+                 (cond
+                   ((null? sorts) (reverse! named-sorts))
+                   ((not (null? (name (car sorts))))
+                    (iter (cdr sorts)
+                          (add-set-element (car sorts) named-sorts)))
+                   (else (iter (append (higher-sort-domains
+                                        (car sorts))
+                                       (cons
+                                        (higher-sort-range (car sorts))
+                                        (cdr sorts)))
+                               named-sorts)))))
+
+(define (sort->list h)
+        (or (name h)
+            (append (map sort->list (higher-sort-domains h))
+                    (list (sort->list (higher-sort-range h))))))
+
+(define (hereditary-sort-domains sorting)
+        (if (base-sort? sorting) nil
+            (let ((rest (hereditary-sort-domains
+                            (higher-sort-range sorting))))
+              (if (null? rest) (higher-sort-domains sorting)
+                  (append (higher-sort-domains sorting) rest)))))
+
+(define (hereditary-type-domains sorting)
+        (map type-of-sort (hereditary-sort-domains sorting)))
+
+(define (sorting-permissible? sorting the-home-language)
+        (let ((bases (and the-home-language
+                          (base-sorts the-home-language))))
+          (let ((check-language?
+                    (if the-home-language (lambda (s) (memq? s bases))
+                        (lambda (()) value-true))))
+            (if (base-sort? sorting) (funcall check-language? sorting)
+                (and (higher-sort? sorting)
+                     (iterate make-checks?
+                              ((sorts (cons (higher-sort-range sorting)
+                                       (higher-sort-domains sorting))))
+                              (cond
+                                ((null? sorts) value-true)
+                                ((base-sort? (car sorts))
+                                 (and (funcall check-language?
+                                       (car sorts))
+                                      (make-checks? (cdr sorts))))
+                                ((higher-sort? (car sorts))
+                                 (make-checks?
+                                     (cons
+                                      (higher-sort-range (car sorts))
+                                      (append
+                                       (higher-sort-domains
+                                        (car sorts))
+                                       (cdr sorts)))))
+                                (else value-false))))))))
+
+(define (same-sorted? exp1 exp2)
+        (equal-sortings? (expression-sorting exp1)
+            (expression-sorting exp2)))
+
+(define (single-sorted-list? exps)
+        (or (null? exps)
+            (let ((sorting (expression-sorting (car exps))))
+              (every? (lambda (expr)
+                        (equal-sortings? sorting
+                            (expression-sorting expr)))
+                      (cdr exps)))))
+
+(define-constant sorting-skeletons-match? sorts-may-overlap?)
+
+(define-constant sortings-match-exactly? eq?)
+
+(define-predicate sort-resolver?)
+
+(define-operation (name->sort sort-resolver symbol)
+    (imps-error "name->sort: operation not handled ~S ~S" sort-resolver
+        symbol))
+
+(define-operation (sort-names-resolved resolver)
+    (imps-error "sort-names-resolved: operation not handled ~S"
+        resolver))
+
+(define-operation (sorts-resolved resolver)
+    (imps-error "sorts-resolved: operation not handled ~S" resolver))
+
+(define-operation (name-sort-alist resolver)
+    (imps-error "name-sort-alist: operation not handled ~S" resolver))
+
+(define (make-type-resolver ind-floater-names prop-floater-names)
+        (let ((names-resolved
+                  (set-union (list 'ind 'prop)
+                      (append prop-floater-names ind-floater-names))))
+          (imps-enforce
+              (object (lambda (l)
+                        (and (every? (lambda (n)
+                                       (or (symbol? n)
+                                        (anonymous-name? n)))
+                                     l)
+                             (is-set? l)))
+                      ((print self port)
+                       (format port
+                               "#{Procedure: tests argument is a set of symbols and anonymous names}")))
+              names-resolved)
+          (let* ((name-type-alist
+                     (cons* (cons 'ind ind) (cons 'prop prop)
+                            (append (map
+                                     (lambda (n)
+                                       (cons n
+                                        (build-base-sort n prop value-true
+                                         value-true)))
+                                     prop-floater-names)
+                                    (map
+                                     (lambda (n)
+                                       (cons n
+                                        (build-base-sort n ind value-true
+                                         value-true)))
+                                     ind-floater-names))))
+                 (sort-set
+                     (set-union (list ind prop)
+                         (map cdr name-type-alist))))
+            (object nil
+                    ((name->sort self symbol)
+                     (cond
+                       ((assq symbol name-type-alist) => cdr)
+                       (else value-false)))
+                    ((sort-resolver? self) value-true)
+                    ((name-sort-alist self) name-type-alist)
+                    ((sort-names-resolved self) names-resolved)
+                    ((base-sorts self) sort-set)
+                    ((sorts-resolved self) sort-set)))))
+
+(define null-sort-resolver (make-type-resolver nil nil))
+
+(define (extend-sort-resolver resolver new-name sorting)
+        (let ((names-resolved
+                  (add-set-element new-name
+                      (sort-names-resolved resolver)))
+              (bases (if (base-sort? sorting)
+                         (add-set-element sorting
+                             (base-sorts resolver))
+                         (base-sorts resolver)))
+              (sort-set
+                  (add-set-element sorting (sorts-resolved resolver)))
+              (alist (cons (cons new-name sorting)
+                           (name-sort-alist resolver))))
+          (imps-enforce is-set? names-resolved)
+          (imps-enforce
+              (lambda (n) (or (symbol? n) (anonymous-name? n)))
+              new-name)
+          (object nil ((sort-resolver? self) value-true)
+                  ((sort-names-resolved self) names-resolved)
+                  ((name-sort-alist self) alist)
+                  ((base-sorts self) bases)
+                  ((sorts-resolved self) sort-set)
+                  ((name->sort self symbol)
+                   (cond ((assq symbol alist) => cdr) (else value-false))))))
+
+(define (rename-sort-resolver resolver renamer)
+        (or (eq? 'prop (funcall renamer 'prop))
+            (imps-error
+                "rename-sort-resolver:  Bad renamer maps 'PROP to ~S"
+                (funcall renamer 'prop)))
+        (let* ((names-resolved
+                  (map renamer (sort-names-resolved resolver)))
+              (alist (map (lambda (p)
+                            (cons (funcall renamer (car p))
+                                  (rename-sort (cdr p) renamer)))
+                          (name-sort-alist resolver)))
+              (bases (map (lambda (s) (rename-sort s renamer))
+                          (base-sorts resolver)))
+              (sort-set (map cdr alist)))
+          (imps-enforce is-set? names-resolved)
+          (object nil ((sort-resolver? self) value-true)
+                  ((sort-names-resolved self) names-resolved)
+                  ((name-sort-alist self) alist)
+                  ((base-sorts self) bases)
+                  ((sorts-resolved self) sort-set)
+                  ((name->sort self symbol)
+                   (cond ((assq symbol alist) => cdr) (else value-false))))))
+
+(define (join-sort-resolvers resolvers)
+        (imps-enforce (lambda (l) (every? sort-resolver? l)) resolvers)
+        (cond
+          ((null? resolvers) null-sort-resolver)
+          ((null? (cdr resolvers)) (car resolvers))
+          (else (let* ((names-resolved
+                           (collect-set sort-names-resolved resolvers))
+                       (sort-set
+                           (collect-set sorts-resolved resolvers))
+                       (bases (collect-set base-sorts resolvers))
+                       (alist (map (lambda (n)
+                                     (cons n
+                                      (any
+                                       (lambda (r) (name->sort r n))
+                                       resolvers)))
+                                   names-resolved)))
+                  (object nil ((sort-resolver? self) value-true)
+                          ((base-sorts self) bases)
+                          ((sorts-resolved self) sort-set)
+                          ((name-sort-alist self) alist)
+                          ((name->sort self symbol)
+                           (cond
+                             ((assq symbol alist) => cdr)
+                             (else value-false)))
+                          ((sort-names-resolved self) names-resolved))))))
+
+(define (subtract-sort-resolvers res1 res2)
+        (let ((names-resolved
+                  (set-difference (sort-names-resolved res1)
+                      (sort-names-resolved res2)))
+              (sort-set
+                  (set-difference (sorts-resolved res1)
+                      (sorts-resolved res2)))
+              (bases (set-difference (base-sorts res1)
+                         (base-sorts res2)))
+              (alist (let ((a1 (name-sort-alist res1))
+                           (names2 (sort-names-resolved res2)))
+                       (iterate iter ((alist nil) (a1 a1))
+                                (cond
+                                  ((null? a1) (reverse! alist))
+                                  ((memq? (caar a1) names2)
+                                   (iter alist (cdr a1)))
+                                  (else (iter (cons (car a1) alist)
+                                         (cdr a1))))))))
+          (object nil ((sort-resolver? self) value-true)
+                  ((base-sorts self) bases)
+                  ((sorts-resolved self) sort-set)
+                  ((name-sort-alist self) alist)
+                  ((name->sort self symbol)
+                   (cond ((assq symbol alist) => cdr) (else value-false)))
+                  ((sort-names-resolved self) names-resolved))))
+
+(define (make-sort-resolver-from-named-sorts sorts)
+        (let ((resolver null-sort-resolver))
+          (iterate loop ((sorts sorts))
+                   (if (null? sorts) resolver
+                       (let ((sort (car sorts)))
+                         (extend-sort-resolver resolver (name sort)
+                             sort)
+                         (loop (cdr sorts)))))))
+
+(define (list->sort resolver lst)
+        (if (or (symbol? lst) (anonymous-name? lst))
+            (name->sort resolver lst)
+            (let ((component-sorts
+                      (map (lambda (lst2) (list->sort resolver lst2))
+                           lst)))
+              (receive (range domains)
+                       (last-&-all-but-last component-sorts)
+                       (if (and (sort? range) (every? sort? domains))
+                           (build-maximal-higher-sort domains range)
+                           value-false)))))
+
+(define (build-new-sort enclosing-sort sort-name)
+        (if (base-sort? enclosing-sort)
+            (build-base-sort sort-name (sort-category enclosing-sort)
+                value-false enclosing-sort)
+            (build-higher-sort (higher-sort-domains enclosing-sort)
+                (higher-sort-range enclosing-sort) sort-name
+                enclosing-sort)))
+
+(define (enclosing-sort sort)
+        (cond
+          ((sort-is-type? sort) sort)
+          ((base-sort? sort) (base-sort-enclosing-sort sort))
+          (else (higher-sort-enclosing-sort sort))))
+
+(define (common-enclosing-sort sort1 sort2) (sorting-lub sort1 sort2))
+
+(define (common-enclosing-sort-list sort-list1 sort-list2)
+        (iterate iter
+                 ((s1 sort-list1) (s2 sort-list2) (new-sort-list nil))
+                 (if (null? s1) (reverse new-sort-list)
+                     (iter (cdr s1) (cdr s2)
+                           (cons (common-enclosing-sort (car s1)
+                                     (car s2))
+                                 new-sort-list)))))
+
+(define nominal-upper-bound common-enclosing-sort)
+
+(define (enclosing-maximal-higher-sort sort)
+        (or (higher-sort? sort)
+            (imps-error "ENCLOSING-MAXIMAL-HIGHER-SORT: ~S ~A." sort
+                "is not a higher sort"))
+        (if (name sort)
+            (build-maximal-higher-sort (higher-sort-domains sort)
+                (higher-sort-range sort))
+            sort))
+
+(define (contains-sort? resolver sort)
+        (subset? (collect-named-sorts sort) (sorts-resolved resolver)))
+
+(define (big-sorting-lub sorts)
+        (or (not (null? sorts))
+            (imps-error "BIG-SORTING-LUB: ~S is null." sorts))
+        (iterate loop ((sorts (cdr sorts)) (lub (car sorts)))
+                 (if (null? sorts) lub
+                     (loop (cdr sorts) (sorting-lub lub (car sorts))))))
+
+(define (sorting-list-leq sort-list1 sort-list2)
+        (or (= (length sort-list1) (length sort-list2))
+            (imps-error
+                "SORTING-LIST-LEQ: ~S and ~S have different lengths."
+                sort-list1 sort-list2))
+        (iterate loop ((sort-list1 sort-list1) (sort-list2 sort-list2))
+                 (or (null? sort-list1)
+                     (and (sorting-leq (car sort-list1)
+                              (car sort-list2))
+                          (loop (cdr sort-list1) (cdr sort-list2))))))
+
+(define (make-sorting-hash-table id) (make-hash-table eq? id))

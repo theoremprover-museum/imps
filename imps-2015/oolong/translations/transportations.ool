@@ -1,0 +1,573 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment transportations)
+
+(define (theory-add-transported-theorem theory formula the-name
+            usage-list translation)
+        (quick-theory-interpretation-check translation)
+        (enrich-translation translation)
+        (let ((source-theory (translation-source-theory translation))
+              (target-theory (translation-target-theory translation))
+              (assumptions (translation-assumptions translation)))
+          (or (subtheory? theory target-theory)
+              (imps-error "THEORY-ADD-TRANSPORTED-THEOREM: ~S ~A ~S."
+                  theory "is not a subtheory of the target theory of"
+                  translation))
+          (or (and (formula? formula)
+                   (contains-expression?
+                       (theory-language source-theory) formula))
+              (imps-error "THEORY-ADD-TRANSPORTED-THEOREM: ~S ~A ~S."
+                  formula "is not a formula in the target theory of"
+                  translation))
+          (let* ((trans-formula
+                     (translate-sentence-and-beta-reduce translation
+                         formula))
+                 (new-theorem-formula
+                     (build-sentence-from-assumptions-and-formula
+                         assumptions trans-formula))
+                 (new-theorem
+                     (build-theorem theory new-theorem-formula the-name
+                         usage-list)))
+            (theory-add-theorem theory new-theorem-formula value-false)
+            new-theorem)))
+
+(define (theory-add-maceted-transported-theorem theory formula the-name
+            usage-list translation macete)
+        (quick-theory-interpretation-check translation)
+        (enrich-translation translation)
+        (let ((source-theory (translation-source-theory translation))
+              (target-theory (translation-target-theory translation))
+              (assumptions (translation-assumptions translation)))
+          (or (subtheory? theory target-theory)
+              (imps-error
+                  "THEORY-ADD-MACETED-TRANSPORTED-THEOREM: ~S ~A ~S."
+                  theory "is not a subtheory of the target theory of"
+                  translation))
+          (or (and (formula? formula)
+                   (contains-expression?
+                       (theory-language source-theory) formula))
+              (imps-error
+                  "THEORY-ADD-MACETED-TRANSPORTED-THEOREM: ~S ~A ~S."
+                  formula "is not a formula in the target theory of"
+                  translation))
+          (or (macete? macete)
+              (imps-error
+                  "THEORY-ADD-MACETED-TRANSPORTED-THEOREM: ~S ~A."
+                  macete "is not a macete"))
+          (or (macete-sound-in-theory? macete target-theory)
+              (imps-error
+                  "THEORY-ADD-MACETED-TRANSPORTED-THEOREM: ~S ~A ~S."
+                  macete "is not sound in" target-theory))
+          (or (bidirectional-macete? macete)
+              (imps-error
+                  "THEORY-ADD-MACETED-TRANSPORTED-THEOREM: ~S ~A."
+                  macete "is not bidirectional"))
+          (let* ((trans-formula
+                     (translate-sentence-and-beta-reduce translation
+                         formula))
+                 (formula-after-macete
+                     (apply-macete-without-minor-premises macete
+                         (build-context theory assumptions)
+                         trans-formula))
+                 (new-theorem-formula
+                     (build-sentence-from-assumptions-and-formula
+                         assumptions formula-after-macete))
+                 (new-theorem
+                     (build-theorem theory new-theorem-formula the-name
+                         usage-list)))
+            (theory-add-theorem theory new-theorem-formula value-false)
+            new-theorem)))
+
+(define (theory-add-maceted-theorem theory formula the-name usage-list
+            macete)
+        (or (and (formula? formula)
+                 (contains-expression? (theory-language theory)
+                     formula))
+            (imps-error "THEORY-ADD-MACETED-THEOREM: ~S ~A ~S." formula
+                "is not a formula in the" theory))
+        (or (macete? macete)
+            (imps-error "THEORY-ADD-MACETED-THEOREM: ~S ~A." macete
+                "is not a macete"))
+        (or (macete-sound-in-theory? macete theory)
+            (imps-error "THEORY-ADD-MACETED-THEOREM: ~S ~A ~S." macete
+                "is not sound in" theory))
+        (or (bidirectional-macete? macete)
+            (imps-error "THEORY-ADD-MACETED-THEOREM: ~S ~A." macete
+                "is not bidirectional"))
+        (let* ((formula-after-macete
+                   (apply-macete-without-minor-premises macete
+                       (build-context theory assumptions) formula))
+               (new-theorem
+                   (build-theorem theory formula-after-macete the-name
+                       usage-list)))
+          (theory-add-theorem theory new-theorem value-false)
+          new-theorem))
+
+(define (transport-theorem translation theorem . theorem-namer)
+        (quick-theory-interpretation-check translation)
+        (enrich-translation translation)
+        (let ((theorem-namer
+                  (if (null? theorem-namer) value-false
+                      (car theorem-namer)))
+              (source-theory (translation-source-theory translation))
+              (assumptions (translation-assumptions translation)))
+          (or (theory-theorem? source-theory theorem)
+              (imps-error "TRANSPORT-THEOREM: ~S ~A ~S." theorem
+                  "is not known to be a theorem of" source-theory))
+          (if (translation-fixed-theorem? translation theorem) theorem
+              (transport-theorem-aux translation theorem assumptions
+                  theorem-namer))))
+
+(define (transport-theorem-via-a-translation translation theorem
+            . theorem-namer)
+        (or (translation? translation)
+            (imps-error
+                "TRANSPORT-THEOREM-VIA-A-TRANSLATION: ~S is not a translation."
+                translation))
+        (enrich-translation translation)
+        (let* ((theorem-namer
+                   (if (null? theorem-namer) value-false
+                       (car theorem-namer)))
+               (source-theory (translation-source-theory translation))
+               (assumptions (translation-assumptions translation))
+               (new-assumptions
+                   (set-union assumptions
+                       (translation-obligations translation))))
+          (or (theory-theorem? source-theory theorem)
+              (imps-error
+                  "TRANSPORT-THEOREM-VIA-A-TRANSLATION: ~S ~A ~S."
+                  theorem "is not known to be a theorem of"
+                  source-theory))
+          (transport-theorem-aux translation theorem new-assumptions
+              theorem-namer)))
+
+(define (transport-theorem-from-theory-to-subtheory theorem theory
+            subtheory . theorem-namer)
+        (or (theory-theorem? theory theorem)
+            (imps-error
+                "TRANSPORT-THEOREM-FROM-THEORY-TO-SUBTHEORY: ~S ~A ~S."
+                theorem "is not known to be a theorem of" theory))
+        (or (not (theory-theorem? subtheory theorem))
+            (imps-error
+                "TRANSPORT-THEOREM-FROM-THEORY-TO-SUBTHEORY: ~S ~A ~S."
+                theorem "is already a theorem of" subtheory))
+        (let ((theorem-namer
+                  (if (null? theorem-namer) value-false
+                      (car theorem-namer)))
+              (translation
+                  (theory-to-subtheory-translation theory subtheory)))
+          (transport-theorem translation theorem theorem-namer)))
+
+(define (theory-add-generalized-theorem theory formula the-name
+            usage-list supertheory)
+        (let* ((translation
+                   (theory-to-subtheory-translation supertheory theory))
+               (assumptions (translation-assumptions translation)))
+          (or (and (formula? formula)
+                   (contains-expression? (theory-language supertheory)
+                       formula))
+              (imps-error "THEORY-ADD-TRANSPORTED-THEOREM: ~S ~A ~S."
+                  formula "is not a formula in the of" supertheory))
+          (let* ((trans-formula
+                     (translate-sentence-and-beta-reduce translation
+                         formula))
+                 (new-theorem-formula
+                     (build-sentence-from-assumptions-and-formula
+                         assumptions trans-formula))
+                 (new-theorem
+                     (build-theorem theory new-theorem-formula the-name
+                         usage-list)))
+            (theory-add-theorem theory new-theorem-formula value-false)
+            new-theorem)))
+
+(define (transport-all-theorems translation . theorem-namer)
+        (quick-theory-interpretation-check translation)
+        (enrich-translation translation)
+        (let* ((theorem-namer
+                   (if (null? theorem-namer) value-false
+                       (car theorem-namer)))
+               (source-theory (translation-source-theory translation))
+               (fixed-theories
+                   (translation-fixed-theories translation))
+               (fixed-theorems
+                   (big-u (map theory-theorems fixed-theories)))
+               (assumptions (translation-assumptions translation))
+               (theorems
+                   (set-diff (theory-theorems source-theory)
+                       fixed-theorems)))
+          (set-walk
+              (lambda (theorem)
+                (transport-theorem-aux translation theorem assumptions
+                    theorem-namer))
+              theorems)))
+
+(define (transport-theorem-aux translation theorem assumptions
+            theorem-namer)
+        (let* ((target-theory (translation-target-theory translation))
+               (trans-formula
+                   (translate-sentence-and-beta-reduce translation
+                       (theorem-formula theorem)))
+               (new-theorem-formula
+                   (build-sentence-from-assumptions-and-formula
+                       assumptions trans-formula))
+               (new-theorem-name
+                   (make-translated-theorem-name translation
+                       (name theorem) theorem-namer))
+               (new-theorem-usage-list (theorem-usage-list theorem))
+               (new-theorem
+                   (build-theorem target-theory new-theorem-formula
+                       new-theorem-name new-theorem-usage-list)))
+          (or (trivial-theorem? new-theorem-formula)
+              (theory-add-theorem target-theory new-theorem value-false))
+          new-theorem))
+
+(define (transport-theorem-using-macete translation theorem macete
+            the-name)
+        (imps-enforce symbol? the-name)
+        (quick-theory-interpretation-check translation)
+        (enrich-translation translation)
+        (let ((source-theory (translation-source-theory translation))
+              (target-theory (translation-target-theory translation))
+              (assumptions (translation-assumptions translation)))
+          (or (theory-theorem? theorem)
+              (imps-error "TRANSPORT-THEOREM-USING-MACETE: ~S ~A ~S."
+                  theorem "is not known to be a theorem of"
+                  source-theory))
+          (or (macete? macete)
+              (imps-error "TRANSPORT-THEOREM-USING-MACETE: ~S ~A."
+                  macete "is not a macete"))
+          (or (macete-sound-in-theory? macete target-theory)
+              (imps-error "TRANSPORT-THEOREM-USING-MACETE: ~S ~A ~S."
+                  macete "is not sound in" target-theory))
+          (or (bidirectional-macete? macete)
+              (imps-error "TRANSPORT-THEOREM-USING-MACETE: ~S ~A."
+                  macete "is not bidirectional"))
+          (let* ((trans-formula
+                     (translate-sentence-and-beta-reduce translation
+                         (theorem-formula theorem)))
+                 (formula-after-macete
+                     (apply-macete-without-minor-premises macete
+                         (build-context target-theory assumptions)
+                         trans-formula))
+                 (new-theorem-formula
+                     (build-sentence-from-assumptions-and-formula
+                         assumptions formula-after-macete))
+                 (new-theorem
+                     (build-theorem target-theory new-theorem-formula
+                         the-name nil)))
+            (theory-add-theorem target-theory new-theorem value-false)
+            new-theorem)))
+
+(define (transport-theorems-by-usage translation selected-usages)
+        (let ((source (translation-source-theory translation)))
+          (walk (lambda (thm)
+                  (or (null-intersection? selected-usages
+                          (theorem-usage-list thm))
+                      (transport-theorem translation thm)))
+                (theory-theorems source))))
+
+(define (transport-convergence-and-rewrite-theorems translation)
+        (transport-theorems-by-usage translation
+            '(d-r-convergence rewrite)))
+
+(define (transport-sort-definition translation definition renamer)
+        (or (translation? translation)
+            (imps-error "TRANSPORT-SORT-DEFINITION: ~S ~A." translation
+                "is not a translation"))
+        (or (translation-empty-assumptions? translation)
+            (imps-error "TRANSPORT-SORT-DEFINITION: ~S ~A." translation
+                "does not have an empty set of assumptions"))
+        (or (sort-definition? definition)
+            (imps-error "TRANSPORT-SORT-DEFINITION: ~S ~A." definition
+                "is not a sort definition"))
+        (or (procedure? renamer)
+            (imps-error
+                "TRANSPORT-SORT-DEFINITION: ~S is a bad renamer."
+                renamer))
+        (let ((source-theory (translation-source-theory translation))
+              (target-theory (translation-target-theory translation))
+              (sort (sort-definition-sort definition))
+              (new-quasi-sort
+                  (translate-expression-and-beta-reduce translation
+                      (sort-definition-quasi-sort definition))))
+          (or (element-of-set? definition
+                  (theory-sort-definitions source-theory))
+              (imps-error "TRANSPORT-SORT-DEFINITION: ~S ~A ~S."
+                  definition "is not a sort definition of"
+                  source-theory))
+          (if (implicitly-translated-sort? translation sort)
+              (let* ((new-name (funcall renamer (name sort)))
+                     (usage-list
+                         (sort-definition-usage-list definition))
+                     (new-definition
+                         (if (translation-theory-interpretation?
+                                 translation)
+                             (apply theory-build-sort-definition-without-checking-nonemptyness
+                                    target-theory new-name
+                                    new-quasi-sort usage-list)
+                             (apply theory-build-sort-definition
+                                    target-theory new-name
+                                    new-quasi-sort usage-list)))
+                     (new-sort (sort-definition-sort new-definition)))
+                (translation-extend-defined-sort-alist translation
+                    (list (cons sort new-sort)))
+                new-definition)
+              value-false)))
+
+(define (transport-definition translation definition renamer)
+        (or (translation? translation)
+            (imps-error "TRANSPORT-DEFINITION: ~S ~A." translation
+                "is not a translation"))
+        (or (translation-empty-assumptions? translation)
+            (imps-error "TRANSPORT-DEFINITION: ~S ~A." translation
+                "does not have an empty set of assumptions"))
+        (or (definition? definition)
+            (imps-error "TRANSPORT-DEFINITION: ~S ~A." definition
+                "is not a definition"))
+        (or (procedure? renamer)
+            (imps-error "TRANSPORT-DEFINITION: ~S is a bad renamer."
+                renamer))
+        (let* ((source-theory (translation-source-theory translation))
+               (target-theory (translation-target-theory translation))
+               (constant (definition-constant definition))
+               (new-sort
+                   (sort-or-quasi-sort-domain
+                       (translate-sort translation
+                           (expression-sorting constant))))
+               (new-defining-expr
+                   (translate-expression-and-beta-reduce translation
+                       (definition-defining-expr definition))))
+          (or (element-of-set? definition
+                  (theory-definitions source-theory))
+              (imps-error "TRANSPORT-DEFINITION: ~S ~A ~S." definition
+                  "is not a definition of" source-theory))
+          (if (implicitly-translated-constant? translation constant)
+              (let* ((new-name (funcall renamer (name constant)))
+                     (usage-list (definition-usage-list definition))
+                     (new-definition
+                         (if (translation-theory-interpretation?
+                                 translation)
+                             (theory-build-definition-without-checking-definedness
+                                 target-theory new-name
+                                 new-defining-expr new-sort usage-list)
+                             (theory-build-definition target-theory
+                                 new-name new-defining-expr new-sort
+                                 usage-list)))
+                     (new-constant
+                         (definition-constant new-definition)))
+                (translation-extend-defined-constant-alist translation
+                    (list (cons constant new-constant)))
+                new-definition)
+              value-false)))
+
+(define (transport-recursive-definition translation definition renamer)
+        (or (translation? translation)
+            (imps-error "TRANSPORT-RECURSIVE-DEFINITION: ~S ~A."
+                translation "is not a translation"))
+        (or (translation-empty-assumptions? translation)
+            (imps-error "TRANSPORT-RECURSIVE-DEFINITION: ~S ~A."
+                translation
+                "does not have an empty set of assumptions"))
+        (or (recursive-definition? definition)
+            (imps-error "TRANSPORT-RECURSIVE-DEFINITION: ~S ~A."
+                definition "is not a recursive definition"))
+        (or (procedure? renamer)
+            (imps-error
+                "TRANSPORT-RECURSIVE-DEFINITION: ~S is a bad renamer."
+                renamer))
+        (let ((source-theory (translation-source-theory translation))
+              (target-theory (translation-target-theory translation))
+              (constant-list
+                  (recursive-definition-constant-list definition))
+              (new-funct-list
+                  (map (lambda (e)
+                         (translate-expression-and-beta-reduce
+                             translation e))
+                       (recursive-definition-functional-list
+                           definition))))
+          (or (element-of-set? definition
+                  (theory-recursive-definitions source-theory))
+              (imps-error "TRANSPORT-RECURSIVE-DEFINITION: ~S ~A ~S."
+                  definition "is not a recursive definition of"
+                  source-theory))
+          (if (every? (lambda (const)
+                        (implicitly-translated-constant? translation
+                            const))
+                      constant-list)
+              (let* ((new-name
+                         (funcall renamer
+                                  (recursive-definition-name
+                                      definition)))
+                     (new-name-list
+                         (map (lambda (const)
+                                (funcall renamer (name const)))
+                              (recursive-definition-constant-list
+                                  definition)))
+                     (usage-list
+                         (recursive-definition-usage-list definition))
+                     (new-definition
+                         (if (translation-theory-interpretation?
+                                 translation)
+                             (apply theory-build-recursive-definition-without-checking-monotonicity
+                                    target-theory new-name-list
+                                    new-funct-list new-name usage-list)
+                             (apply theory-build-recursive-definition
+                                    target-theory new-name-list
+                                    new-funct-list new-name usage-list)))
+                     (new-alist
+                         (iterate iter
+                                  ((const-list constant-list)
+                                   (new-const-list
+                                    (recursive-definition-constant-list
+                                     new-definition))
+                                   (alist nil))
+                                  (if (null? const-list)
+                                      (reverse alist)
+                                      (iter (cdr const-list)
+                                       (cdr new-const-list)
+                                       (cons
+                                        (cons (car const-list)
+                                         (car new-const-list))
+                                        alist))))))
+                (translation-extend-defined-constant-alist translation
+                    new-alist)
+                new-definition)
+              value-false)))
+
+(define (transport-all-defined-sorts-and-constants translation renamer)
+        (let* ((source-theory (translation-source-theory translation))
+               (sort-const-set
+                   (set-union (theory-defined-sorts source-theory)
+                       (theory-defined-constants source-theory))))
+          (transport-defined-sorts-and-constants translation
+              sort-const-set renamer)))
+
+(define (transport-defined-sorts-and-constants translation
+            sort-const-set renamer)
+        (enrich-translation translation)
+        (let* ((source-theory (translation-source-theory translation))
+               (new-sort-const-set
+                   (set-separate
+                       (lambda (x)
+                         (or (implicitly-translated-sort? translation
+                                 x)
+                             (implicitly-translated-constant?
+                                 translation x)))
+                       sort-const-set))
+               (def-set (set-map (lambda (x)
+                                   (cond
+                                     ((theory-get-sort-definition
+                                       source-theory (name x)))
+                                     ((theory-get-definition
+                                       source-theory (name x)))
+                                     ((theory-get-recursive-definition
+                                       source-theory (name x)))
+                                     (else
+                                      (imps-error
+                                       "TRANSPORT-DEFINED-SORTS-AND-CONSTANTS: ~S ~A."
+                                       x
+                                       "is not a defined sort or constant"))))
+                                 new-sort-const-set))
+               (ordered-def-list
+                   (theory-order-definitions source-theory def-set))
+               (result-list
+                   (map (lambda (def)
+                          (cond
+                            ((sort-definition? def)
+                             (transport-sort-definition translation def
+                                 renamer))
+                            ((definition? def)
+                             (transport-definition translation def
+                                 renamer))
+                            ((recursive-definition? def)
+                             (transport-recursive-definition
+                                 translation def renamer))
+                            (else (imps-error
+                                      "TRANSPORT-DEFINED-SORTS-AND-CONSTANTS: ~S ~A."
+                                      def
+                                      "is not a sort, direct, or recursive definition"))))
+                        ordered-def-list)))
+          (enrich-translation translation)
+          (map (lambda (def result) (cons def result)) ordered-def-list
+               result-list)))
+
+(define (auto-instantiate-theorem-with-terms target-theory theorem
+            terms)
+        (let ((vars (binding-variables (theorem-formula theorem))))
+          (let ((translation
+                    (translation-match-variables
+                        (theorem-home-theory theorem) target-theory
+                        the-empty-set
+                        (set-separate
+                            (lambda (th)
+                              (sub-theory? th target-theory))
+                            (fixed-theories-set))
+                        vars terms 'just-translation)))
+            (and (translation? translation)
+                 (theory-interpretation-check-using-simplification
+                     translation)
+                 (let ((instance
+                           (apply-substitution
+                               (targets-and-replacements->subst
+                                   (map
+                                    (lambda (var)
+                                      (translate-expression translation
+                                       var))
+                                    vars)
+                                   terms)
+                               (binding-body
+                                   (bind
+                                    (((omit-theorem-usage-hooks)
+                                      value-true))
+                                    (transport-theorem translation
+                                     theorem))))))
+                   (and (theory-theorem? target-theory instance)
+                        instance))))))

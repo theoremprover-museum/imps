@@ -1,0 +1,1115 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment domain-range)
+
+(define-structure-type d-r-handler name everywhere-defined-fns
+    everywhere-defined-coercions nowhere-defined-coercions
+    conditionally-defined-coercions definedness-alist
+    sort-definedness-alist undefinedness-alist value-alist
+    closure-alist fn-defined-sort-alist summarily-defined theory
+    (((name self) (d-r-handler-name self))
+     ((print self port)
+      (format port "#{IMPS-d-r-handler ~S ~S}" (d-r-handler-name self)
+              (object-hash self)))))
+
+(at-top-level
+    (block (set (d-r-handler-everywhere-defined-fns
+                    (stype-master d-r-handler-stype))
+                nil)
+      (set (d-r-handler-everywhere-defined-coercions
+               (stype-master d-r-handler-stype))
+           nil)
+      (set (d-r-handler-nowhere-defined-coercions
+               (stype-master d-r-handler-stype))
+           nil)
+      (set (d-r-handler-conditionally-defined-coercions
+               (stype-master d-r-handler-stype))
+           nil)
+      (set (d-r-handler-definedness-alist
+               (stype-master d-r-handler-stype))
+           nil)
+      (set (d-r-handler-sort-definedness-alist
+               (stype-master d-r-handler-stype))
+           nil)
+      (set (d-r-handler-undefinedness-alist
+               (stype-master d-r-handler-stype))
+           nil)
+      (set (d-r-handler-value-alist (stype-master d-r-handler-stype))
+           nil)
+      (set (d-r-handler-closure-alist (stype-master d-r-handler-stype))
+           nil)
+      (set (d-r-handler-fn-defined-sort-alist
+               (stype-master d-r-handler-stype))
+           nil)
+      (set (d-r-handler-summarily-defined
+               (stype-master d-r-handler-stype))
+           (make-table))))
+
+(define (build-d-r-handler theory . name)
+        (let ((name (and name (imps-enforce symbol? (car name))))
+              (h (make-d-r-handler)))
+          (set (d-r-handler-name h) name)
+          (set (d-r-handler-theory h) (imps-enforce theory? theory))
+          h))
+
+(define (copy-d-r-handler handler new-theory) (ignore new-theory)
+        (let ((new (make-d-r-handler)))
+          (set (d-r-handler-everywhere-defined-fns new)
+               (recursively-copy-list
+                   (d-r-handler-everywhere-defined-fns handler)))
+          (set (d-r-handler-everywhere-defined-coercions new)
+               (recursively-copy-list
+                   (d-r-handler-everywhere-defined-coercions handler)))
+          (set (d-r-handler-nowhere-defined-coercions new)
+               (recursively-copy-list
+                   (d-r-handler-nowhere-defined-coercions handler)))
+          (set (d-r-handler-conditionally-defined-coercions new)
+               (recursively-copy-list
+                   (d-r-handler-conditionally-defined-coercions
+                       handler)))
+          (set (d-r-handler-definedness-alist new)
+               (recursively-copy-list
+                   (d-r-handler-definedness-alist handler)))
+          (set (d-r-handler-sort-definedness-alist new)
+               (recursively-copy-list
+                   (d-r-handler-sort-definedness-alist handler)))
+          (set (d-r-handler-undefinedness-alist new)
+               (recursively-copy-list
+                   (d-r-handler-undefinedness-alist handler)))
+          (set (d-r-handler-value-alist new)
+               (recursively-copy-list
+                   (d-r-handler-value-alist handler)))
+          (set (d-r-handler-closure-alist new)
+               (recursively-copy-list
+                   (d-r-handler-closure-alist handler)))
+          (set (d-r-handler-fn-defined-sort-alist new)
+               (recursively-copy-list
+                   (d-r-handler-fn-defined-sort-alist handler)))
+          (set (d-r-handler-summarily-defined new)
+               (copy-table (d-r-handler-summarily-defined handler)
+                   'theory-d-r-handler))
+          (set (d-r-handler-theory new) theory)
+          new))
+
+(define (d-r-make-fn-everywhere-defined d-r-handler fnconst)
+        (if (and (constant? fnconst) (function? fnconst)
+                 (contains-expression?
+                     (theory-language (d-r-handler-theory d-r-handler))
+                     fnconst))
+            (block (push (d-r-handler-everywhere-defined-fns
+                             d-r-handler)
+                         fnconst)
+              (let ((domains (expression-domains fnconst))
+                    (range (expression-range fnconst)))
+                (if (and (every? (lambda (d) (eq? d range)) domains)
+                         (not (d-r-sort-closed-under-fn? d-r-handler
+                                  range fnconst)))
+                    (d-r-make-sort-closed-under-fn d-r-handler range
+                        fnconst)))
+              (return))
+            (imps-warning
+                "d-r-make-everywhere-defined: Function-constant ~S not in language ~S."
+                fnconst
+                (theory-language (d-r-handler-theory d-r-handler)))))
+
+(define (d-r-make-sort-closed-under-fn d-r-handler sort fnconst)
+        (if (and (constant? fnconst) (function? fnconst)
+                 (contains-expression?
+                     (theory-language (d-r-handler-theory d-r-handler))
+                     fnconst))
+            (let ((entry (assq fnconst
+                               (d-r-handler-closure-alist d-r-handler))))
+              (if entry (set (cdr entry) (cons sort (cdr entry)))
+                  (push (d-r-handler-closure-alist d-r-handler)
+                        (cons fnconst (list sort))))
+              (let ((domains (expression-domains fnconst)))
+                (if (and (every? (lambda (d) (eq? d sort)) domains)
+                         (not (memq? fnconst
+                                     (d-r-handler-everywhere-defined-fns
+                                      d-r-handler))))
+                    (d-r-make-fn-everywhere-defined d-r-handler
+                        fnconst))))
+            (imps-warning
+                "d-r-make-sort-closed-under-fn: Function-constant ~S not in language ~S."
+                fnconst
+                (theory-language (d-r-handler-theory d-r-handler)))))
+
+(define (d-r-make-defined-sort-for-fn d-r-handler sort fnconst)
+        (if (and (constant? fnconst) (function? fnconst)
+                 (contains-expression?
+                     (theory-language (d-r-handler-theory d-r-handler))
+                     fnconst))
+            (let ((entry (assq fnconst
+                               (d-r-handler-fn-defined-sort-alist
+                                   d-r-handler))))
+              (if entry (set (cdr entry) (cons sort (cdr entry)))
+                  (push (d-r-handler-fn-defined-sort-alist d-r-handler)
+                        (cons fnconst (list sort))))
+              (d-r-make-fn-everywhere-defined d-r-handler fnconst))
+            (imps-warning
+                "d-r-make-defined-sort-for-fn: Function-constant ~S not in language ~S."
+                fnconst
+                (theory-language (d-r-handler-theory d-r-handler)))))
+
+(define (complete-coercion-entry entry coercions)
+        (iterate iter
+                 ((entry-tail (cdr entry))
+                  (new-entry-tail (cdr entry)))
+                 (cond
+                   ((null? entry-tail)
+                    (let ((look-up (assq (car entry) coercions)))
+                      (if look-up
+                          (set (cdr look-up)
+                               (set-union (cdr look-up) new-entry-tail))
+                          (push coercions
+                                (cons (car entry) new-entry-tail))))
+                    coercions)
+                   ((assq (car entry-tail) coercions) =>
+                    (lambda (pair)
+                      (iter (cdr entry-tail)
+                            (set-union (cdr pair) new-entry-tail))))
+                   (else (iter (cdr entry-tail) new-entry-tail)))))
+
+(define (alt-complete-coercion-entry from to coercions)
+        (let ((uppers (cons to
+                            (cond
+                              ((assq to coercions) => cdr)
+                              (else nil))))
+              (lowers (iterate iter
+                               ((coercions coercions) (lowers nil))
+                               (cond
+                                 ((null? coercions) lowers)
+                                 ((memq? from (cdar coercions))
+                                  (iter (cdr coercions)
+                                        (cons (caar coercions) lowers)))
+                                 (else (iter (cdr coercions) lowers))))))
+          (cond
+            ((assq from coercions) =>
+             (lambda (l) (set (cdr l) (set-union uppers (cdr l)))))
+            (else (push coercions (cons from uppers))))
+          (walk (lambda (lower)
+                  (cond
+                    ((assq lower coercions) =>
+                     (lambda (l)
+                       (set (cdr l) (add-set-element to (cdr l)))))
+                    (else (imps-warning
+                              "alt-COMPLETE-COERCION-ENTRY:  I thought this was impossible.  
+Please send me mail.  Josh")
+                          (push coercions (cons lower to)))))
+                lowers)
+          coercions))
+
+(define (d-r-make-coercion-everywhere-defined d-r-handler from-sort
+            to-sort)
+        (if (and (sorting? from-sort) (sorting? to-sort)
+                 (sorting-permissible? from-sort
+                     (theory-language (d-r-handler-theory d-r-handler)))
+                 (sorting-permissible? to-sort
+                     (theory-language (d-r-handler-theory d-r-handler))))
+            (let ((coercions
+                      (alt-complete-coercion-entry from-sort to-sort
+                          (d-r-handler-everywhere-defined-coercions
+                              d-r-handler))))
+              (set (d-r-handler-everywhere-defined-coercions
+                       d-r-handler)
+                   coercions))
+            (imps-warning
+                "d-r-make-coercion-everywhere-defined: bad coercion ~S ~S in ~S"
+                from-sort to-sort
+                (theory-language (d-r-handler-theory d-r-handler))))
+        (list from-sort to-sort))
+
+(define (d-r-make-coercion-nowhere-defined d-r-handler from-sort
+            to-sort)
+        (if (and (sorting? from-sort) (sorting? to-sort)
+                 (sorting-permissible? from-sort
+                     (theory-language (d-r-handler-theory d-r-handler)))
+                 (sorting-permissible? to-sort
+                     (theory-language (d-r-handler-theory d-r-handler))))
+            (block (let ((entry (assq from-sort
+                                      (d-r-handler-nowhere-defined-coercions
+                                       d-r-handler))))
+                     (if entry (push (cdr entry) to-sort)
+                         (push (d-r-handler-nowhere-defined-coercions
+                                   d-r-handler)
+                               (cons from-sort (list to-sort)))))
+              (let ((from-sort to-sort) (to-sort from-sort))
+                (let ((entry (assq from-sort
+                                   (d-r-handler-nowhere-defined-coercions
+                                    d-r-handler))))
+                  (if entry (push (cdr entry) to-sort)
+                      (push (d-r-handler-nowhere-defined-coercions
+                                d-r-handler)
+                            (cons from-sort (list to-sort))))))
+              (return))
+            (imps-warning
+                "d-r-make-coercion-nowhere-defined: bad coercion ~S ~S in ~S"
+                from-sort to-sort
+                (theory-language (d-r-handler-theory d-r-handler)))))
+
+(define (d-r-set-sort-coercion-condition d-r-handler from-sort to-sort
+            predicate)
+        (if (and (quasi-sort? predicate)
+                 (eq? (type-of-sort (quasi-sort-domain predicate))
+                      (type-of-sort from-sort))
+                 (eq? (type-of-sort to-sort) (type-of-sort from-sort)))
+            (let* ((probe1 (assq from-sort
+                                 (d-r-handler-conditionally-defined-coercions
+                                     d-r-handler)))
+                   (probe2 (and probe1 (assq to-sort (cdr probe1)))))
+              (cond
+                (probe2 (set (cdr probe2) predicate))
+                (probe1 (set (cdr probe1)
+                             (cons (cons to-sort predicate)
+                                   (cdr probe1))))
+                (else (push (d-r-handler-conditionally-defined-coercions
+                                d-r-handler)
+                            (cons from-sort
+                                  (list (cons to-sort predicate))))))
+              predicate)
+            (imps-warning
+                "d-r-set-sort-coercion-condition: Bad args ~S ~S ~S"
+                from-sort to-sort predicate)))
+
+(define (d-r-add-definedness-condition d-r-handler fnconst predicate)
+        (if (not (and (constant? fnconst) (function? fnconst)
+                      (predicate? predicate)
+                      (contains-expression?
+                          (theory-language
+                              (d-r-handler-theory d-r-handler))
+                          predicate)
+                      (contains-expression?
+                          (theory-language
+                              (d-r-handler-theory d-r-handler))
+                          fnconst)
+                      (equal? (domain-types fnconst)
+                              (domain-types predicate))))
+            (imps-warning
+                "d-r-add-definedness-condition: Bad Args ~S ~S ~S"
+                d-r-handler fnconst predicate)
+            (let ((entry (assq fnconst
+                               (d-r-handler-definedness-alist
+                                   d-r-handler))))
+              (if entry (set (cdr entry) predicate)
+                  (push (d-r-handler-definedness-alist d-r-handler)
+                        (cons fnconst predicate))))))
+
+(define (d-r-add-undefinedness-condition d-r-handler fnconst predicate)
+        (if (and (constant? fnconst) (function? fnconst)
+                 (predicate? predicate)
+                 (contains-expression?
+                     (theory-language (d-r-handler-theory d-r-handler))
+                     predicate)
+                 (contains-expression?
+                     (theory-language (d-r-handler-theory d-r-handler))
+                     fnconst)
+                 (equal? (domain-types fnconst)
+                         (domain-types predicate)))
+            (let ((entry (assq fnconst
+                               (d-r-handler-undefinedness-alist
+                                   d-r-handler))))
+              (if entry (set (cdr entry) predicate)
+                  (push (d-r-handler-undefinedness-alist d-r-handler)
+                        (cons fnconst predicate))))
+            (imps-warning
+                "d-r-add-undefinedness-condition: Bad Args ~S ~S ~S"
+                d-r-handler fnconst predicate)))
+
+(define (d-r-add-value-condition d-r-handler fnconst predicate)
+        (if (and (constant? fnconst) (function? fnconst)
+                 (predicate? predicate)
+                 (contains-expression?
+                     (theory-language (d-r-handler-theory d-r-handler))
+                     predicate)
+                 (contains-expression?
+                     (theory-language (d-r-handler-theory d-r-handler))
+                     fnconst)
+                 (equal? (append (domain-types fnconst)
+                                 (list (range-type fnconst)))
+                         (domain-types predicate)))
+            (let ((entry (assq fnconst
+                               (d-r-handler-value-alist d-r-handler))))
+              (if entry (set (cdr entry) predicate)
+                  (push (d-r-handler-value-alist d-r-handler)
+                        (cons fnconst predicate))))
+            (imps-warning "d-r-add-value-condition: Bad Args ~S ~S ~S"
+                d-r-handler fnconst predicate)))
+
+(define (d-r-add-sort-definedness-condition d-r-handler fnconst to-sort
+            predicate)
+        (if (and (constant? fnconst) (function? fnconst)
+                 (sorting? to-sort) (predicate? predicate)
+                 (contains-expression?
+                     (theory-language (d-r-handler-theory d-r-handler))
+                     predicate)
+                 (contains-expression?
+                     (theory-language (d-r-handler-theory d-r-handler))
+                     fnconst)
+                 (equal? (domain-types fnconst)
+                         (domain-types predicate)))
+            (let* ((fnconst-entry
+                       (assq fnconst
+                             (d-r-handler-sort-definedness-alist
+                                 d-r-handler)))
+                   (entry (and fnconst-entry
+                               (assq to-sort (cdr fnconst-entry)))))
+              (cond
+                (entry (set (cdr entry) predicate))
+                (fnconst-entry
+                    (set (cdr fnconst-entry)
+                         (cons (cons to-sort predicate)
+                               (cdr fnconst-entry))))
+                (else (push (d-r-handler-sort-definedness-alist
+                                d-r-handler)
+                            (cons fnconst
+                                  (list (cons to-sort predicate)))))))
+            (imps-warning
+                "d-r-add-sort-definedness-condition: Bad Args ~S ~S ~S_~S"
+                d-r-handler to-sort fnconst predicate)))
+
+(define (d-r-make-summarily-defined d-r-handler term)
+        (if (contains-expression?
+                (theory-language (d-r-handler-theory d-r-handler))
+                term)
+            (set (table-entry
+                     (d-r-handler-summarily-defined d-r-handler) term)
+                 value-true)))
+
+(define (d-r-definedness-condition d-r-handler fnconst)
+        (cond
+          ((assq fnconst (d-r-handler-definedness-alist d-r-handler))
+           => cdr)
+          (else value-false)))
+
+(define (d-r-undefinedness-condition d-r-handler fnconst)
+        (cond
+          ((assq fnconst (d-r-handler-undefinedness-alist d-r-handler))
+           => cdr)
+          (else value-false)))
+
+(define (d-r-value-condition d-r-handler fnconst)
+        (cond
+          ((assq fnconst (d-r-handler-value-alist d-r-handler)) => cdr)
+          (else value-false)))
+
+(define (d-r-sort-definedness-condition d-r-handler fnconst to-sort)
+        (cond
+          ((assq to-sort
+                 (cdr (assq fnconst
+                            (d-r-handler-sort-definedness-alist
+                                d-r-handler))))
+           => cdr)
+          (else value-false)))
+
+(define (d-r-summarily-defined? d-r-handler term)
+        (table-entry (d-r-handler-summarily-defined d-r-handler) term))
+
+(define (d-r-sort-closed-under-fn? d-r-handler sort fnconst)
+        (let ((sorts (cond
+                       ((assq fnconst
+                              (d-r-handler-closure-alist d-r-handler))
+                        => cdr)
+                       (else value-false))))
+          (and sorts (memq? sort sorts))))
+
+(define (d-r-defined-sort-for-fn? d-r-handler sort fnconst)
+        (let ((sorts (cond
+                       ((assq fnconst
+                              (d-r-handler-fn-defined-sort-alist
+                                  d-r-handler))
+                        => cdr)
+                       (else value-false))))
+          (and sorts (memq? sort sorts))))
+
+(define (theory-summarily-defined? theory term)
+        (d-r-summarily-defined? (theory-domain-range-handler theory)
+            term))
+
+(define (theory-fn-everywhere-defined? theory fnconst)
+        (memq? fnconst
+               (d-r-handler-everywhere-defined-fns
+                   (theory-domain-range-handler theory))))
+
+(define (theory-sort-closed-under-fn? theory sort fnconst)
+        (d-r-sort-closed-under-fn? (theory-domain-range-handler theory)
+            sort fnconst))
+
+(define (theory-coercion-everywhere-defined? theory from-sort to-sort)
+        (or (sort-necessarily-included? from-sort to-sort)
+            (memq? to-sort
+                   (assq-val from-sort
+                       (d-r-handler-everywhere-defined-coercions
+                           (theory-domain-range-handler theory))))
+            (and (higher-sort? from-sort) (higher-sort? to-sort)
+                 (higher-sort-exhausts-domains->range? to-sort)
+                 (theory-coercion-everywhere-defined? theory
+                     (higher-sort-range from-sort)
+                     (higher-sort-range to-sort))
+                 (every? (lambda (from to)
+                           (theory-coercion-everywhere-defined? theory
+                               from to))
+                         (higher-sort-domains from-sort)
+                         (higher-sort-domains to-sort)))))
+
+(define (theory-coercion-nowhere-defined? theory from-sort to-sort)
+        (or (sorts-necessarily-disjoint? from-sort to-sort)
+            (memq? to-sort
+                   (assq-val from-sort
+                       (d-r-handler-nowhere-defined-coercions
+                           (theory-domain-range-handler theory))))))
+
+(define (theory-sort-coercion-condition theory from-sort to-sort)
+        (let* ((probe1 (assq from-sort
+                             (d-r-handler-conditionally-defined-coercions
+                                 (theory-domain-range-handler theory))))
+               (probe2 (and probe1 (assq to-sort (cdr probe1)))))
+          (cond
+            (probe2 (cdr probe2))
+            ((not (sort-is-type? from-sort))
+             (theory-sort-coercion-condition theory
+                 (type-of-sort from-sort) to-sort))
+            (else value-false))))
+
+(define (theory-install-sort-coercion-condition theory from-sort
+            to-sort predicate)
+        (d-r-set-sort-coercion-condition
+            (theory-domain-range-handler theory) from-sort to-sort
+            predicate))
+
+(define (theory-make-fn-everywhere-defined theory fnconst)
+        (d-r-make-fn-everywhere-defined
+            (theory-domain-range-handler theory) fnconst))
+
+(define (theory-make-sort-closed-under-fn theory sort fnconst)
+        (d-r-make-sort-closed-under-fn
+            (theory-domain-range-handler theory) sort fnconst))
+
+(define (theory-make-defined-sort-for-fn theory sort fnconst)
+        (d-r-make-defined-sort-for-fn
+            (theory-domain-range-handler theory) sort fnconst))
+
+(define (theory-make-coercion-everywhere-defined theory from-sort
+            to-sort)
+        (d-r-make-coercion-everywhere-defined
+            (theory-domain-range-handler theory) from-sort to-sort))
+
+(define (theory-make-coercion-nowhere-defined theory from-sort to-sort)
+        (d-r-make-coercion-nowhere-defined
+            (theory-domain-range-handler theory) from-sort to-sort))
+
+(define (theory-subsorts theory supersort)
+        (iterate iter
+                 ((subsorts nil)
+                  (coercions
+                      (d-r-handler-everywhere-defined-coercions
+                          (theory-domain-range-handler theory))))
+                 (cond
+                   ((null? coercions) subsorts)
+                   ((memq? supersort (cdar coercions))
+                    (iter (cons (caar coercions) subsorts)
+                          (cdr coercions)))
+                   (else (iter subsorts (cdr coercions))))))
+
+(define (theory-definedness-condition theory fnconst)
+        (d-r-definedness-condition (theory-domain-range-handler theory)
+            fnconst))
+
+(define (theory-undefinedness-condition theory fnconst)
+        (d-r-undefinedness-condition
+            (theory-domain-range-handler theory) fnconst))
+
+(define (theory-sort-definedness-condition theory fnconst to-sort)
+        (d-r-sort-definedness-condition
+            (theory-domain-range-handler theory) fnconst to-sort))
+
+(define (theory-value-condition theory fnconst)
+        (d-r-value-condition (theory-domain-range-handler theory)
+            fnconst))
+
+(define (theory-make-summarily-defined theory term)
+        (d-r-make-summarily-defined
+            (theory-domain-range-handler theory) term))
+
+(define (theory-install-convergence-condition theory theorem)
+        (let ((thm (universal-matrix (theorem-formula theorem) nil)))
+          (cond
+            ((and (convergence-in-sort? thm)
+                  (variable? (convergence-term thm)))
+             (theory-install-everywhere-defined-coercion theory
+                 theorem))
+            ((and (convergence-in-sort? thm)
+                  (application? (convergence-term thm)))
+             (theory-install-sort-condition theory thm))
+            ((and (negation? thm)
+                  (convergence-in-sort? (negation-body thm)))
+             (theory-install-nowhere-defined-coercion theory thm))
+            ((convergence? thm)
+             (theory-install-everywhere-definedness-condition theory
+                 theorem))
+            ((implication? thm)
+             (let ((conclusion (implication-consequent thm)))
+               (cond
+                 ((convergence? conclusion)
+                  (theory-install-definedness-condition theory theorem))
+                 ((and (negation? conclusion)
+                       (convergence?
+                           (car (expression-components conclusion))))
+                  (theory-install-undefinedness-condition theory
+                      theorem))
+                 ((convergence-in-sort? conclusion)
+                  (if (application?
+                          (car (expression-components conclusion)))
+                      (theory-install-sort-definedness-condition theory
+                          theorem)
+                      (theory-install-conditional-sort-coercion theory
+                          theorem)))
+
+;;Note: Changed Wed May 14 16:46:10 EDT 1997 by jt
+                 (else (imps-warning
+                           "INSTALL-CONVERGENCE-CONDITION: Inappropriate theorem  ~S"
+                           thm)))))
+            (else (imps-warning
+                      "INSTALL-CONVERGENCE-CONDITION: Inappropriate theorem  ~S"
+                      thm)))))
+
+(define (theory-install-everywhere-defined-coercion theory theorem)
+        (let* ((d-r-h (theory-domain-range-handler theory))
+               (thm (universal-matrix (theorem-formula theorem) nil))
+               (term (car (expression-components thm)))
+               (to-sort (expression-sorting
+                            (cadr (expression-components thm)))))
+          (cond
+            ((not (convergence-in-sort? thm))
+             (imps-warning
+                 "install-everywhere-defined-coercion: ~A: ~S"
+                 "theorem is not a definedness assertion" thm))
+            ((not (variable? term))
+             (imps-warning
+                 "install-everywhere-defined-coercion: term not general: ~S"
+                 term))
+            (else (let ((from-sort (expression-sorting term)))
+                    (d-r-make-coercion-everywhere-defined d-r-h
+                        from-sort to-sort)
+
+;;Modified by jt: Wed Mar 18 15:37:35 EST 1998
+;;In some cases theory-subsorting-structure may not be properly initialized.
+;;causing an error to be raised.
+
+		    (let ((struct (theory-subsorting-structure theory)))
+		      (if struct
+			  (supersort-table-add-coercion
+			   (theory-subsorting-table struct)
+			   from-sort to-sort))))))))
+
+(define (theory-install-nowhere-defined-coercion theory theorem)
+        (let* ((d-r-h (theory-domain-range-handler theory))
+               (thm (universal-matrix (theorem-formula theorem) nil))
+               (term (car (expression-components (negation-body thm))))
+               (to-sort (expression-sorting
+                            (cadr (expression-components
+                                      (negation-body thm))))))
+          (cond
+            ((or (not (negation? thm))
+                 (not (convergence-in-sort? (negation-body thm))))
+             (imps-warning
+                 "install-nowhere-defined-coercion: 
+			  theorem is not a negated definedness assertion: ~&~S"
+                 thm))
+            ((not (variable? term))
+             (imps-warning
+                 "install-nowhere-defined-coercion: 
+			  term not general: ~&~S" term))
+            (else (d-r-make-coercion-nowhere-defined d-r-h
+                      (expression-sorting term) to-sort)))))
+
+(define (theory-install-everywhere-definedness-condition theory
+            theorem)
+        (let* ((d-r-h (theory-domain-range-handler theory))
+               (thm (universal-matrix (theorem-formula theorem) nil))
+               (term (car (expression-components thm)))
+               (op (operator term)))
+          (cond
+            ((not (convergence? thm))
+             (imps-warning
+                 "install-sort-definedness-condition: 
+		       theorem is not a definedness assertion: ~&~S"
+                 thm))
+            ((not (every? variable? (arguments term)))
+             (imps-warning
+                 "install-everywhere-definedness-condition: 
+			  term not general: ~&~S " term))
+            ((any? (lambda (s v)
+                     (not (equal-sortings? s (expression-sorting v))))
+                   (expression-domains op) (arguments term))
+             (imps-warning
+                 "install-sort-definedness-condition: 
+			sortings not general: ~&~S" term))
+            (else (d-r-make-fn-everywhere-defined d-r-h op)))))
+
+(define (theory-install-sort-condition theory thm)
+        (let* ((thm (universal-matrix thm nil))
+               (term (convergence-term thm))
+               (sort (convergence-sort thm)) (op (operator term)))
+          (cond
+            ((not (convergence-in-sort? thm))
+             (imps-warning
+                 "install-sort-closure-condition: 
+			  theorem is not a sort definedness assertion: ~&~S"
+                 thm))
+            ((not (every? variable? (arguments term)))
+             (imps-warning
+                 "install-sort-closure-condition: 
+			term not general: ~&~S" term))
+            ((every? (lambda (v)
+                       (equal-sortings? sort (expression-sorting v)))
+                     (arguments term))
+             (theory-make-sort-closed-under-fn theory sort op))
+            ((every? (lambda (expected-sort arg)
+                       (equal-sortings? expected-sort
+                           (expression-sorting arg)))
+                     (domain-sorts op) (arguments term))
+             (theory-make-defined-sort-for-fn theory sort op))
+            (else (imps-warning
+                      "install-sort-closure-condition: 
+			sorts neither general nor uniform: ~&~S" term)))))
+
+(define (theory-install-definedness-condition theory theorem)
+        (let* ((d-r-h (theory-domain-range-handler theory))
+               (thm (universal-matrix (theorem-formula theorem) nil))
+               (antecedent (implication-antecedent thm))
+               (term (car (expression-components
+                              (implication-consequent thm))))
+               (op (operator term)))
+          (if (null? op)
+              (imps-error
+                  "THEORY-INSTALL-DEFINEDNESS-CONDITION: ~A is not an
+application." term))
+          (cond
+            ((not (convergence? (implication-consequent thm)))
+             (imps-warning
+                 "install-definedness-condition: 
+		       theorem is not a definedness assertion: ~&~S"
+                 thm))
+            ((not (every? variable? (arguments term)))
+             (imps-warning
+                 "install-definedness-condition: term not general: ~&~S"
+                 term))
+            ((any? (lambda (s v)
+                     (not (equal-sortings? s (expression-sorting v))))
+                   (expression-domains op) (arguments term))
+             (imps-warning
+                 "install-definedness-condition: sortings not general: ~S"
+                 term))
+            (else (theory-install-definedness-condition-1 d-r-h op
+                      (apply imps-lambda antecedent (arguments term)))))))
+
+(define (theory-install-definedness-condition-1 d-r-h op predicate)
+        (let ((old (d-r-definedness-condition d-r-h op)))
+          (d-r-add-definedness-condition d-r-h op
+              (if (expression? old) (disjoin-predicates predicate old)
+                  predicate))))
+
+(define (theory-install-undefinedness-condition theory theorem)
+        (let* ((d-r-h (theory-domain-range-handler theory))
+               (thm (universal-matrix (theorem-formula theorem) nil))
+               (antecedent (implication-antecedent thm))
+               (neg-body
+                   (car (expression-components
+                            (implication-consequent thm))))
+               (term (car (expression-components neg-body)))
+               (op (operator term)))
+          (cond
+            ((or (not (negation? (implication-consequent thm)))
+                 (not (convergence? neg-body)))
+             (imps-warning
+                 "install-undefinedness-condition: 
+		       theorem is not the negation of a definedness assertion: ~&~S"
+                 thm))
+            ((not (every? variable? (arguments term)))
+             (imps-warning
+                 "install-undefinedness-condition: term not general: ~&~S"
+                 term))
+            (else (theory-install-undefinedness-condition-1 d-r-h op
+                      (apply imps-lambda antecedent (arguments term)))))))
+
+(define (theory-install-undefinedness-condition-1 d-r-h op predicate)
+        (let ((old (d-r-undefinedness-condition d-r-h op)))
+          (d-r-add-undefinedness-condition d-r-h op
+              (if (expression? old) (disjoin-predicates predicate old)
+                  predicate))))
+
+(define (theory-install-sort-definedness-condition theory theorem)
+        (let* ((d-r-h (theory-domain-range-handler theory))
+               (thm (universal-matrix (theorem-formula theorem) nil))
+               (antecedent (implication-antecedent thm))
+               (term (car (expression-components
+                              (implication-consequent thm))))
+               (sort (expression-sorting
+                         (cadr (expression-components
+                                   (implication-consequent thm)))))
+               (op (operator term)))
+          (cond
+            ((not (convergence-in-sort? (implication-consequent thm)))
+             (imps-warning
+                 "install-sort-definedness-condition: 
+			  not a sort definedness condition: ~&~S" term))
+            ((not (every? variable? (arguments term)))
+             (imps-warning
+                 "install-sort-definedness-condition: 
+			term not general: ~&~S" term))
+            ((any? (lambda (s v)
+                     (not (sort-necessarily-included? s
+                              (expression-sorting v))))
+                   (expression-domains op) (arguments term))
+             (imps-warning
+                 "install-sort-definedness-condition: sortings not general: ~S"
+                 term))
+            (else (theory-install-sort-definedness-condition-1 d-r-h op
+                      sort
+                      (apply imps-lambda antecedent (arguments term)))))))
+
+(define (theory-install-sort-definedness-condition-1 d-r-h op sort
+            predicate)
+        (let ((old (d-r-sort-definedness-condition d-r-h op sort)))
+          (d-r-add-sort-definedness-condition d-r-h op sort
+              (if (expression? old) (disjoin-predicates predicate old)
+                  predicate))))
+
+(define (theory-install-conditional-sort-coercion theory theorem)
+        (let* ((d-r-h (theory-domain-range-handler theory))
+               (thm (universal-matrix (theorem-formula theorem) nil))
+               (antecedent (implication-antecedent thm))
+               (consequent (implication-consequent thm)))
+          (if (not (convergence-in-sort? consequent))
+              (imps-warning
+                  "install-conditional-sort-coercion: not a sort definedness condition: ~S"
+                  term)
+              (let* ((term (car (expression-components consequent)))
+                     (from-sort (expression-sorting term))
+                     (to-sort (expression-sorting
+                                  (cadr (expression-components
+                                         consequent)))))
+                (if (not (variable? term))
+                    (imps-warning
+                        "install-conditional-sort-coercion: term not general: ~S."
+                        term)
+                    (let ((predicate (imps-lambda antecedent term)))
+                      (if (not (closed? predicate))
+                          (imps-warning
+                              "install-conditional-sort-coercion: bad predicate: ~S."
+                              predicate)
+                          (theory-install-conditional-sort-coercion-1
+                              d-r-h from-sort to-sort predicate))))))))
+
+(define (theory-install-conditional-sort-coercion-1 d-r-h from-sort
+            to-sort predicate)
+        (let ((old (let* ((probe1 (assq from-sort
+                                        (d-r-handler-conditionally-defined-coercions
+                                         d-r-h)))
+                          (probe2 (and probe1
+                                       (assq to-sort (cdr probe1)))))
+                     (if probe2 (cdr probe2) value-false))))
+          (d-r-set-sort-coercion-condition d-r-h from-sort to-sort
+              (if old (disjoin-predicates predicate old) predicate))))
+
+(define (theory-install-value-condition theory theorem)
+        (let* ((d-r-h (theory-domain-range-handler theory))
+               (thm (universal-matrix (theorem-formula theorem) nil))
+               (antecedent (implication-antecedent thm))
+               (consequent (implication-consequent thm)))
+          (if (not (and (equation? antecedent)
+                        (application? (expression-lhs antecedent))
+                        (variable? (expression-rhs antecedent))))
+              (imps-warning
+                  "install-value-condition: bad antecedent: ~S"
+                  antecedent)
+              (let* ((term (expression-lhs antecedent))
+                     (op (operator term)))
+                (cond
+                  ((not (every? variable? (arguments term)))
+                   (imps-warning
+                       "install-value-condition: term not general: ~S"
+                       term))
+                  ((not (and (every? (lambda (s v)
+                                       (equal-sortings? s
+                                        (expression-sorting v)))
+                                     (expression-domains op)
+                                     (arguments term))
+                             (equal-sortings? (expression-range op)
+                                 (expression-sorting
+                                     (expression-rhs antecedent)))))
+                   (imps-warning
+                       "install-value-condition: sortings not general: ~S"
+                       term))
+                  (else (theory-install-value-condition-1 d-r-h op
+                            (apply imps-lambda consequent
+                                   (append (arguments term)
+                                    (list (expression-rhs antecedent)))))))))))
+
+(define (theory-install-value-condition-1 d-r-h op predicate)
+        (let ((old (d-r-value-condition d-r-h op)))
+          (d-r-add-value-condition d-r-h op
+              (if (expression? old) (conjoin-predicates predicate old)
+                  predicate))))
+
+(define (d-r-handler-from-definition form)
+        (let* ((theory (name->theory (cadr (assq 'theory form))))
+               (h (cond
+                    ((assq 'subhandler form) =>
+                     (lambda (subhandler-form)
+                       (copy-d-r-handler (eval (cadr subhandler-form))
+                           theory)))
+                    (else (theory-domain-range-handler theory)))))
+          (bind (((current-language) (theory-language theory)))
+                (let ((fns (d-r-handler-from-definition-retrieve-fns
+                               form))
+                      (coercions
+                          (d-r-handler-from-definition-retrieve-coercions
+                              form))
+                      (d-cs (d-r-handler-from-definition-retrieve-d-cs
+                                form))
+                      (u-cs (d-r-handler-from-definition-retrieve-u-cs
+                                form))
+                      (ds-cs (d-r-handler-from-definition-retrieve-ds-cs
+                                 form))
+                      (v-cs (d-r-handler-from-definition-retrieve-v-cs
+                                form))
+                      (s-d (d-r-handler-from-definition-retrieve-s-d
+                               form)))
+                  (walk (lambda (fnconst)
+                          (d-r-make-fn-everywhere-defined h fnconst))
+                        fns)
+                  (walk (lambda (pair)
+                          (destructure (((from-sort . to-sort) pair))
+                              (d-r-make-coercion-everywhere-defined h
+                                  from-sort to-sort)))
+                        coercions)
+                  (walk (lambda (pair)
+                          (destructure (((fnconst . predicate) pair))
+                              (d-r-add-definedness-condition h fnconst
+                                  predicate)))
+                        d-cs)
+                  (walk (lambda (pair)
+                          (destructure (((fnconst . predicate) pair))
+                              (d-r-add-undefinedness-condition h
+                                  fnconst predicate)))
+                        u-cs)
+                  (walk (lambda (l)
+                          (destructure (((fnconst sort predicate) l))
+                              (d-r-add-sort-definedness-condition h
+                                  fnconst sort predicate)))
+                        ds-cs)
+                  (walk (lambda (pair)
+                          (destructure (((fnconst . predicate) pair))
+                              (d-r-add-value-condition h fnconst
+                                  predicate)))
+                        v-cs)
+                  (walk (lambda (term)
+                          (d-r-make-summarily-defined h term))
+                        s-d)
+                  (set (theory-domain-range-handler theory) h)
+                  h))))
+
+(define (d-r-handler-from-definition-retrieve-exprs input-list)
+        (map (lambda (input)
+               (*destructure-theory-read-proc* (current-language)
+                   input))
+             input-list))
+
+(define (d-r-handler-from-definition-retrieve-fns form)
+        (imps-enforce (lambda (l) (every? function-constant? l))
+            (d-r-handler-from-definition-retrieve-exprs
+                (assq-val 'everywhere-defined-functions form))))
+
+(define (d-r-handler-from-definition-retrieve-coercions form)
+        (map (lambda (l)
+               (destructure (((from to) l))
+                   (cons (list->sort from) (list->sort to))))
+             (assq-val 'everywhere-defined-coercions form)))
+
+(define (d-r-handler-from-definition-retrieve-?-cs form symbol)
+        (map (lambda (l)
+               (destructure
+                   (((fnconst predicate)
+                     (d-r-handler-from-definition-retrieve-exprs l)))
+                   (cons (imps-enforce function-constant? fnconst)
+                         (imps-enforce predicate? predicate))))
+             (assq-val symbol form)))
+
+(define (d-r-handler-from-definition-retrieve-d-cs form)
+        (d-r-handler-from-definition-retrieve-?-cs form
+            'definedness-conditions))
+
+(define (d-r-handler-from-definition-retrieve-u-cs form)
+        (d-r-handler-from-definition-retrieve-?-cs form
+            'undefinedness-conditions))
+
+(define (d-r-handler-from-definition-retrieve-v-cs form)
+        (d-r-handler-from-definition-retrieve-?-cs form
+            'value-conditions))
+
+(define (d-r-handler-from-definition-retrieve-s-d form)
+        (imps-enforce (lambda (l) (every? term-or-fn? l))
+            (d-r-handler-from-definition-retrieve-exprs
+                (assq-val 'summarily-defined form))))
+
+(define (d-r-handler-from-definition-retrieve-ds-cs form)
+        (flat-map
+            (lambda (l)
+              (let ((fnconst (*destructure-theory-read-proc*
+                                 (current-language) (car l))))
+                (map (lambda (ll)
+                       (let ((sort (car ll))
+                             (predicate
+                                 (d-r-handler-from-definition-retrieve-exprs
+                                     (cdr ll))))
+                         (cons fnconst (cons sort predicate))))
+                     (cdr l))))
+            (assq-val 'sort-definedness-conditions form)))
+
+(define (join-d-r-handler-list new-theory handler-list)
+        (let ((new (make-d-r-handler)))
+          (set (d-r-handler-name new) '%%as-yet-anonymous%%)
+          (set (d-r-handler-theory new) new-theory)
+          (set (d-r-handler-everywhere-defined-fns new)
+               (collect-set d-r-handler-everywhere-defined-fns
+                   handler-list))
+          (walk (lambda (h)
+                  (walk (lambda (pair)
+                          (let ((from (car pair)) (tos (cdr pair)))
+                            (walk (lambda (to)
+                                    (d-r-make-coercion-everywhere-defined
+                                     new from to))
+                                  tos)))
+                        (d-r-handler-everywhere-defined-coercions h)))
+                handler-list)
+          (walk (lambda (h)
+                  (walk (lambda (pair)
+                          (let ((from (car pair)) (tos (cdr pair)))
+                            (walk (lambda (to)
+                                    (d-r-make-coercion-nowhere-defined
+                                     new from to))
+                                  tos)))
+                        (d-r-handler-nowhere-defined-coercions h)))
+                handler-list)
+          (walk (lambda (h)
+                  (walk (lambda (from-list)
+                          (let ((from (car from-list)))
+                            (walk (lambda (to-pair)
+                                    (let
+                                     ((to (car to-pair))
+                                      (predicate (cdr to-pair)))
+                                      (theory-install-conditional-sort-coercion-1
+                                       new from to predicate)))
+                                  (cdr from-list))))
+                        (d-r-handler-conditionally-defined-coercions h)))
+                handler-list)
+          (walk (lambda (h)
+                  (walk (lambda (pair)
+                          (let ((op (car pair)) (predicate (cdr pair)))
+                            (theory-install-definedness-condition-1 new
+                                op predicate)))
+                        (d-r-handler-definedness-alist h)))
+                handler-list)
+          (walk (lambda (h)
+                  (walk (lambda (pair)
+                          (let ((op (car pair)) (predicate (cdr pair)))
+                            (theory-install-undefinedness-condition-1
+                                new op predicate)))
+                        (d-r-handler-undefinedness-alist h)))
+                handler-list)
+          (walk (lambda (h)
+                  (walk (lambda (op-list)
+                          (let ((op (car op-list)))
+                            (walk (lambda (to-pair)
+                                    (let
+                                     ((to (car to-pair))
+                                      (predicate (cdr to-pair)))
+                                      (theory-install-sort-definedness-condition-1
+                                       new op to predicate)))
+                                  (cdr op-list))))
+                        (d-r-handler-sort-definedness-alist h)))
+                handler-list)
+          (walk (lambda (h)
+                  (walk (lambda (pair)
+                          (let ((op (car pair)) (predicate (cdr pair)))
+                            (theory-install-value-condition-1 new op
+                                predicate)))
+                        (d-r-handler-value-alist h)))
+                handler-list)
+          (let ((new-summarily-defined
+                    (d-r-handler-summarily-defined new)))
+            (walk (lambda (handler)
+                    (walk-table
+                        (lambda (key value)
+                          (set (table-entry new-summarily-defined key)
+                               value))
+                        (d-r-handler-summarily-defined handler)))
+                  handler-list))
+          (walk (lambda (h)
+                  (walk (lambda (pair)
+                          (let ((fn (car pair)) (sorts (cdr pair)))
+                            (walk (lambda (sort)
+                                    (d-r-make-sort-closed-under-fn new
+                                     sort fn))
+                                  sorts)))
+                        (d-r-handler-closure-alist h)))
+                handler-list)
+          (walk (lambda (h)
+                  (walk (lambda (pair)
+                          (let ((fn (car pair)) (sorts (cdr pair)))
+                            (walk (lambda (sort)
+                                    (d-r-make-defined-sort-for-fn new
+                                     sort fn))
+                                  sorts)))
+                        (d-r-handler-fn-defined-sort-alist h)))
+                handler-list)
+          new))

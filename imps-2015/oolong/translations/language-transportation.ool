@@ -1,0 +1,339 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment language-transportation)
+
+(define (transport-language translation source-language target-language
+            fixed-languages renamer)
+        (check-arguments-for-transport-language translation
+            source-language target-language fixed-languages renamer)
+        (cond
+          ((compound-language? source-language)
+           (transport-compound-language translation source-language
+               target-language fixed-languages renamer))
+          ((not (null? fixed-languages))
+           (build-language-translation source-language target-language
+               fixed-languages nil nil value-false value-false))
+          ((eq? source-language
+                (theory-language
+                    (translation-source-theory translation)))
+           translation)
+          (else (replicate-basic-language source-language
+                    target-language renamer))))
+
+(define (check-arguments-for-transport-language translation
+            source-language target-language fixed-languages renamer)
+        (or (procedure? renamer)
+            (imps-error
+                "CHECK-ARGUMENTS-FOR-TRANSPORT-LANGUAGE: ~S is a bad renamer."
+                renamer))
+        (or (language? source-language)
+            (imps-error
+                "CHECK-ARGUMENTS-FOR-TRANSPORT-LANGUAGE: ~S ~A."
+                source-language "is not a language"))
+        (or (language? target-language)
+            (imps-error
+                "CHECK-ARGUMENTS-FOR-TRANSPORT-LANGUAGE: ~S ~A."
+                target-language "is not a language"))
+        (or (and (list? fixed-languages)
+                 (every? language? fixed-languages))
+            (imps-error
+                "CHECK-ARGUMENTS-FOR-TRANSPORT-LANGUAGE: ~S ~A."
+                fixed-languages "is not a list of languages"))
+        (quick-theory-interpretation-check translation)
+        (let ((trans-source-language
+                  (theory-language
+                      (translation-source-theory translation)))
+              (trans-target-language
+                  (theory-language
+                      (translation-target-theory translation))))
+          (or (sub-language? trans-source-language source-language)
+              (imps-error
+                  "CHECK-ARGUMENTS-FOR-TRANSPORT-LANGUAGE: ~S ~A ~S."
+                  trans-source-language "is not a sublanguage of"
+                  source-language))
+          (or (sub-language? trans-target-language target-language)
+              (imps-error
+                  "CHECK-ARGUMENTS-FOR-TRANSPORT-LANGUAGE: ~S ~A ~S."
+                  trans-target-language "is not a sublanguage of"
+                  target-language))
+          (or (empty-set? (translation-assumptions translation))
+              (imps-error
+                  "CHECK-ARGUMENTS-FOR-TRANSPORT-LANGUAGE: ~A ~S ~A."
+                  "the set of assumptions of" translation
+                  "is not empty"))
+          (every? (lambda (lang)
+                    (or (sub-language? lang source-language)
+                        (imps-error
+                            "CHECK-ARGUMENTS-FOR-TRANSPORT-LANGUAGE: ~S ~A ~S."
+                            lang "is not a sublanguage of"
+                            source-language)))
+                  fixed-languages)
+          (map (lambda (lang)
+                 (or (and (every? (lambda (sort)
+                                    (or
+                                     (not
+                                      (element-of-set? sort
+                                       (sorts-resolved
+                                        trans-source-language)))
+                                     (eq? sort
+                                      (translate-sort translation sort))))
+                                  (sorts-resolved lang))
+                          (every? (lambda (const)
+                                    (or
+                                     (not
+                                      (element-of-set? const
+                                       (language-constants
+                                        trans-source-language)))
+                                     (eq? const
+                                      (translate-constant translation
+                                       const))))
+                                  (language-constants lang)))
+                     (imps-error
+                         "CHECK-ARGUMENTS-FOR-TRANSPORT-LANGUAGE: ~S ~A ~S."
+                         lang "is not fixed by" translation)))
+               fixed-languages)))
+
+(define (transport-compound-language translation source-language
+            target-language fixed-languages renamer)
+        (let* ((trans-source-language
+                   (theory-language
+                       (translation-source-theory translation)))
+               (resolver-translation
+                   (transport-resolver translation source-language
+                       target-language fixed-languages renamer))
+               (resolver-language
+                   (theory-language
+                       (translation-target-theory resolver-translation)))
+               (basic-translations
+                   (iterate loop
+                            ((basics (compound-language-basic-languages
+                                      source-language))
+                             (translations nil))
+                            (cond
+                              ((null? basics) translations)
+                              ((sub-language? (car basics)
+                                   trans-source-language)
+                               (loop (cdr basics) translations))
+                              ((any? (lambda (f)
+                                       (sub-language? (car basics) f))
+                                     fixed-languages)
+                               (loop (cdr basics) translations))
+                              (else (loop
+                                      (cdr basics)
+                                      (cons
+                                       (transport-basic-language
+                                        resolver-translation
+                                        (car basics) renamer)
+                                       translations))))))
+               (basics (map (lambda (trans)
+                              (theory-language
+                                  (translation-target-theory trans)))
+                            basic-translations)))
+          (build-language-translation source-language
+              (compound-language (cons resolver-language basics)
+                  null-sort-resolver)
+              fixed-languages
+              (translation-sort-alist resolver-translation)
+              (big-u (cons (translation-constant-alist translation)
+                           (map translation-constant-alist
+                                basic-translations)))
+              value-false value-false)))
+
+(define (transport-resolver translation source-language target-language
+            fixed-languages renamer)
+        (let* ((fixed-sorts
+                   (big-u (map sorts-resolved fixed-languages)))
+               (trans-sorts
+                   (sorts-resolved
+                       (theory-language
+                           (translation-source-theory translation))))
+               (transportable-sorts
+                   (set-diff (sorts-resolved source-language)
+                       (set-union fixed-sorts trans-sorts)))
+               (transportable-sort-alist
+                   (map (lambda (sort)
+                          (cons sort
+                                (translate-or-transport-sort
+                                    translation sort fixed-sorts
+                                    renamer)))
+                        transportable-sorts))
+               (resolver-for-transportable-sorts
+                   (let* ((sorts (map cdr transportable-sort-alist))
+                          (names (map name sorts))
+                          (alist (map (lambda (sort)
+                                        (cons (name sort) sort))
+                                      sorts))
+                          (bases (set-separate base-sort? sorts)))
+                     (imps-enforce is-set? names)
+                     (object nil ((sort-resolver? self) value-true)
+                             ((sort-names-resolved self) names)
+                             ((name-sort-alist self) alist)
+                             ((base-sorts self) bases)
+                             ((sorts-resolved self) sorts)
+                             ((name->sort self symbol)
+                              (cond
+                                ((assq symbol alist) => cdr)
+                                (else value-false)))))))
+          (build-language-translation
+              (compound-language
+                  (list (theory-language
+                            (translation-source-theory translation)))
+                  (compound-language-resolver source-language))
+              (compound-language
+                  (add-set-element target-language fixed-languages)
+                  resolver-for-transportable-sorts)
+              nil
+              (set-union transportable-sort-alist
+                  (translation-sort-alist translation))
+              (translation-constant-alist translation) value-false value-false)))
+
+(define (translate-or-transport-sort translation sort fixed-sorts
+            renamer)
+        (imps-enforce sort? sort)
+        (cond
+          ((not (name sort))
+           (translate-or-transport-unnamed-sort translation sort
+               fixed-sorts renamer))
+          ((element-of-set? sort fixed-sorts) sort)
+          ((element-of-set? sort
+               (sorts-resolved
+                   (theory-language
+                       (translation-source-theory translation))))
+           (translate-sort translation sort))
+          ((and (base-sort? sort) (base-sort-is-type? sort))
+           (build-base-type (funcall renamer (base-sort-name sort))
+               (base-sort-category sort)))
+          (else (let* ((enclosing-sort (enclosing-sort sort))
+                       (trans-enclosing-sort
+                           (sort-or-quasi-sort-domain
+                               (translate-or-transport-sort translation
+                                   enclosing-sort fixed-sorts renamer))))
+                  (if (base-sort? trans-enclosing-sort)
+                      (build-base-sort
+                          (funcall renamer (base-sort-name sort))
+                          (base-sort-category sort) value-false
+                          trans-enclosing-sort)
+                      (build-higher-sort
+                          (higher-sort-domains trans-enclosing-sort)
+                          (higher-sort-range trans-enclosing-sort)
+                          (funcall renamer (name sort))
+                          trans-enclosing-sort))))))
+
+(define (translate-or-transport-unnamed-sort translation sort
+            fixed-sorts renamer)
+        (let ((domains (map (lambda (s)
+                              (translate-or-transport-sort translation
+                                  s fixed-sorts renamer))
+                            (higher-sort-domains sort)))
+              (range (translate-or-transport-sort translation
+                         (higher-sort-range sort) fixed-sorts renamer)))
+          (if (and (every? sort? domains) (sort? range))
+              (build-maximal-higher-sort domains range)
+              (build-quasi-sort domains range))))
+
+(define (replicate-basic-language language target-language renamer)
+        (let* ((resolver-translation
+                   (transport-resolver the-kernel-translation language
+                       target-language the-empty-set renamer))
+               (translation
+                   (transport-basic-language resolver-translation
+                       language renamer))
+               (new-language
+                   (theory-language
+                       (translation-target-theory translation))))
+          (build-language-translation language new-language nil
+              (translation-sort-alist translation)
+              (translation-constant-alist translation) value-false value-false)))
+
+;;Note: Changed Wed May 14 16:46:10 EDT 1997 by jt
+
+(define (transport-basic-language resolver-translation language
+            renamer)
+        (or (not (self-extending? language))
+            (imps-error "TRANSPORT-BASIC-LANGUAGE: ~S ~A."
+                language
+                "is a self-extending language and is thus not transportable"))
+        (let* ((resolver-source-language
+                   (theory-language
+                       (translation-source-theory resolver-translation)))
+               (resolver-target-language
+                   (theory-language
+                       (translation-target-theory resolver-translation)))
+               (new-resolver
+                   (compound-language-resolver
+                       resolver-target-language))
+               (new-constant-alist
+                   (map (lambda (const)
+                          (let* ((sorting (expression-sorting const))
+                                 (name (expression-name const))
+                                 (new-const
+                                     (make-formal-symbol constant?
+                                      (sort-or-quasi-sort-domain
+                                       (translate-sort
+                                        resolver-translation sorting))
+                                      (funcall renamer name))))
+                            (cons const new-const)))
+                        (language-constants language)))
+               (new-constants (map cdr new-constant-alist))
+               (new-language
+                   (make-basic-language value-false new-constants
+                       new-resolver)))
+          (build-language-translation
+              (compound-language
+                  (list language resolver-source-language)
+                  null-sort-resolver)
+              (compound-language
+                  (list new-language resolver-target-language)
+                  null-sort-resolver)
+              nil (translation-sort-alist resolver-translation)
+              (set-union new-constant-alist
+                  (translation-constant-alist resolver-translation))
+              value-false value-false)))

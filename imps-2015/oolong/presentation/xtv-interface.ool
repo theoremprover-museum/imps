@@ -1,0 +1,484 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment xtv-interface)
+
+(define-operation begin-verbatim)
+
+(define-operation end-verbatim)
+
+(define (make-segmenting-port port max-line)
+        (let ((line-size 0) (verbatim value-false))
+          (join (object nil
+                        ((write-char soi x)
+                         (cond
+                           ((and (not verbatim) (> line-size max-line)
+                                 (whitespace? x))
+                            (newline soi) (set line-size 1))
+                           (else (increment line-size)))
+                         (write-char port x))
+;;Modified by jt Tue Jan 20 18:57:42 EST 1998
+                        ((write soi x . junk)
+			 (ignore junk)
+                         (let ((len (string-length x)))
+                           (do ((i 0 (fx+ i 1)))
+                               ((fx>= i len) repl-wont-print)
+                             (write-char soi (string-elt x i)))))
+                        ((begin-verbatim soi) (set verbatim value-true))
+                        ((end-verbatim soi) (set verbatim value-false))
+                        ((print soi pt) (format pt "#{Segmenting-Port}")))
+                port)))
+
+(define (output-port->tex-output-port port)
+        (join (object nil
+;;Modified by jt Tue Jan 20 18:57:42 EST 1998
+                      ((write soi tree . junk)
+		       (ignore junk)
+                       (write-sexp-leaves-to-port
+                           (present-tree *tex-form* tree 0) port)))
+              port))
+
+(define (write-sexp-leaves-to-port x port)
+        (cond
+          ((null? x))
+          ((string? x) (xtv-format port x))
+          ((symbol? x) (xtv-format port "~a" (tex-process-symbol x)))
+          ((atom? x) (xtv-format port "~a" x))
+          (else (write-sexp-leaves-to-port (car x) port)
+                (write-sexp-leaves-to-port (cdr x) port))))
+
+(define xtv-format format)
+
+(define previewer-command "xdvi")
+
+(define (start-xtex . display)
+        (let ((display (if display (car display)
+                           (unix-getenv "DISPLAY")))
+              (dvi-file (format nil "~A-imps.dvi" (user))))
+          (set previewer-command "echo")
+          (exec (format nil
+                        "cd /tmp ; xtex -mag 1440 -display ~A ~A  &"
+                        display dvi-file))))
+
+(define (initialize-tex-port-and-apply port-fn)
+        (let* ((xtv-port nil) (file-root (format nil "~A-imps" (user)))
+               (tex-file (format nil "/tmp/~A.tex" file-root)))
+          (if (file-exists? tex-file) (file-delete tex-file))
+          (set xtv-port
+               (output-port->tex-output-port
+                   (make-segmenting-port (open tex-file '(out)) 50)))
+          (write xtv-port "\\documentstyle[12pt]{article}")
+          (newline xtv-port)
+          (write xtv-port " \\begin{document}")
+          (write xtv-port " { \\raggedright ")
+          (newline xtv-port)
+          (write xtv-port " \\noindent ")
+          (funcall port-fn xtv-port)
+          (newline xtv-port)
+          (write xtv-port " } ")
+          (write xtv-port " \\end{document}")
+          (newline xtv-port)
+          (force-output xtv-port)
+          (close xtv-port)
+          (if (emacs-process-filter?)
+              (block (emacs-eval "(run-latex-for-imps)")
+		     repl-wont-print)
+	      tex-file)))
+
+
+(define (display-tex-and-preview object)
+        (initialize-tex-port-and-apply
+            (lambda (xtv-port)
+              (display-object-in-tex-format object xtv-port))))
+
+(define xview display-tex-and-preview)
+
+(define (backslash-special-chars x)
+        (iterate loop
+                 ((char-list
+                      (string->list
+                          (if (symbol? x) (symbol->string x) x)))
+                  (accum nil))
+                 (cond
+                   ((null? char-list)
+                    (string-downcase (list->string (reverse! accum))))
+                   ((mem char= (car char-list) '(#\^ #\_ #\$ #\# #\%))
+                    (loop
+                      (cdr char-list)
+                      (cons (car char-list) (cons '#\\ accum))))
+                   ((mem char= (car char-list) '(#\< #\>))
+                    (loop
+                      (cdr char-list)
+                      (cons '#\$
+                            (cons (car char-list) (cons '#\$ accum)))))
+                   (else (loop
+                           (cdr char-list)
+                           (cons (car char-list) accum))))))
+
+(define (display-object-in-tex-format object port)
+        (cond
+          ((expression? object)
+           (let ((tree (if (use-old-apply-operator-form?)
+                           (expression->sexp object)
+                           (drop-apply-operators
+                               (expression->sexp object)))))
+             (display-sexpression-in-tex-format tree port)))
+          ((sequent-node? object)
+           (bind (((dont-list-free-variables?) value-true))
+                 (xtv-format port " \\subsection* {Sequent ~a. }"
+                     (sequent-node-number object))
+                 (display-sequent-free-variables object port)
+                 (let ((assums (sequent-node-assumptions object)))
+                   (if assums
+                       (block (xtv-format port
+                                  " \\subsection* {Assume:}")
+                         (display-expression-list-in-tex-format assums
+                             port)
+                         (xtv-format port "\\subsection* {Then:}"))))
+                 (display-object-in-tex-format
+                     (sequent-node-assertion object) port)))
+          ((deduction-graph? object)
+           (funcall (deduction-graph-tex-formatter) object port))
+          ((pair? object)
+           (walk (lambda (o)
+                   (display-object-in-tex-format o port)
+                   (xtv-format port " \\quad "))
+                 object))
+          ((null? object) (xtv-format port " { \\tt () }"))
+          ((macete? object) (display-macete-in-tex-format object port))
+;;        ((bnf? object) (display-bnf-in-tex-format object port))
+          ((theory? object) (display-theory-in-tex-format object port))
+          ((sorting? object) (display-sort-in-tex-format object port))
+          ((or (symbol? object) (string? object))
+           (xtv-format port "~A" (backslash-special-chars object)))
+          (else (xtv-format port
+                    "Sorry, I do not know how to represent this object."))))
+
+(define (display-object-in-tex-format-without-periods object port)
+        (bind ((*use-periods?* value-false))
+              (display-object-in-tex-format object port)))
+
+(define (display-sequent-free-variables sqn port)
+        (let ((free (sequent-free-variables (sequent-node-sequent sqn))))
+          (if free
+              (bind ((*use-periods?* value-false))
+                    (block (format port " Let ")
+                      (xtv-format port "$")
+                      (write-sexp-leaves-to-port
+                          (present-tex-parameter-list
+                              (var-list->sexp free))
+                          port)
+                      (xtv-format port ".$"))))))
+
+(define (display-sort-in-tex-format object port)
+        (xtv-format port "\\noindent $")
+        (write-sexp-leaves-to-port
+            (present-tex-sorting (sort->list object) value-false) port)
+        (xtv-format port " $"))
+
+(define (display-expression-list-in-tex-format expr-list port)
+        (if (= (length expr-list) 1)
+            (display-object-in-tex-format (car expr-list) port)
+            (block (xtv-format port " \\begin{enumerate}")
+              (xtv-format port " \\setcounter{enumi}{-1} ")
+              (walk (lambda (x)
+                      (xtv-format port " \\item ")
+                      (display-object-in-tex-format x port))
+                    expr-list)
+              (xtv-format port " \\end{enumerate}"))))
+
+(define (display-single-formula-in-tex-format object port)
+        (xtv-format port " \\begin{description} ")
+        (xtv-format port " \\item[] ")
+        (display-object-in-tex-format object port)
+        (xtv-format port " \\end{description} "))
+
+(define *use-periods?* value-true)
+
+(define (display-sexpression-in-tex-format object port)
+        (xtv-format port "\\noindent $") (write port object)
+        (if *use-periods?* (xtv-format port " .$ ")
+            (xtv-format port " $")))
+
+(define *small-expression-cutoff* 10)
+
+(define (small-expression? expr)
+        (< (expression-width expr) *small-expression-cutoff*))
+
+(define (expression-width expr)
+        (cond
+          ((formal-symbol? expr)
+           (string-length (format nil "~A" (name expr))))
+          ((application? expr)
+           (apply +
+                  (map expression-width (expression-components expr))))
+          (else (apply + 1
+                       (map expression-width
+                            (expression-quasi-components-or-components
+                                expr))))))
+
+(define (display-macete-in-tex-format object port)
+        (xtv-format port "{\\bf Macete: ~A}\\par\\bigskip"
+            (string-downcase
+                (backslash-special-chars (macete-name object))))
+        (cond
+          ((composite-macete? object)
+           (display-composite-macete-in-tex-format object port))
+          ((or (elementary-macete? object)
+               (transportable-macete? object))
+           (tex-display-non-composite-macete-actively object port))
+          (else (xtv-format port " ~a " (name object)))))
+
+(define (display-composite-macete-in-tex-format-without-theorems object
+            port)
+        (xtv-format port "~& \\begin{verbatim} ~&")
+        (begin-verbatim port)
+	(let ((str (with-output-to-string 
+		     p
+		     (pretty-print (display-macete-list object) p))))
+	  (xtv-format port str))
+        (end-verbatim port) (xtv-format port "~&\\end{verbatim} ~&"))
+
+(define (display-composite-macete-in-tex-format object port)
+        (display-composite-macete-in-tex-format-without-theorems object
+            port)
+        (xtv-format port "~&\\bigskip ~&Where:\\par\\bigskip ")
+        (let ((simples (macete-collect-non-composites object)))
+          (format port "\\begin{enumerate}~& ")
+          (walk (lambda (x)
+                  (format port "\\item {\\bf ~A:}"
+                          (backslash-special-chars (macete-name x)))
+                  (tex-display-non-composite-macete-actively x port))
+                simples)
+          (format port "\\end{enumerate}~& ")))
+
+(define (display-macete-list macete)
+        (cond
+          ((composite-macete? macete)
+           (cons (macete-constructor-name macete)
+                 (map display-macete-list (macete-components macete))))
+          (else (name macete))))
+
+(define (macete-collect-non-composites macete)
+        (iterate iter ((macetes (list macete)) (simples nil))
+                 (if (null? macetes) (reverse! (make-set simples))
+                     (let ((macete (car macetes)))
+                       (cond
+                         ((composite-macete? macete)
+                          (iter (append (macete-components macete)
+                                        (cdr macetes))
+                                simples))
+                         ((or (elementary-macete? macete)
+                              (transportable-macete? macete))
+                          (iter (cdr macetes) (cons macete simples)))
+                         (else (iter (cdr macetes) simples)))))))
+
+(define (tex-display-non-composite-macete-actively macete port)
+        (let ((lhs (if (elementary-macete? macete)
+                       (elementary-macete-lhs macete)
+                       (transportable-macete-lhs macete)))
+              (rhs (if (elementary-macete? macete)
+                       (elementary-macete-rhs macete)
+                       (transportable-macete-rhs macete))))
+          (format port "\\begin{quote}~& ")
+          (format port "\\begin{description}~& ")
+          (format port "\\item[Replace:]")
+          (display-object-in-tex-format lhs port)
+          (format port "\\item[By:]")
+          (display-object-in-tex-format rhs port)
+          (let ((reqs (macete-requirements macete)))
+            (cond
+              ((null? reqs))
+              ((null? (cdr reqs))
+               (format port "\\item[Subject to:]~& ")
+               (display-object-in-tex-format (car reqs) port))
+              (else (format port
+                            "\\item[Subject] to the conditions:~& \\begin{itemize}~& ")
+                    (walk (lambda (req)
+                            (format port "~&  \\item ")
+                            (display-object-in-tex-format req port))
+                          reqs)
+                    (format port "~& \\end{itemize}~& "))))
+          (format port "\\end{description}~& ")
+          (format port "\\end{quote}~& ")))
+
+(comment (define (macete-collect-theorems-and-nullaries macete)
+                 (let ((thms 'value-false) (nullaries 'value-false))
+                   (iterate loop ((macetes (list macete)))
+                            (if (null? macetes)
+                                (return
+                                  (reverse! (make-set thms))
+                                  (reverse! (make-set nullaries)))
+                                (let ((macete (car macetes)))
+                                  (cond
+                                    ((composite-macete? macete)
+                                     (loop
+                                       (append
+                                        (macete-components macete)
+                                        (cdr macetes))))
+                                    ((or
+                                      (safe-elementary-macete? macete)
+                                      (and
+                                       (transportable-macete? macete)
+                                       (macete-sound-in-theory? macete
+                                        'ignored)))
+                                     (push thms
+                                      (macete->formula macete))
+                                     (loop (cdr macetes)))
+                                    ((or (elementary-macete? macete)
+                                      (transportable-macete? macete))
+                                     (push nullaries macete)
+                                     (loop (cdr macetes)))
+                                    (else (loop (cdr macetes)))))))))
+         (define (macete-collect-theorems macete)
+                 (let ((thms 'value-false))
+                   (iterate loop ((macetes (list macete)))
+                            (if (null? macetes)
+                                (reverse! (make-set thms))
+                                (let ((macete (car macetes)))
+                                  (cond
+                                    ((composite-macete? macete)
+                                     (loop
+                                       (append
+                                        (macete-components macete)
+                                        (cdr macetes))))
+                                    ((or (elementary-macete? macete)
+                                      (transportable-macete? macete))
+                                     (push thms
+                                      (macete->formula macete))
+                                     (loop (cdr macetes)))
+                                    (else (loop (cdr macetes))))))))))
+
+(define (display-bnf-in-tex-format bnf-or-name port)
+        (let ((bnf (if (bnf? bnf-or-name) bnf-or-name
+                       (name->bnf bnf-or-name))))
+          (labels (((display-tex thm)
+                    (let ((the-name (theorem-name thm)))
+                      (and (symbol? the-name)
+                           (xtv-format port
+                               " \\par \\bigskip Theorem {\\bf ~A} is: \\par"
+                               (string-downcase
+                                   (backslash-special-chars the-name))))
+                      (display-object-in-tex-format thm port)
+                      (xtv-format port "~&\\bigskip~&"))))
+            (xtv-format port "\\section*{bnf data type ~A:}"
+                (backslash-special-chars (bnf-name bnf)))
+            (xtv-format port
+                "~&\\paragraph{Constructor definedness axioms:}")
+            (walk #'display-tex
+                  (bnf-constructor-definedness-axioms bnf))
+            (xtv-format port "\\paragraph{Disjointness axioms:}")
+            (walk #'display-tex (bnf-disjointness-axioms bnf))
+            (xtv-format port
+                "\\paragraph{Selector constructor axioms:}")
+            (walk #'display-tex (bnf-selector-constructor-axioms bnf))
+            (xtv-format port
+                "\\paragraph{Selector undefinedness axioms:}")
+            (walk #'display-tex
+                  (bnf-selector-undefinedness-axioms bnf))
+            (xtv-format port "\\paragraph{Sort inclusion axioms:}")
+            (walk #'display-tex (bnf-sort-inclusion-axioms bnf))
+            (xtv-format port "\\paragraph{Sort case axioms:}")
+            (walk #'display-tex (bnf-sort-case-axioms bnf))
+            (xtv-format port "\\paragraph{Induction axiom:}")
+            (display-tex (bnf-induction-axiom bnf))
+            (xtv-format port "\\paragraph{Auxiliary theorems:}")
+            (walk #'display-tex (bnf-auxiliary-theorems bnf)))))
+
+(define (display-theory-in-tex-format theory port)
+        (xtv-format port "\\section*{Theory ~A:}"
+            (backslash-special-chars (name theory)))
+        (let ((component-theories (theory-component-theories theory)))
+          (if component-theories
+              (block (xtv-format port
+                         "\\paragraph{Component theories:}
+\\begin{itemize}")
+                (walk (lambda (comp)
+                        (xtv-format port "\\item ~A;"
+                            (backslash-special-chars (name comp))))
+                      component-theories)
+                (xtv-format port "\\end{itemize}"))
+              (xtv-format port
+                  "\\paragraph{Component theories:} There are none. \\par")))
+        (let ((axioms (theory-top-level-axioms theory)))
+          (if axioms
+              (block (xtv-format port
+                         "\\paragraph{Top level axioms:}
+\\begin{description}")
+                (walk (lambda (ax)
+                        (xtv-format port "\\item[~A]"
+                            (backslash-special-chars
+                                (or (name ax) 'anonymous)))
+                        (let ((tree (if (use-old-apply-operator-form?)
+                                     (expression->sexp object)
+                                     (drop-apply-operators
+                                      (expression->sexp ax)))))
+                          (display-sexpression-in-tex-format tree port)))
+                      axioms)
+                (xtv-format port "\\end{description}"))
+              (xtv-format port
+                  "\\paragraph{Top level axioms:} There are none."))))
+
+(define (xview-theorems-by-name theorem-names)
+        (initialize-tex-port-and-apply
+            (lambda (port)
+              (walk (lambda (tn)
+                      (xtv-format port "\\paragraph{Theorem ~A:} "
+                          (backslash-special-chars tn))
+                      (cond
+                        ((name->theorem-1 tn) =>
+                         (lambda (f)
+                           (xtv-format port "\\par")
+                           (display-object-in-tex-format f port)
+                           (xtv-format port "\\par")))
+                        (else (xtv-format port
+                                  "There is no theorem named ~A currently loaded.\\par"
+                                  (backslash-special-chars tn)))))
+                    theorem-names))))

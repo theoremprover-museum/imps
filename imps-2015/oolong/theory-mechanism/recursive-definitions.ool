@@ -1,0 +1,951 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment recursive-definitions)
+
+(define-structure-type recursive-definition name home-theory
+    constant-list functional-list defining-expr-list
+    rec-defining-expr-list equation-axioms minimality-axiom
+    totality-axioms theorems usage-list
+    (((name self) (recursive-definition-name self))
+     ((print self port)
+      (format port "#{IMPS-recursive-definition ~A: ~S ~S}"
+              (object-hash self) (recursive-definition-name self)
+              (map name (recursive-definition-constant-list self))))))
+
+(define (recursive-definition-defining-expr definition constant)
+        (enforce recursive-definition? definition)
+        (let ((position
+                  (pos eq? constant
+                       (recursive-definition-constant-list definition))))
+          (and position
+               (nth (recursive-definition-defining-expr-list
+                        definition)
+                    position))))
+
+(define (recursive-definition-rec-defining-expr definition constant)
+        (enforce recursive-definition? definition)
+        (let ((position
+                  (pos eq? constant
+                       (recursive-definition-constant-list definition))))
+          (and position
+               (nth (recursive-definition-rec-defining-expr-list
+                        definition)
+                    position))))
+
+(define (monotonicity-formula recursive-definition)
+        (or (recursive-definition? recursive-definition)
+            (imps-error "MONOTONICITY-FORMULA: ~S ~A."
+                recursive-definition "is not a recursive definition"))
+        (let* ((funct-list
+                   (recursive-definition-functional-list
+                       recursive-definition))
+               (system-variables (big-u (map variables funct-list)))
+               (m (length funct-list))
+               (variable-list (newly-bound-variables (car funct-list)))
+               (n (length variable-list))
+               (argument-list
+                   (reverse (nthcdr (reverse variable-list)
+                                    (subtract n m))))
+               (parameter-list (nthcdr variable-list m))
+               (f-var-list
+                   (mark-variables argument-list 'f system-variables))
+               (g-var-list
+                   (mark-variables argument-list 'g system-variables))
+               (p-var-list
+                   (mark-variables parameter-list 'p system-variables))
+               (body (apply forall
+                            (implication
+                                (conjunction-simplifier
+                                    (sub-function-formulas f-var-list
+                                     g-var-list))
+                                (conjunction-simplifier
+                                    (sub-function-formulas
+                                     (application-list funct-list
+                                      (append f-var-list p-var-list))
+                                     (application-list funct-list
+                                      (append g-var-list p-var-list)))))
+                            (append f-var-list g-var-list))))
+          (if (null? parameter-list) body
+              (apply forall body p-var-list))))
+
+(define (make-monotonicity-theorem definition)
+        (let ((theory (recursive-definition-home-theory definition)))
+          (build-theorem theory (monotonicity-formula definition)
+              (concatenate-symbol 'monotonicity-formula-for-
+                  (name definition) '_ (name theory))
+              nil)))
+
+(define (coordinatewise-monotonicity-formulas recursive-definition)
+        (or (recursive-definition? recursive-definition)
+            (imps-error "COORDINATEWISE-MONOTONICITY-FORMULAS: ~S ~A."
+                recursive-definition "is not a recursive definition"))
+        (let* ((funct-list
+                   (recursive-definition-functional-list
+                       recursive-definition))
+               (system-vars (big-u (map variables funct-list)))
+               (m (length funct-list)))
+          (big-u (map (lambda (funct)
+                        (iterate iter ((k 1) (formulas nil))
+                                 (if (> k m) (reverse formulas)
+                                     (let
+                                      ((formula
+                                        (coordinatewise-monotonicity-formula
+                                         funct k m system-vars)))
+                                       (iter (add1 k)
+                                        (cons formula formulas))))))
+                      funct-list))))
+
+(define (coordinatewise-monotonicity-formula functional k m avoid-vars)
+        (let* ((variable-list (newly-bound-variables functional))
+               (n (length variable-list))
+               (argument-list
+                   (reverse (nthcdr (reverse variable-list)
+                                    (subtract n m))))
+               (parameter-list (nthcdr variable-list m))
+               (f-var (mark-variable (nth argument-list (subtract k 1))
+                          'f avoid-vars))
+               (g-var (mark-variable (nth argument-list (subtract k 1))
+                          'g avoid-vars))
+               (f-var-list
+                   (replace-nth argument-list (subtract k 1) f-var))
+               (g-var-list
+                   (replace-nth argument-list (subtract k 1) g-var))
+               (p-var-list
+                   (mark-variables parameter-list 'p avoid-vars))
+               (body (if (predicate? f-var)
+                         (implication (sub-predicate f-var g-var)
+                             (sub-predicate
+                                 (beta-reduced-application functional
+                                     (append f-var-list p-var-list))
+                                 (beta-reduced-application functional
+                                     (append g-var-list p-var-list))))
+                         (implication (sub-function f-var g-var)
+                             (sub-function
+                                 (beta-reduced-application functional
+                                     (append f-var-list p-var-list))
+                                 (beta-reduced-application functional
+                                     (append g-var-list p-var-list))))))
+               (outer-body
+                   (apply forall body
+                          (append-item-to-end-of-list g-var f-var-list))))
+          (if (null? parameter-list) outer-body
+              (apply forall outer-body p-var-list))))
+
+(define (build-recursive-definition theory name-list functional-list
+            the-name . usage-list)
+        (check-arguments-of-build-recursive-definition theory name-list
+            functional-list the-name)
+        (let* ((m (length name-list))
+               (system-variables
+                   (big-u (map variables functional-list)))
+               (variable-list
+                   (newly-bound-variables (car functional-list)))
+               (n (length variable-list))
+               (argument-list
+                   (reverse (nthcdr (reverse variable-list)
+                                    (subtract n m))))
+               (parameter-list
+                   (mark-variables (nthcdr variable-list m) 'p
+                       system-variables))
+               (argument-domains
+                   (map expression-sorting argument-list))
+               (parameter-domains
+                   (map expression-sorting parameter-list))
+               (constant-sorting-list
+                   (if (null? parameter-domains) argument-domains
+                       (map (lambda (domain)
+                              (build-maximal-higher-sort
+                                  parameter-domains domain))
+                            argument-domains)))
+               (f-var-list
+                   (sorts->new-variables constant-sorting-list 'f
+                       (big-u (list parameter-list system-variables))))
+               (g-var-list
+                   (sorts->new-variables constant-sorting-list 'g
+                       (big-u (list parameter-list system-variables))))
+               (h-var-list
+                   (sorts->new-variables argument-domains 'h
+                       (big-u (list parameter-list system-variables))))
+               (new-constant-list
+                   (or (let ((c-list (map
+                                      (lambda (n)
+                                        (find-constant
+                                         (theory-language theory) n))
+                                      name-list)))
+                         (and (not (any? null? c-list)) c-list))
+                       (make-formal-constants-in-new-language
+                           (theory-language theory)
+                           constant-sorting-list name-list)))
+               (defining-expr-list
+                   (make-defining-expr-list functional-list f-var-list
+                       g-var-list h-var-list parameter-list))
+               (rec-defining-expr-list
+                   (make-rec-defining-expr-list functional-list
+                       new-constant-list parameter-list))
+               (equation-axioms
+                   (make-equation-axioms theory name-list
+                       new-constant-list rec-defining-expr-list))
+               (minimality-axiom
+                   (make-minimality-axiom theory the-name
+                       new-constant-list functional-list h-var-list
+                       parameter-list))
+               (totality-axioms
+                   (if (null? parameter-list) value-false
+                       (make-totality-axioms theory name-list
+                           new-constant-list)))
+               (minimality-theorem
+                   (make-minimality-theorem theory the-name
+                       new-constant-list functional-list h-var-list
+                       parameter-list))
+               (definition (make-recursive-definition)))
+          (set (recursive-definition-name definition)
+               (or the-name (name (car new-constant-list))))
+          (set (recursive-definition-home-theory definition) theory)
+          (set (recursive-definition-constant-list definition)
+               new-constant-list)
+          (set (recursive-definition-functional-list definition)
+               functional-list)
+          (set (recursive-definition-defining-expr-list definition)
+               defining-expr-list)
+          (set (recursive-definition-rec-defining-expr-list definition)
+               rec-defining-expr-list)
+          (set (recursive-definition-equation-axioms definition)
+               equation-axioms)
+          (set (recursive-definition-minimality-axiom definition)
+               minimality-axiom)
+          (set (recursive-definition-totality-axioms definition)
+               totality-axioms)
+          (set (recursive-definition-theorems definition)
+               (list minimality-theorem
+                     (make-monotonicity-theorem definition)))
+          (set (recursive-definition-usage-list definition) usage-list)
+          definition))
+
+(define (check-arguments-of-build-recursive-definition theory name-list
+            funct-list the-name)
+        (let ((m (length name-list)))
+          (or (theory? theory)
+              (imps-error
+                  "CHECK-ARGUMENTS-OF-BUILD-RECURSIVE-DEFINITION: ~S ~A"
+                  theory "is not a theory."))
+          (or (> m 0)
+              (imps-error
+                  "CHECK-ARGUMENTS-OF-BUILD-RECURSIVE-DEFINITION: ~S ~A"
+                  name-list "is empty."))
+          (every? (lambda (n)
+                    (or (symbol? n)
+                        (imps-error
+                            "CHECK-ARGUMENTS-OF-BUILD-RECURSIVE-DEFINITION: ~S ~A"
+                            n "is not a symbol.")))
+                  name-list)
+          (or (= m (cardinality (make-set name-list)))
+              (imps-error
+                  "CHECK-ARGUMENTS-OF-BUILD-RECURSIVE-DEFINITION: ~S ~A"
+                  name-list "contains duplicates."))
+          (or (= m (length funct-list))
+              (imps-error
+                  "CHECK-ARGUMENTS-OF-BUILD-RECURSIVE-DEFINITION: ~S ~A ~S ~A"
+                  name-list "and" funct-list "have different lengths."))
+          (every? (lambda (funct)
+                    (or (closed? funct)
+                        (imps-error
+                            "CHECK-ARGUMENTS-OF-BUILD-RECURSIVE-DEFINITION: ~A ~S ~A"
+                            "The functional" funct "is not closed."))
+                    (or (lambda-expression? funct)
+                        (imps-error
+                            "CHECK-ARGUMENTS-OF-BUILD-RECURSIVE-DEFINITION: ~A ~S ~A"
+                            "The functional" funct
+                            "is not a lambda expression."))
+		    ;; This check was added by W. M. Farmer 
+		    ;; Wed Jul  2 10:42:22 EDT 1997
+;                    (or (lambda-expression? (binding-body funct))
+;                        (imps-error
+;                            "CHECK-ARGUMENTS-OF-BUILD-RECURSIVE-DEFINITION: ~A ~S ~A"
+;                            "The body" (binding-body funct)
+;                            "of the functional is not a lambda expression."))
+                    (or (contains-expression? (theory-language theory)
+                            funct)
+                        (imps-error
+                            "CHECK-ARGUMENTS-OF-BUILD-RECURSIVE-DEFINITION: ~A ~S ~A ~S."
+                            "The functional" funct
+                            "is not an expression of" theory)))
+                  funct-list)
+          (or (not the-name) (symbol? the-name)
+              (imps-error
+                  "CHECK-ARGUMENTS-OF-BUILD-RECURSIVE-DEFINITION: ~S ~A"
+                  the-name "is neither #f nor a symbol."))
+          (and (eq? theory the-kernel-theory)
+               (imps-error
+                   "CHECK-ARGUMENTS-OF-BUILD-RECURSIVE-DEFINITION: ~A"
+                   "The first argument may not be the kernel theory."))
+          (let* ((sorting-list (map expression-sorting funct-list))
+                 (range-list (map higher-sort-range sorting-list))
+                 (domains-list (map higher-sort-domains sorting-list))
+                 (first-domains (car domains-list))
+                 (n (length first-domains))
+                 (argument-domains
+                     (if (<= m n)
+                         (reverse (nthcdr (reverse first-domains)
+                                          (subtract n m)))
+                         value-false)))
+            (or (<= m n)
+                (imps-error
+                    "CHECK-ARGUMENTS-OF-BUILD-RECURSIVE-DEFINITION: ~A ~A"
+                    "There is a mismatch between the number of arguments of the"
+                    "first functional and the number of functionals."))
+            (every? (lambda (funct)
+                      (or (equal? n
+                                  (cardinality
+                                      (expression-newly-bound-variables
+                                       funct)))
+                          (imps-error
+                              "CHECK-ARGUMENTS-OF-BUILD-RECURSIVE-DEFINITION: ~A ~A"
+                              "There is a mismatch between the number of parameters"
+                              "of the functionals.")))
+                    funct-list)
+            (every? (lambda (domains)
+                      (or (equal? first-domains domains)
+                          (imps-error
+                              "CHECK-ARGUMENTS-OF-BUILD-RECURSIVE-DEFINITION: ~A"
+                              "The functionals do not have the same argument sorts.")))
+                    domains-list)
+            (every? (lambda (range domain)
+                      (or (higher-sort? domain)
+                          (imps-error
+                              "CHECK-ARGUMENTS-OF-BUILD-RECURSIVE-DEFINITION: ~S ~A"
+                              domain "is not a function sort."))
+                      (or (sorting-leq range domain)
+                          (imps-error
+                              "CHECK-ARGUMENTS-OF-BUILD-RECURSIVE-DEFINITION: ~S ~A ~S."
+                              range "is not a subsort of" domain)))
+                    range-list argument-domains)
+            (or (every? (lambda (range)
+                          (or (ind-sorting? range)
+                              (eq? (higher-sort-range range) prop)))
+                        range-list)
+                (imps-error
+                    "CHECK-ARGUMENTS-OF-BUILD-RECURSIVE-DEFINITION: ~A ~S ~A"
+                    "A functional in" funct-list
+                    "is non-predicate predicator.")))))
+
+(define (beta-reduced-application expr arg-list)
+        (beta-reduce (apply apply-operator expr arg-list)))
+
+(define (recklessly-beta-reduced-application expr arg-list)
+        (beta-reduce-recklessly (apply apply-operator expr arg-list)))
+
+(define (application-list fun-list arg-list)
+        (map (lambda (fun) (beta-reduced-application fun arg-list))
+             fun-list))
+
+(define (functional-expression-1 functional arg-list par-list)
+        (if (null? par-list)
+            (beta-reduced-application functional arg-list)
+            (recklessly-beta-reduced-application functional
+                (append (application-list arg-list par-list) par-list))))
+
+(define (functional-expression-2 functional arg-list par-list)
+        (if (null? par-list)
+            (beta-reduced-application functional arg-list)
+            (beta-reduced-application functional
+                (append arg-list par-list))))
+
+(define (system-equations funct-list arg-list par-list bool)
+        (iterate iter
+                 ((funct-list funct-list) (a-list arg-list)
+                  (equations nil))
+                 (if (null? funct-list) (reverse equations)
+                     (let* ((arg (car a-list)) (funct (car funct-list))
+                            (equation
+                                (if bool
+                                    (equality
+                                     (apply apply-operator arg
+                                      par-list)
+                                     (functional-expression-1 funct
+                                      arg-list par-list))
+                                    (equality arg
+                                     (functional-expression-2 funct
+                                      arg-list par-list)))))
+                       (iter (cdr funct-list) (cdr a-list)
+                             (cons equation equations))))))
+
+(define (system-inequalities funct-list arg-list par-list)
+        (iterate iter
+                 ((funct-list funct-list) (a-list arg-list)
+                  (inequalities nil))
+                 (if (null? funct-list) (reverse inequalities)
+                     (let* ((arg (car a-list)) (funct (car funct-list))
+                            (inequality
+                                (if (predicator? funct)
+                                    (sub-predicate
+                                     (functional-expression-2 funct
+                                      arg-list par-list)
+                                     arg)
+                                    (sub-function
+                                     (functional-expression-2 funct
+                                      arg-list par-list)
+                                     arg))))
+                       (iter (cdr funct-list) (cdr a-list)
+                             (cons inequality inequalities))))))
+
+(define (sub-function-formulas f-list g-list)
+        (iterate iter ((f-list f-list) (g-list g-list) (formulas nil))
+                 (cond
+                   ((null? f-list) (reverse formulas))
+                   ((predicate? (car f-list))
+                    (iter (cdr f-list) (cdr g-list)
+                          (cons (sub-predicate (car f-list)
+                                    (car g-list))
+                                formulas)))
+                   (else (iter (cdr f-list) (cdr g-list)
+                               (cons (sub-function (car f-list)
+                                      (car g-list))
+                                     formulas))))))
+
+(define (make-defining-expr-list functional-list f-var-list g-var-list
+            h-var-list par-list)
+        (iterate iter ((funct-list functional-list) (expressions nil))
+                 (if (null? funct-list) (reverse expressions)
+                     (let* ((bool (not (null? par-list)))
+                            (n (length expressions))
+                            (f-var (nth f-var-list n))
+                            (g-var (nth g-var-list n))
+                            (g-arg-list
+                                (if (null? par-list) g-var-list
+                                    (application-list g-var-list
+                                     par-list)))
+                            (g-h-formulas
+                                (sub-function-formulas g-arg-list
+                                    h-var-list))
+                            (g-totality-formulas
+                                (if (null? par-list) nil
+                                    (map totality-formula g-var-list)))
+                            (g-equations
+                                (system-equations functional-list
+                                    g-var-list par-list bool))
+                            (h-equations
+                                (system-equations functional-list
+                                    h-var-list par-list value-false))
+                            (conj (conjunction
+                                      (conjunction-simplifier
+                                       (append g-totality-formulas
+                                        g-equations))
+                                      (apply forall
+                                       (implication
+                                        (conjunction-simplifier
+                                         h-equations)
+                                        (conjunction-simplifier
+                                         g-h-formulas))
+                                       h-var-list)
+                                      (equality f-var g-var)))
+                            (body (if (null? par-list)
+                                      (apply forsome conj g-var-list)
+                                      (apply forsome
+                                       (apply forall conj par-list)
+                                       g-var-list))))
+                       (iter (cdr funct-list)
+                             (cons (iota-or-iota-p body f-var)
+                                   expressions))))))
+
+(define (make-rec-defining-expr-list funct-list const-list par-list)
+        (let ((body-list
+                  (map (lambda (funct)
+                         (functional-expression-1 funct const-list
+                             par-list))
+                       funct-list)))
+          (if (null? par-list) body-list
+              (map (lambda (body) (apply imps-lambda body par-list))
+                   body-list))))
+
+(define (make-equation-axioms theory name-list const-list expr-list)
+        (iterate iter
+                 ((name-list name-list) (const-list const-list)
+                  (expr-list expr-list) (axioms nil))
+                 (if (null? name-list) (reverse axioms)
+                     (let ((axiom (build-theorem theory
+                                      (equality (car const-list)
+                                       (car expr-list))
+                                      (concatenate-symbol
+                                       (car name-list) '-equation_
+                                       (name theory))
+                                      '(transportable-macete))))
+                       (iter (cdr name-list) (cdr const-list)
+                             (cdr expr-list) (cons axiom axioms))))))
+
+(define (make-totality-axioms theory name-list const-list)
+        (iterate iter
+                 ((name-list name-list) (const-list const-list)
+                  (axioms nil))
+                 (if (null? name-list) (reverse axioms)
+                     (let ((axiom (build-theorem theory
+                                      (totality-formula
+                                       (car const-list))
+                                      (concatenate-symbol
+                                       (car name-list) '-totality_
+                                       (name theory))
+                                      '(d-r-convergence))))
+                       (iter (cdr name-list) (cdr const-list)
+                             (cons axiom axioms))))))
+
+(define (make-minimality-axiom theory the-name const-list
+            functional-list h-var-list par-list)
+        (let* ((c-arg-list
+                   (if (null? par-list) const-list
+                       (application-list const-list par-list)))
+               (c-h-formulas
+                   (sub-function-formulas c-arg-list h-var-list))
+               (h-inequalities
+                   (system-inequalities functional-list h-var-list
+                       par-list))
+               (formula (apply forall
+                               (implication
+                                   (context-beta-reduce
+                                    (theory-null-context theory)
+                                    (conjunction-simplifier
+                                     h-inequalities))
+                                   (conjunction-simplifier
+                                    c-h-formulas))
+                               h-var-list)))
+          (build-theorem theory
+              (if (null? par-list) formula
+                  (apply forall formula par-list))
+              (if the-name
+                  (concatenate-symbol the-name '-strong-minimality_
+                      (name theory))
+                  value-false)
+              '(transportable-macete))))
+
+(define (make-minimality-theorem theory the-name const-list
+            functional-list h-var-list par-list)
+        (let* ((c-arg-list
+                   (if (null? par-list) const-list
+                       (application-list const-list par-list)))
+               (c-h-formulas
+                   (sub-function-formulas c-arg-list h-var-list))
+               (h-equations
+                   (system-equations functional-list h-var-list
+                       par-list value-false))
+               (formula (apply forall
+                               (implication
+                                   (conjunction-simplifier h-equations)
+                                   (conjunction-simplifier
+                                    c-h-formulas))
+                               h-var-list)))
+          (build-theorem theory
+              (if (null? par-list) formula
+                  (apply forall formula par-list))
+              (if the-name
+                  (concatenate-symbol the-name '-minimality_
+                      (name theory))
+                  value-false)
+              '(transportable-macete))))
+
+(define (make-recursive-definition-theorems theory name-list const-list
+            funct-list par-list usage-list)
+        (let ((usage-list (delq 'rewrite usage-list)))
+          (iterate iter
+                   ((n-list name-list) (c-list const-list)
+                    (f-list funct-list) (theorems nil))
+                   (if (null? n-list) (reverse theorems)
+                       (let* ((sort (expression-sorting (car c-list)))
+                              (avoid-vars
+                                  (set-union par-list
+                                      (variables (car f-list))))
+                              (var-list
+                                  (sorts->new-variables
+                                      (if (null? par-list)
+                                       (higher-sort-domains sort)
+                                       (higher-sort-domains
+                                        (higher-sort-range sort)))
+                                      'a avoid-vars))
+                              (lhs (if (null? par-list) (car c-list)
+                                    (beta-reduced-application
+                                     (car c-list) par-list)))
+                              (rhs (functional-expression-1
+                                    (car f-list) const-list par-list))
+                              (theorem (build-theorem theory
+                                        (universal-closure
+                                         (quasi-equality-or-equality
+                                          (beta-reduced-application lhs
+                                           var-list)
+                                          (beta-reduced-application rhs
+                                           var-list)))
+                                        (concatenate-symbol
+                                         (car n-list)
+                                         '-applied-equation_
+                                         (name theory))
+                                        usage-list)))
+                         (iter (cdr n-list) (cdr c-list) (cdr f-list)
+                               (add-set-element theorem theorems)))))))
+
+(define (theory-add-recursive-definition theory definition)
+        (let ((home-theory
+                  (recursive-definition-home-theory definition))
+              (functional-list
+                  (recursive-definition-functional-list definition))
+              (name-list
+                  (map name
+                       (recursive-definition-constant-list definition))))
+          (and (eq? home-theory the-kernel-theory)
+               (imps-error "THEORY-ADD-RECURSIVE-DEFINITION: ~A ~A"
+                   "Recursive definitions may not be added to"
+                   "the kernel theory."))
+          (or (eq? home-theory theory)
+              (structural-sub-theory? home-theory theory)
+              (imps-error
+                  "THEORY-ADD-RECURSIVE-DEFINITION: ~A ~S ~A ~S."
+                  "The home theory of" definition
+                  "is neither a structural sub-theory of nor equal to"
+                  theory))
+          (or (preserve-theory-language?)
+              (map (lambda (name)
+                     (and (find-constant (theory-language theory) name)
+                          (imps-error
+                              "THEORY-ADD-RECURSIVE-DEFINITION: ~S ~A ~S ~A."
+                              name "has been used in the home theory"
+                              theory "of the recursive definition")))
+                   name-list))
+          (map (lambda (name)
+                 (let ((super-theory
+                           (find-super-theory-having-constant theory
+                               name)))
+                   (and super-theory
+                        (imps-error
+                            "THEORY-ADD-RECURSIVE-DEFINITION: ~S ~A ~S ~A ~S ~A."
+                            name "has been used in the super-theory"
+                            super-theory "of the home theory"
+                            home-theory "of the recursive definition"))))
+               name-list)
+          (or (every? (lambda (functional)
+                        (monotone-functional-aux? functional
+                            (length functional-list)))
+                      functional-list)
+              (theory-theorem? home-theory
+                  (monotonicity-formula definition))
+              (every? (lambda (formula)
+                        (theory-theorem? home-theory formula))
+                      (coordinatewise-monotonicity-formulas definition))
+              (imps-error
+                  "THEORY-ADD-RECURSIVE-DEFINITION: ~A ~S ~A ~S.~%~% ~A ~S"
+                  "the members of" functional-list
+                  "are not known to be monotone in" home-theory
+                  "Monotonicity formulas:"
+                  (coordinatewise-monotonicity-formulas definition)))
+          (let ((theories
+                    (add-set-element home-theory
+                        (find-structural-super-theories home-theory))))
+            (set-walk
+                (lambda (theory-x)
+                  (theory-add-recursive-definition-aux theory-x
+                      definition))
+                theories))
+          (let ((theorems (recursive-definition-theorems definition)))
+            (or (empty-set? theorems)
+                (set-walk
+                    (lambda (theorem)
+                      (theory-add-theorem-without-event home-theory
+                          theorem nil))
+                    theorems)))
+          definition))
+
+(define (theory-add-recursive-definition-aux theory definition)
+        (let ((new-constants
+                  (make-set
+                      (recursive-definition-constant-list definition)))
+              (axioms (add-set-element
+                          (recursive-definition-minimality-axiom
+                              definition)
+                          (recursive-definition-equation-axioms
+                              definition))))
+          (theory-push-definition-event theory definition)
+          (or (preserve-theory-language?)
+              (extend-theory-language theory new-constants
+                  null-sort-resolver))
+          (set (theory-recursive-definitions theory)
+               (append-item-to-end-of-list definition
+                   (theory-recursive-definitions theory)))
+          (set-walk
+              (lambda (axiom)
+                (theory-add-theorem-aux theory axiom value-false))
+              axioms)))
+
+(define (monotone-functional? functional)
+        (enforce lambda-expression? functional)
+        (monotone-functional-aux? functional
+            (length (cdr (expression-components functional)))))
+
+(define (monotone-functional-aux? functional n)
+        (let ((sorting (expression-sorting functional)))
+          (or (and (higher-sort? sorting)
+                   (higher-sort? (higher-sort-range sorting))
+                   (every? higher-sort?
+                           (reverse (nthcdr
+                                     (reverse
+                                      (higher-sort-domains sorting))
+                                     (subtract
+                                      (length
+                                       (higher-sort-domains sorting))
+                                      n)))))
+              (imps-error "MONOTONE-FUNCTIONAL?: ~S ~A" functional
+                  "is not a functional."))
+          (let* ((variable-list
+                     (reverse (nthcdr (reverse
+                                       (cdr
+                                        (expression-components
+                                         functional)))
+                                      (subtract
+                                       (length
+                                        (higher-sort-domains sorting))
+                                       n))))
+                 (x-var-list (sorts->new-variables
+                                 (higher-sort-domains
+                                     (higher-sort-range sorting))
+                                 'x (variables functional)))
+                 (body (beta-reduced-application
+                           (car (expression-components functional))
+                           x-var-list)))
+            (cond
+              ((and (every? predicate? variable-list) (formula? body))
+               (every? (lambda (var) (stable-predicate-in? var body))
+                       variable-list))
+              ((and (every? function? variable-list)
+                    (expression-of-category-ind? body))
+               (every? (lambda (var) (stable-function-in? var body))
+                       variable-list))
+              (else value-false)))))
+
+(define (stable-predicate-in? var expr)
+        (or (not (element-of-set? var (bound-variables expr)))
+            (imps-error "STABLE-PREDICATE-IN?: ~S ~A ~S." var
+                "is a bound variable in" expr))
+        (or (not (element-of-set? var (free-variables expr)))
+            (let ((constructor (expression-constructor expr))
+                  (components (expression-components expr)))
+              (cond
+                ((or (eq? constructor the-true)
+                     (eq? constructor the-false)))
+                ((or (eq? constructor forall)
+                     (eq? constructor forsome))
+                 (stable-predicate-in? var (car components)))
+                ((or (eq? constructor conjunction)
+                     (eq? constructor disjunction))
+                 (every? (lambda (comp)
+                           (stable-predicate-in? var comp))
+                         components))
+                ((and (or (eq? constructor if-form)
+                          (eq? constructor if-term) 
+			  ;;(eq? constructor if)
+			  ;;changed Tue Nov 20 10:37:36 CST 2001
+			  )
+                      (not (element-of-set? var
+                               (free-variables (car components)))))
+                 (every? (lambda (comp)
+                           (stable-predicate-in? var comp))
+                         (cdr components)))
+                ((eq? constructor implication)
+                 (and (stable-predicate-in? var
+                          (push-not (car components)))
+                      (stable-predicate-in? var (cadr components))))
+                ((and (eq? constructor negation)
+                      (not (atomic-formula? (car components))))
+                 (stable-predicate-in? var (push-not (car components))))
+                ((and (eq? constructor apply-operator)
+                      (eq? var (car components))
+                      (every? (lambda (comp)
+                                (not (element-of-set? var
+                                      (free-variables comp))))
+                              (cdr components))))
+                (else value-false)))))
+
+(define (stable-function-in? var expr)
+        (or (not (element-of-set? var (bound-variables expr)))
+            (imps-error "STABLE-FUNCTION-IN?: ~S ~A ~S." var
+                "is a bound variable in" expr))
+        (cond
+          ((not (element-of-set? var (free-variables expr))))
+          ((eq? var expr) value-false)
+          (else (let ((constructor (expression-constructor expr))
+                      (components (expression-components expr)))
+                  (cond
+                    ((and (eq? constructor if-term)
+                          (not (element-of-set? var
+                                   (free-variables (car components)))))
+                     (every? (lambda (comp)
+                               (stable-function-in? var comp))
+                             (cdr components)))
+                    ((and (eq? constructor apply-operator)
+                          (eq? var (car components))
+                          (every? (lambda (comp)
+                                    (stable-function-in? var comp))
+                                  (cdr components))))
+                    ((and (eq? constructor apply-operator)
+                          (stable-function-in? var (car components))
+                          (every? (lambda (comp)
+                                    (stable-function-in? var comp))
+                                  (cdr components))))
+                    (else value-false))))))
+
+(define (theory-build-recursive-definition theory name-list
+            functional-list the-name . usage-list)
+        (let ((name-list
+                  (if (list? name-list) name-list (list name-list)))
+              (functional-list
+                  (if (list? functional-list) functional-list
+                      (list functional-list))))
+          (or (get-existing-recursive-definition theory name-list
+                  functional-list the-name usage-list)
+              (theory-add-recursive-definition theory
+                  (apply build-recursive-definition theory name-list
+                         functional-list the-name usage-list)))))
+
+(define (theory-build-recursive-definition-without-checking-monotonicity
+            theory name-list functional-list the-name . usage-list)
+        (let ((name-list (if (list? name-list) name-list
+                             (list name-list)))
+              (functional-list
+                  (if (list? functional-list) functional-list
+                      (list functional-list))))
+          (or (get-existing-recursive-definition theory name-list
+                  functional-list the-name usage-list)
+              (let ((def (apply build-recursive-definition theory
+                                name-list functional-list the-name
+                                usage-list)))
+                (theory-add-theorem theory
+                    (make-monotonicity-theorem def) value-false)
+                (theory-add-recursive-definition theory def)))))
+
+(define (get-existing-recursive-definition theory name-list
+            functional-list the-name usage-list)
+        (let ((def (theory-get-recursive-definition theory
+                       (car name-list))))
+          (and def
+               (equal? (map name
+                            (recursive-definition-constant-list def))
+                       name-list)
+               (equal? (recursive-definition-functional-list def)
+                       functional-list)
+               (or (eq? (recursive-definition-name def) the-name)
+                   (and (not the-name)
+                        (eq? (recursive-definition-name def)
+                             (car name-list))))
+               (equal? (recursive-definition-usage-list def)
+                       usage-list)
+               def)))
+
+(define (theory-get-recursive-definition theory the-name)
+        (let ((defs (theory-recursive-definitions theory)))
+          (iterate iter ((defs defs))
+                   (cond
+                     ((null? defs) value-false)
+                     ((any? (lambda (constant)
+                              (eq? the-name (name constant)))
+                            (recursive-definition-constant-list
+                                (car defs)))
+                      (car defs))
+                     (else (iter (cdr defs)))))))
+
+(define (theory-get-recursive-definition-from-funct-list theory
+            funct-list)
+        (let ((defs (theory-recursive-definitions theory)))
+          (iterate iter ((defs defs))
+                   (cond
+                     ((null? defs) value-false)
+                     ((let ((funct-list-1
+                                (recursive-definition-functional-list
+                                    (car defs))))
+                        (and (equal? (length funct-list)
+                                     (length funct-list-1))
+                             (every? alpha-equivalent? funct-list
+                                     funct-list-1)))
+                      (car defs))
+                     (else (iter (cdr defs)))))))
+
+(define (theory-recursively-defined-constant? theory expr)
+        (and (constant? expr)
+             (true? (theory-get-recursive-definition theory
+                        (name expr)))))
+
+(define (theory-recursively-defined-constants theory)
+        (apply append
+               (map recursive-definition-constant-list
+                    (theory-recursive-definitions theory))))
+
+(define (expand-all-recursively-defined-constant-occurrences-in-theory-once
+            theory expr)
+        (let ((expr expr))
+          (walk (lambda (x)
+                  (let ((constant-list
+                            (recursive-definition-constant-list x))
+                        (defining-expr-list
+                            (recursive-definition-rec-defining-expr-list
+                                x)))
+                    (iterate iter
+                             ((n (length constant-list))
+                              (c-list constant-list)
+                              (e-list defining-expr-list))
+                             (if (= n 0) expr
+                                 (block (set expr
+                                         (expand-constant-occurrences-once
+                                          (car c-list) (car e-list)
+                                          expr))
+                                   (iter (subtract1 n) (cdr c-list)
+                                    (cdr e-list)))))))
+                (theory-recursive-definitions theory))
+          expr))
+
+(define (parameterized-recursive-definition? def)
+        (or (recursive-definition? def)
+            (imps-error
+                "parameterized-recursive-definition: ~S is not a recursive definition."
+                def))
+        (let ((funct-list (recursive-definition-functional-list def)))
+          (not (= (length funct-list)
+                  (length (binding-variables (car funct-list)))))))

@@ -1,0 +1,293 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment dg-primitive-inferences)
+
+(define (dg-primitive-inference-direct-inference sqn)
+        (let ((di-method
+                  (constructor-direct-inference
+                      (or (expression-quasi-constructor-if-enabled
+                              (sequent-assertion
+                                  (sequent-node-sequent sqn)))
+                          (expression-constructor
+                              (sequent-assertion
+                                  (sequent-node-sequent sqn)))))))
+          (if (direct-inference? di-method)
+              (deduction-graph-apply-rule di-method (list sqn)) (fail))))
+
+(define (dg-primitive-inference-insistent-direct-inference sqn)
+        (let ((di-method
+                  (or (constructor-direct-inference
+                          (expression-quasi-constructor-if-enabled
+                              (sequent-assertion
+                                  (sequent-node-sequent sqn))))
+                      (constructor-direct-inference
+                          (expression-constructor
+                              (sequent-assertion
+                                  (sequent-node-sequent sqn)))))))
+          (if (direct-inference? di-method)
+              (deduction-graph-apply-rule di-method (list sqn)) (fail))))
+
+(define (dg-primitive-inference-antecedent-inference sqn
+            antecedent-formula)
+        (let ((antecedent-formula
+                  (any (lambda (ass)
+                         (and (alpha-equivalent? ass
+                                  antecedent-formula)
+                              ass))
+                       (sequent-node-assumptions sqn))))
+          (if antecedent-formula
+              (let ((rule (funcall (constructor-antecedent-inference
+                                    (expression-constructor
+                                     antecedent-formula))
+                                   antecedent-formula)))
+                (if (antecedent-inference? rule)
+                    (deduction-graph-apply-rule rule (list sqn))
+                    (fail)))
+              (fail))))
+
+(define (dg-primitive-inference-contraposition sqn antecedent-formula)
+        (let ((antecedent-formula
+                  (any (lambda (ass)
+                         (and (alpha-equivalent? ass
+                                  antecedent-formula)
+                              ass))
+                       (sequent-node-assumptions sqn))))
+          (if antecedent-formula
+              (deduction-graph-apply-rule
+                  (contraposition-rule antecedent-formula) (list sqn))
+              (fail))))
+
+(define (dg-primitive-inference-simplification sqn)
+        (deduction-graph-apply-rule node-simplification (list sqn)))
+
+(define (dg-primitive-inference-insistent-simplification sqn)
+        (bind (((simplify-quasi-constructors-messily?) value-true))
+              (deduction-graph-apply-rule node-simplification
+                  (list sqn))))
+
+(define (dg-primitive-inference-simplification-with-minor-premises sqn)
+        (deduction-graph-apply-rule
+            node-simplification-with-minor-premises (list sqn)))
+
+(define (dg-primitive-inference-extensionality sqn)
+        (let ((rule (if (negation? (sequent-node-assertion sqn))
+                        inverse-extensionality extensionality)))
+          (deduction-graph-apply-rule rule (list sqn))))
+
+(define (dg-primitive-inference-weakening sqn formulas)
+        (let ((graph (sequent-node-graph sqn))
+              (hyp-seq (build-sequent
+                           (context-omit-assumptions
+                               (sequent-node-context sqn)
+                               (set-separate
+                                   (lambda (ass)
+                                     (any?
+                                      (lambda (f)
+                                        (and (alpha-equivalent? f ass)
+                                         ass))
+                                      formulas))
+                                   (sequent-node-assumptions sqn)))
+                           (sequent-node-assertion sqn))))
+          (let ((hyp-sqn (post hyp-seq graph)))
+            (deduction-graph-apply-rule weakening-rule
+                (list hyp-sqn sqn)))))
+
+(define (dg-primitive-inference-defined-constant-unfolding sqn paths
+            constant)
+        (let* ((theory (deduction-graph-theory
+                           (sequent-node-graph sqn)))
+               (definition
+                   (theory-get-constant-definition theory
+                       (name constant))))
+          (or definition
+              (imps-error
+                  "DG-PRIMITIVE-INFERENCE-DEFINED-CONSTANT-UNFOLDING: ~S ~A"
+                  constant-name
+                  "is not the name of a defined constant."))
+          (if (implicit-definition? definition)
+              (dg-primitive-inference-macete-application-at-paths sqn
+                  paths
+                  (definition-implicit-unfolding-macete definition))
+              (deduction-graph-apply-rule
+                  (unfold-defined-constant-rule constant definition
+                      paths)
+                  (list sqn)))))
+
+(define (dg-primitive-inference-macete-application-at-paths sqn paths
+            macete)
+        (deduction-graph-apply-rule
+            (macete-at-paths-rule-generator macete paths) (list sqn)))
+
+(define (dg-primitive-inference-macete-application-with-minor-premises-at-paths
+            sqn paths macete)
+        (deduction-graph-apply-rule
+            (macete-at-paths-with-minor-premises-rule-generator macete
+                paths)
+            (list sqn)))
+
+(define (dg-primitive-inference-force-substitution sqn paths
+            replacements)
+        (deduction-graph-apply-rule
+            (force-substitution replacements value-false paths)
+            (list value-false sqn)))
+
+(define (dg-primitive-inference-raise-conditional-inference sqn paths)
+        (deduction-graph-apply-rule (raise-conditionals paths)
+            (list sqn)))
+
+(define (dg-primitive-inference-iota-elimination sqn path)
+        (let ((rule (if (negated-atomic-formula?
+                            (sequent-node-assertion sqn))
+                        (inverse-iota-rule-generator path)
+                        (iota-rule-generator path))))
+          (deduction-graph-apply-rule rule (list sqn))))
+
+(define (dg-primitive-inference-backchain-inference sqn
+            antecedent-formula)
+        (let ((antecedent-formula
+                  (any (lambda (ass)
+                         (and (alpha-equivalent? ass
+                                  antecedent-formula)
+                              ass))
+                       (sequent-node-assumptions sqn))))
+          (if antecedent-formula
+              (let ((rule (backchain-rule antecedent-formula)))
+                (if (rule? rule)
+                    (deduction-graph-apply-rule rule (list sqn))
+                    (fail)))
+              (fail))))
+
+(define (dg-primitive-inference-backchain-backwards-inference sqn
+            antecedent-formula)
+        (bind (((backchain-forwards-through-expression?) value-false))
+              (let ((antecedent-formula
+                        (any (lambda (ass)
+                               (and (alpha-equivalent? ass
+                                     antecedent-formula)
+                                    ass))
+                             (sequent-node-assumptions sqn))))
+                (if antecedent-formula
+                    (let ((rule (backchain-rule antecedent-formula)))
+                      (if (rule? rule)
+                          (deduction-graph-apply-rule rule (list sqn))
+                          (fail)))
+                    (fail)))))
+
+(define (dg-primitive-inference-backchain-through-formula-inference sqn
+            antecedent-formula)
+        (bind (((backchain-through-expression?) value-false))
+              (let ((antecedent-formula
+                        (any (lambda (ass)
+                               (and (alpha-equivalent? ass
+                                     antecedent-formula)
+                                    ass))
+                             (sequent-node-assumptions sqn))))
+                (if antecedent-formula
+                    (let ((rule (backchain-rule antecedent-formula)))
+                      (if (rule? rule)
+                          (deduction-graph-apply-rule rule (list sqn))
+                          (fail)))
+                    (fail)))))
+
+(define (dg-primitive-inference-implication-elimination sqn
+            antecedent-formula)
+        (let ((antecedent-formula
+                  (any (lambda (ass)
+                         (and (alpha-equivalent? ass
+                                  antecedent-formula)
+                              ass))
+                       (sequent-node-assumptions sqn))))
+          (if antecedent-formula
+              (let ((dg (sequent-node-graph sqn)))
+                (deduction-graph-apply-rule implication-elimination
+                    (list (post (build-sequent
+                                    (context-omit-assumption
+                                     (sequent-node-context sqn)
+                                     antecedent-formula)
+                                    (implication antecedent-formula
+                                     (sequent-node-assertion sqn)))
+                                dg)
+                          sqn)))
+              (fail))))
+
+(define (dg-primitive-inference-cut sqn major-premise)
+        (deduction-graph-apply-rule cut-rule (list major-premise sqn)))
+
+(define (dg-primitive-inference-disjunction-elimination sqn
+            major-premise)
+        (deduction-graph-apply-rule disjunction-elimination
+            (list major-premise sqn)))
+
+(define (dg-primitive-inference-universal-instantiation sqn major)
+        (deduction-graph-apply-rule universal-instantiation
+            (list major sqn)))
+
+(define (dg-primitive-inference-existential-generalization sqn major)
+        (deduction-graph-apply-rule existential-generalization
+            (list major sqn)))
+
+(define (dg-primitive-inference-definedness sqn)
+        (deduction-graph-apply-rule definedness-rule (list sqn)))
+
+(define (dg-primitive-inference-sort-definedness sqn)
+        (deduction-graph-apply-rule sort-definedness-rule (list sqn)))
+
+(define (dg-primitive-inference-theorem-assumption sqn formula)
+        (deduction-graph-apply-rule (theorem-discharge-rule formula)
+            (list sqn)))
+
+(define (dg-primitive-inference-unordered-conjunction-direct-inference
+            sqn)
+        (deduction-graph-apply-rule
+            unordered-conjunction-direct-inference (list sqn)))
+
+(define (dg-primitive-inference-choice sqn)
+        (deduction-graph-apply-rule choice-principle (list sqn)))

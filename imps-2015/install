@@ -1,0 +1,99 @@
+#! /bin/sh
+
+echo Building IMPS in directory `pwd`...
+
+EMACS=`which xemacs`
+CL=`which clisp`
+LISP=clisp
+GAWK=`which gawk`
+TEA=tea
+
+THEORIES=`pwd`
+
+if test ! -f "$GAWK"
+then 
+  echo $GAWK
+  echo IMPS installation failed
+  echo Please get your system guru to install gawk
+  exit 2
+fi
+
+
+echo Using: $EMACS
+echo Using: $CL
+echo Theory directory located in: $THEORIES
+
+#directory in which THEORIES directory is located. This used to be the Old Imps directory. Currently this is a new directory in sys.
+
+echo $EMACS | $GAWK '/no.*in/ {print $0, "Please install XEmacs version 20 in search path"; exit 2}' 
+echo $CL |  $GAWK '/no.*in/ {print $0, "Please install Common Lisp in search path"; exit 2}'
+
+if  [ $? != 0 ]
+    then 
+      echo IMPS installation failed.
+      exit 2
+fi
+
+$EMACS -version | gawk '/XEmacs (19|20|21)/ {print "XEmacs OK" ;exit}
+                        /Emacs/ {print " You have " $0 " as your system Emacs."
+		                 print " We currently only support XEmacs versions 19, 20, and 21." 
+		                 print " However, other versions of Emacs may work."
+                                 exit}'
+
+if test ! -d executables
+  then mkdir executables
+fi
+
+DUMP=`pwd`/executables/imps
+
+#make sure all files are appropriately terminated.
+
+for i in el/*.el  bin/*
+    do
+    echo "
+    " >> $i
+done
+
+$GAWK -f ./awk/changem PWD=`pwd` EMACS=$EMACS CL=$CL DUMP=$DUMP OldImps=$THEORIES LispProg=$LISP el/*.el bin/*
+
+for i in bin/*
+    do
+    chmod u+rx $i
+done
+
+
+
+echo "Beginning compilation of Common Source for tea...."
+
+if ./bin/make-tea
+then 
+  echo "Compilation of T-emulation sources done."
+else echo "IMPS compilation Failed"
+fi
+
+echo "Beginning compilation of Common Lisp Source files...."
+
+if ./bin/compile-imps
+then 
+  echo "Compilation done."
+else echo "IMPS compilation Failed"
+fi
+
+echo "Building executable image."
+
+if ./bin/dump-imps
+then 
+  echo "Done."
+else echo "Could not build executable image."
+fi
+
+cd el
+
+echo "Byte compiling Emacs Lisp source files..."
+
+$EMACS -batch -l emacs-init.el 
+
+echo "Done."
+
+echo "IMPS Installed."
+

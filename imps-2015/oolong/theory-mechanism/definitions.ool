@@ -1,0 +1,516 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment definitions)
+
+(define-structure-type definition home-theory constant defining-expr
+    axiom theorems usage-list implicit? implicit-unfolding-macete
+    (((name self) (name (definition-constant self)))
+     ((print self port)
+      (format port "#{IMPS-definition ~A: ~S ~S}" (object-hash self)
+              (name (definition-constant self))
+              (definition-defining-expr self)))))
+
+(at-top-level
+    (block (set (definition-implicit? (stype-master definition-stype))
+                value-false)
+      (set (definition-implicit-unfolding-macete
+               (stype-master definition-stype))
+           value-false)))
+
+(define preserve-theory-language?
+        (make-simple-switch 'preserve-theory-language? boolean?
+            value-false))
+
+(define (definedness-formula definition)
+        (or (definition? definition)
+            (imps-error "DEFINEDNESS-FORMULA: ~S ~A." definition
+                "is not a definition"))
+        (is-defined (definition-defining-expr definition)))
+
+(define (sort-definedness-formula definition)
+        (or (definition? definition)
+            (imps-error "SORT-DEFINEDNESS-FORMULA: ~S ~A." definition
+                "is not a definition"))
+        (defined-in (definition-defining-expr definition)
+            (expression-sorting (definition-constant definition))))
+
+(define (add-sort-definedness-theorem def)
+        (let ((theory (definition-home-theory def)))
+          (theory-add-theorem theory (sort-definedness-formula def)
+              (concatenate-symbol 'sort-definedness-formula-for-
+                  (name def) '_ (name theory)))))
+
+(define (build-definition theory the-name defining-expr defining-sort
+            . usage-list)
+        (or (and (theory? theory) (symbol? the-name)
+                 (closed? defining-expr)
+                 (theory-sort? theory defining-sort)
+                 (contains-expression? (theory-language theory)
+                     defining-expr))
+            (imps-error "BUILD-DEFINITION: bad arguments ~S ~S ~S ~S."
+                theory the-name defining-expr defining-sort))
+        (and (eq? theory the-kernel-theory)
+             (imps-error
+                 "BUILD-DEFINITION: The first argument may not be the
+                    kernel theory."))
+        (let* ((new-constant
+                   (or (find-constant (theory-language theory)
+                           the-name)
+                       (make-formal-constant-in-new-language
+                           (theory-language theory) defining-sort
+                           the-name)))
+               (axiom (make-axiom-for-definition theory the-name
+                          new-constant defining-expr usage-list))
+               (theorems
+                   (if (and (memq 'rewrite usage-list)
+                            (higher-sort?
+                                (expression-sorting new-constant)))
+                       (make-singleton
+                           (make-theorem-for-definition theory the-name
+                               new-constant defining-expr usage-list))
+                       the-empty-set))
+               (definition (make-definition)))
+          (set (definition-home-theory definition) theory)
+          (set (definition-constant definition) new-constant)
+          (set (definition-defining-expr definition) defining-expr)
+          (set (definition-axiom definition) axiom)
+          (set (definition-theorems definition) theorems)
+          (set (definition-usage-list definition) usage-list)
+          definition))
+
+(define (make-axiom-for-definition theory the-name constant
+            defining-expr usage-list)
+        (build-theorem theory (equality constant defining-expr)
+            (concatenate-symbol the-name '-equation_ (name theory))
+            (delq 'rewrite usage-list)))
+
+(define (make-theorem-for-definition theory the-name constant
+            defining-expr usage-list)
+        (let* ((sort (expression-sorting constant))
+               (var-list
+                   (sorts->new-variables (higher-sort-domains sort) 'a
+                       (variables defining-expr)))
+               (beta-reduced-application
+                   (lambda (expr arg-list)
+                     (beta-reduce (apply apply-operator expr arg-list)))))
+          (build-theorem theory
+              (universal-closure
+                  (quasi-equality-or-equality
+                      (funcall beta-reduced-application constant
+                               var-list)
+                      (funcall beta-reduced-application defining-expr
+                               var-list)))
+              (concatenate-symbol the-name '-applied-equation_
+                  (name theory))
+              usage-list)))
+
+(define (definition->sexp definition)
+        (list (definition-home-theory definition)
+              (name (definition-constant definition))
+              (expression->sexp (definition-defining-expr definition))))
+
+(define (sexp->definition sexp)
+        (destructure (((theory the-name sexpr) sexp))
+            (let ((expr (*destructure-theory-read-proc*
+                            (theory-language theory) sexpr)))
+              (cond
+                ((theory-get-definition theory the-name) =>
+                 (lambda (def)
+                   (let ((old-defining-expr
+                             (definition-defining-expr def)))
+                     (if (eq? expr old-defining-expr) def
+                         (imps-error
+                             "sexp->definition:  name ~S already in use with meaning ~S."
+                             the-name old-defining-expr)))))
+                (else (build-definition theory the-name expr value-false))))))
+
+(define (theory-add-definition theory definition)
+        (let ((home-theory (definition-home-theory definition))
+              (the-name (name (definition-constant definition)))
+              (defining-expr (definition-defining-expr definition)))
+          (and (eq? home-theory the-kernel-theory)
+               (imps-error
+                   "THEORY-ADD-DEFINITION: Definitions may not be added to 
+                     the kernel theory."))
+          (or (eq? home-theory theory)
+              (structural-sub-theory? home-theory theory)
+              (imps-error "THEORY-ADD-DEFINITION: ~A ~S ~A ~S"
+                  "The home theory of" definition
+                  "is neither a structural sub-theory of nor equal to"
+                  theory))
+          (or (preserve-theory-language?)
+              (and (find-constant (theory-language theory) the-name)
+                   (imps-error "THEORY-ADD-DEFINITION: ~S ~A ~S ~A"
+                       the-name "has been used in the home theory"
+                       theory "of the definition")))
+          (let ((super-theory
+                    (find-super-theory-having-constant theory the-name)))
+            (and super-theory
+                 (imps-error "THEORY-ADD-DEFINITION: ~S ~A ~S ~A ~S ~A"
+                     the-name "has been used in the super-theory"
+                     super-theory "of the home theory" home-theory
+                     "of the definition")))
+          (let ((definedness-formula
+                    (funcall definedness-formula definition))
+                (sort-definedness-formula
+                    (funcall sort-definedness-formula definition))
+                (constant-sort
+                    (expression-sorting
+                        (definition-constant definition))))
+            (if (eq? (expression-sorting defining-expr) constant-sort)
+                (or (necessarily-defined? defining-expr)
+                    (theory-entails-immediately? home-theory
+                        definedness-formula)
+                    (theory-theorem? home-theory definedness-formula)
+                    (theory-theorem? home-theory
+                        sort-definedness-formula)
+                    (imps-error
+                        "THEORY-ADD-DEFINITION: ~S ~A ~S; ~A ~S."
+                        defining-expr "is not known to be defined in"
+                        home-theory "prove" definedness-formula))
+                (or (necessarily-defined-in-sort? defining-expr
+                        constant-sort)
+                    (theory-entails-immediately? home-theory
+                        sort-definedness-formula)
+                    (theory-theorem? home-theory
+                        sort-definedness-formula)
+                    (imps-error
+                        "THEORY-ADD-DEFINITION: ~S ~A ~S ~A ~S; ~A ~S."
+                        defining-expr
+                        "is not known to be defined in sort"
+                        constant-sort "in" home-theory "prove"
+                        sort-definedness-formula))))
+          (let ((theories
+                    (add-set-element home-theory
+                        (find-structural-super-theories home-theory))))
+            (set-walk
+                (lambda (theory-x)
+                  (theory-add-definition-aux theory-x definition))
+                theories))
+          (let ((theorems (definition-theorems definition)))
+            (or (empty-set? theorems)
+                (set-walk
+                    (lambda (theorem)
+                      (theory-add-theorem-without-event home-theory
+                          theorem nil))
+                    theorems)))
+          definition))
+
+(define (theory-add-definition-aux theory definition)
+        (let ((new-constant (definition-constant definition))
+              (axiom (definition-axiom definition)))
+          (theory-push-definition-event theory definition)
+          (or (preserve-theory-language?)
+              (extend-theory-language theory
+                  (make-singleton new-constant) null-sort-resolver))
+          (set (theory-definitions theory)
+               (append-item-to-end-of-list definition
+                   (theory-definitions theory)))
+          (theory-add-theorem-aux theory axiom value-false)))
+
+(define (theory-build-definition theory the-name defining-expr
+            defining-sort usage-list)
+        (or (get-existing-definition theory the-name defining-expr
+                defining-sort usage-list)
+            (theory-add-definition theory
+                (apply build-definition theory the-name defining-expr
+                       defining-sort usage-list))))
+
+(define (theory-build-definition-without-checking-definedness theory
+            the-name defining-expr defining-sort usage-list)
+        (or (get-existing-definition theory the-name defining-expr
+                defining-sort usage-list)
+            (let ((def (apply build-definition theory the-name
+                              defining-expr defining-sort usage-list)))
+              (add-sort-definedness-theorem def)
+              (theory-add-definition theory def))))
+
+(define (get-existing-definition theory the-name defining-expr
+            defining-sort usage-list)
+        (let ((def (theory-get-definition theory the-name)))
+          (and def (eq? (definition-defining-expr def) defining-expr)
+               (eq? (expression-sorting (definition-constant def))
+                    defining-sort)
+               (equal? (definition-usage-list def) usage-list) def)))
+
+(define (theory-get-constant-definition theory constant-name)
+        (cond
+          ((not (constant?
+                    (find-constant (theory-language theory)
+                        constant-name)))
+           value-false)
+          ((theory-get-definition theory constant-name))
+          ((theory-get-recursive-definition theory constant-name))
+          (else value-false)))
+
+(define (theory-defined-constant? theory expr)
+        (or (theory-directly-defined-constant? theory expr)
+            (theory-recursively-defined-constant? theory expr)))
+
+(define (theory-get-definition theory the-name)
+        (let ((defs (theory-definitions theory)))
+          (iterate iter ((defs defs))
+                   (cond
+                     ((null? defs) value-false)
+                     ((eq? the-name
+                           (name (definition-constant (car defs))))
+                      (car defs))
+                     (else (iter (cdr defs)))))))
+
+(define (theory-get-constant-definition-from-defining-expr theory
+            defining-expr)
+        (let ((defs (theory-definitions theory)))
+          (iterate iter ((defs defs))
+                   (cond
+                     ((null? defs) value-false)
+                     ((alpha-equivalent? defining-expr
+                          (definition-defining-expr (car defs)))
+                      (car defs))
+                     (else (iter (cdr defs)))))))
+
+(define (theory-directly-defined-constant? theory expr)
+        (and (constant? expr)
+             (true? (theory-get-definition theory (name expr)))))
+
+(define (theory-defined-constants theory)
+        (append (map (lambda (def) (definition-constant def))
+                     (theory-definitions theory))
+                (apply append
+                       (map (lambda (def)
+                              (recursive-definition-constant-list def))
+                            (theory-recursive-definitions theory)))))
+
+(define (theory-nonrecursively-defined-constants theory)
+        (collect-set
+            (lambda (def) (make-set (list (definition-constant def))))
+            (theory-definitions theory)))
+
+(define (theory-definitions->sexp theory)
+        (map definition->sexp (theory-definitions theory)))
+
+(define (expand-constant constant defining-expr expr path)
+        (imps-enforce (lambda (target) (eq? target constant))
+            (follow-path expr path))
+        (substitution-at-path expr defining-expr path))
+
+(define (expand-constant-occurrences constant defining-expr expr paths)
+        (imps-enforce paths-disjoint? paths)
+        (iterate iter ((new-expr expr) (paths paths))
+                 (if (null? paths) new-expr
+                     (iter (expand-constant constant defining-expr
+                               new-expr (car paths))
+                           (cdr paths)))))
+
+(define (expand-constant-occurrences-once constant defining-expr expr)
+        (let ((paths (paths-to-occurrences expr constant -1)))
+          (expand-constant-occurrences constant defining-expr expr
+              paths)))
+
+(define (expand-all-directly-defined-constant-occurrences-in-theory-once
+            theory expr)
+        (let ((expr expr))
+          (walk (lambda (x)
+                  (let ((constant (definition-constant x))
+                        (defining-expr (definition-defining-expr x)))
+                    (set expr
+                         (expand-constant-occurrences-once constant
+                             defining-expr expr))))
+                (theory-definitions theory))
+          expr))
+
+(define (match-defining-expr defining-expr expr path)
+        (let ((target (follow-path expr path)))
+          (cond
+            ((eq? defining-expr target) the-empty-substitution)
+            ((and (lambda-expression? defining-expr)
+                  (lambda-expression? target))
+             (match-under-exoscopes target (binding-body defining-expr)
+                 (set-difference (variables defining-expr)
+                     (newly-bound-variables defining-expr))))
+            ((lambda-expression? defining-expr)
+             (substitution-extend-with-identity
+                 (match-under-exoscopes target
+                     (binding-body defining-expr)
+                     (set-difference (variables defining-expr)
+                         (newly-bound-variables defining-expr)))
+                 (binding-variables defining-expr)))
+            (else (fail)))))
+
+(define (contract-expression constant defining-expr expr path)
+        (let* ((subst (match-expression defining-expr expr path)))
+          (cond
+            ((fail? subst) (return expr nil))
+            ((null? subst)
+             (return (substitution-at-path expr constant path) nil))
+            (else (return
+                    (substitution-at-path expr
+                        (apply-operator-to-substitution constant subst
+                            (binding-variables defining-expr))
+                        path)
+                    (substitution-definedness-conditions subst))))))
+
+(define (contract-expression-occurrences constant defining-expr expr
+            paths)
+        (imps-enforce paths-disjoint? paths)
+        (iterate iter ((new-expr expr) (paths paths) (paths-reqs nil))
+                 (if (null? paths) (return new-expr paths-reqs)
+                     (receive (new-expr new-reqs)
+                              (contract-expression constant
+                                  defining-expr new-expr (car paths))
+                              (iter new-expr (cdr paths)
+                                    (cons (list (car paths) new-reqs)
+                                     paths-reqs))))))
+
+(define (implicit-iota-&-unfolding-theorems? source-theory iota-theorem
+            unfolding-theorem)
+        (and (theory-theorem? source-theory iota-theorem)
+             (theory-theorem? source-theory unfolding-theorem)
+             (let ((iota-thm-iota-term
+                       (let ((body (binding-body iota-theorem)))
+                         (and (convergence? body)
+                              (iota-expression?
+                                  (convergence-term body))
+                              (convergence-term body))))
+                   (unfolding-body (binding-body unfolding-theorem)))
+               (and iota-thm-iota-term (implication? unfolding-body)
+                    (let ((ant (implication-antecedent unfolding-body))
+                          (conseq (implication-consequent
+                                      unfolding-body)))
+                      (and (equation? ant)
+                           (variable? (expression-lhs ant))
+                           (alpha-equivalent? (expression-rhs ant)
+                               iota-thm-iota-term)
+                           (equation? conseq)
+                           (eq? (expression-lhs ant)
+                                (expression-lhs conseq))
+                           (let ((iota-var
+                                     (car
+                                      (binding-variables
+                                       (expression-rhs ant))))
+                                 (iota-body
+                                     (binding-body
+                                      (expression-rhs ant)))
+                                 (relacement-var
+                                     (expression-lhs conseq)))
+                             (alpha-equivalent? (expression-rhs conseq)
+                                 (apply-substitution
+                                     (one-component-subst iota-var
+                                      relacement-var)
+                                     (expression-rhs iota-body))))))))))
+
+(define (make-implicit-definition-type source-theory iota-theorem
+            unfolding-theorem)
+        (if (not (implicit-iota-&-unfolding-theorems? source-theory
+                     iota-theorem unfolding-theorem))
+            (imps-error
+                "make-implicit-definition-type: failing theorems ~S~%~S"
+                iota-theorem unfolding-theorem)
+            (lambda (target-theory new-name terms)
+              (let ((iota-theorem-instance
+                        (auto-instantiate-theorem-with-terms
+                            target-theory iota-theorem terms)))
+                (if iota-theorem-instance
+                    (let* ((definition
+                               (theory-add-definition target-theory
+                                   (build-definition target-theory
+                                    new-name
+                                    (convergence-term
+                                     iota-theorem-instance)
+                                    (expression-sorting
+                                     (convergence-term
+                                      iota-theorem-instance)))))
+                           (unfolding-theorem-instance
+                               (auto-instantiate-theorem-with-terms
+                                   target-theory unfolding-theorem
+                                   (append terms
+                                    (list
+                                     (definition-constant definition))))))
+                      (if (and unfolding-theorem-instance
+                               (alpha-equivalent?
+                                   (implication-antecedent
+                                    unfolding-theorem-instance)
+                                   (equality
+                                    (definition-constant definition)
+                                    (definition-defining-expr
+                                     definition))))
+                          (let ((unfolder
+                                    (retrieve-macete-from-formula
+                                     (theory-add-theorem target-theory
+                                      (apply-macete-without-minor-premises
+                                       *beta-reduce-repeatedly-macete*
+                                       (theory-null-context
+                                        target-theory)
+                                       (implication-consequent
+                                        unfolding-theorem-instance))
+                                      (concatenate-symbol
+                                       (name
+                                        (definition-constant
+                                         definition))
+                                       '-implicit-unfolding)))))
+                            (set (definition-implicit? definition)
+                                 value-true)
+                            (set (definition-implicit-unfolding-macete
+                                     definition)
+                                 unfolder)
+                            definition)
+                          (imps-error
+                              "make-implicit-definition-type: failing application to:~%~S ~S ~S~%in the relation to ~S ~S ~%~S."
+                              target-theory new-name terms
+                              source-theory iota-theorem
+                              unfolding-theorem)))
+                    (imps-error
+                        "make-implicit-definition-type: failing application to:~%~S ~S ~S~%in the relation to ~S ~S ~%~S."
+                        target-theory new-name terms source-theory
+                        iota-theorem unfolding-theorem))))))
+
+(define (implicit-definition? definition)
+        (and (definition? definition)
+             (definition-implicit? definition)))

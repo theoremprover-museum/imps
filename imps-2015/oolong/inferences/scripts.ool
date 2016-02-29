@@ -1,0 +1,1227 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment scripts)
+
+(define (build-script arg-count forms protocol recognizer the-name)
+        (let ((command (build-universal-command
+                           (object (lambda (sqn . args)
+                                     (or (= arg-count (length args))
+                                      (if the-name
+                                       (imps-error "Wrong number of arguments to script named ~S" the-name)
+                                       (imps-error "Wrong number of arguments to (anonymous) script given by ~A" forms)))
+                                     (execute-command-sequence-for-scripts
+                                      sqn (cons nil args) forms))
+                                   ((print self port)
+                                    (format port "#{Script: ~%~A}"
+                                     (with-output-to-string la
+                                       (pretty-print forms la)))))
+                           the-name (always value-true) protocol)))
+          (cond
+            ((not the-name))
+            ((eq? recognizer value-true)
+             (push *universally-applicable-command-names*
+                   (string-downcase (format nil "~A" the-name))))
+            (recognizer
+                (push *command-applicability-table*
+                      (cons (eval recognizer) (list command))))
+            (else value-true))
+          command))
+
+(define (sqn-coerce-to-expression sqn term-or-term-string)
+        (cond
+          ((expression? term-or-term-string) term-or-term-string)
+          ((string? term-or-term-string)
+           (sequent-read (sequent-node-sequent sqn)
+               term-or-term-string))
+          (else (imps-error "~A is neither an expression nor a string."
+                    term-or-term-string))))
+
+(define (coerce-to-theorem thm-or-thm-name)
+        (cond
+          ((theorem? thm-or-thm-name) thm-or-thm-name)
+          ((symbol? thm-or-thm-name) (name->theorem thm-or-thm-name))
+          (else (name->theorem (name thm-or-thm-name)))))
+
+(define (coerce-to-translation trans-or-trans-name)
+        (cond
+          ((translation? trans-or-trans-name) trans-or-trans-name)
+          ((symbol? trans-or-trans-name)
+           (name->translation trans-or-trans-name))
+          (else (name->translation (name trans-or-trans-name)))))
+
+(define (coerce-to-macete macete-or-macete-name)
+        (cond
+          ((macete? macete-or-macete-name) macete-or-macete-name)
+          ((symbol? macete-or-macete-name)
+           (name->macete macete-or-macete-name))
+          (else (name->macete (name macete-or-macete-name)))))
+
+(define (dg-coerce-to-sequent-node dg x)
+        (cond
+          ((sequent-node? x) x)
+          ((number? x) (sequent-unhash-in-graph x dg))
+          ((and (list? x) (= (length x) 2) (string? (car x))
+                (string? (cadr x))
+                (read-sequent-and-post (car x) (cadr x) dg)))
+          (else "DG-COERCE-TO-SEQUENT-NODE: ~A is neither a sequent-node,
+ an index of one or a list of a context string and an assertio string."
+                x)))
+
+(define (sqn-coerce-to-assumption sqn assum-str-or-num
+            . dont-raise-error)
+        (cond
+          ((formula? assum-str-or-num)
+           (if (mem? alpha-equivalent? assum-str-or-num
+                     (sequent-node-assumptions sqn))
+               assum-str-or-num
+               (or (any (lambda (ass)
+                          (if (quick-match? ass assum-str-or-num) ass
+                              value-false))
+                        (sequent-node-assumptions sqn))
+                   (if dont-raise-error value-false
+                       (imps-error
+                           "SQN-COERCE-TO-ASSUMPTION: ~A 
+is neither an assumption, a formula which matches an assumption, a string
+representing one, or an index." assum-str-or-num)))))
+          ((string? assum-str-or-num)
+           (apply sqn-coerce-to-assumption sqn
+                  (sequent-read (sequent-node-sequent sqn)
+                      assum-str-or-num)
+                  dont-raise-error))
+          ((number? assum-str-or-num)
+           (if (>= assum-str-or-num
+                   (length (sequent-node-assumptions sqn)))
+               (if dont-raise-error value-false
+                   (imps-error
+                       "SQN-COERCE-TO-ASSUMPTION: Not enough assumptions for index ~D."
+                       assum-str-or-num))
+               (nth (sequent-node-assumptions sqn) assum-str-or-num)))
+          ((list? assum-str-or-num)
+           (let ((exprs (map (lambda (x)
+                               (cond
+                                 ((string? x)
+                                  (sequent-read
+                                      (sequent-node-sequent sqn) x))
+                                 ((expression? x) x)
+                                 (else (imps-error
+                                        "SQN-COERCE-TO-ASSUMPTION: bad list pattern."))))
+                             assum-str-or-num)))
+             (or (any (lambda (ass)
+                        (if (quick-match-list? ass exprs) ass value-false))
+                      (sequent-node-assumptions sqn))
+                 (if dont-raise-error value-false
+                     (imps-error
+                         "SQN-COERCE-TO-ASSUMPTION: ~A 
+is neither an assumption, a formula which matches an assumption, a string
+representing one, or an index." assum-str-or-num)))))
+          (else (if dont-raise-error value-false
+                    (imps-error
+                        "SQN-COERCE-TO-ASSUMPTION: ~A 
+is neither an assumption, a formula which matches an assumption, a string
+representing one, or an index." assum-str-or-num)))))
+
+(define (quick-match-list? expr pattern-list)
+        (let ((paths-to-first-pattern
+                  (sort-paths-1!
+                      (paths-to-satisfying-virtual-occurrences expr
+                          (lambda (subexpr)
+                            (quick-match? subexpr (car pattern-list)))
+                          -1))))
+          (if (null? paths-to-first-pattern) value-false
+              (iterate loop
+                       ((pattern-list (cdr pattern-list))
+                        (last-path (car paths-to-first-pattern)))
+                       (if (null? pattern-list) value-true
+                           (let* ((paths-to-next-pattern
+                                      (sort-paths-1!
+                                       (paths-to-satisfying-virtual-occurrences
+                                        expr
+                                        (lambda (subexpr)
+                                          (quick-match? subexpr
+                                           (car pattern-list)))
+                                        -1)))
+                                  (path-to-next
+                                      (any
+                                       (lambda (x)
+                                         (and
+                                          (not
+                                           (path-extends? x last-path))
+                                          (not
+                                           (path-extends? last-path x))
+                                          (list-ordering-1 last-path x)
+                                          x))
+                                       paths-to-next-pattern)))
+                             (if path-to-next
+                                 (loop
+                                   (cdr pattern-list)
+                                   path-to-next)
+                                 value-false)))))))
+
+(define (coerce-to-command command-or-name)
+        (let ((thing (cond
+                       ((dg-command? command-or-name) command-or-name)
+                       ((symbol? command-or-name)
+                        (name->command command-or-name))
+                       (else (name->command (name command-or-name))))))
+          (or (dg-command? thing)
+              (imps-error "~A cannot be coerced into a command"
+                  command-or-name))
+          thing))
+
+(define interactive-command-applier
+        (lambda (sqn command-or-name args)
+          (deduction-graph-apply-command-interface
+              (sequent-node-graph sqn) command-or-name (list sqn) args
+              nil)))
+
+(define script-command-applier
+        (lambda (sqn command-or-name args)
+          (let ((command (coerce-to-command command-or-name)))
+            (apply command sqn args))))
+
+(define (interpret-command-sequence sqn command-applier display-arg
+            command-script)
+        (bind (((imps-raise-error?) value-false))
+              (let ((goal sqn))
+                (iterate loop
+                         ((sqn goal) (command-script command-script))
+                         (cond
+                           ((immediately-grounded? goal)
+                            (return (immediately-grounded? goal) sqn))
+                           ((or (null? command-script)
+                                (not (sequent-node? sqn)))
+                            (return (immediately-grounded? goal) sqn))
+                           ((symbol? (car command-script))
+                            (let ((evaled (interpret-command-argument
+                                           sqn display-arg
+                                           (car command-script))))
+                              (if (list? evaled)
+                                  (funcall command-applier sqn
+                                           (car evaled) (cdr evaled))
+                                  (funcall command-applier sqn evaled
+                                           nil)))
+                            (loop
+                              (sequent-node-first-unsupported-relative
+                                  sqn)
+                              (cdr command-script)))
+                           ((command-sequence-keyword?
+                                (caar command-script))
+                            (loop
+                              (interpret-keyword command-applier sqn
+                                  (caar command-script) display-arg
+                                  (cdar command-script))
+                              (cdr command-script)))
+                           (else (funcall command-applier sqn
+                                          (interpret-command-argument
+                                           sqn display-arg
+                                           (caar command-script))
+                                          (map
+                                           (lambda (arg)
+                                             (interpret-command-argument
+                                              sqn display-arg arg))
+                                           (cdar command-script)))
+                                 (loop
+                                   (sequent-node-first-unsupported-relative
+                                    sqn)
+                                   (cdr command-script))))))))
+
+(define (execute-command-sequence-for-scripts sqn display-arg
+            command-script)
+        (interpret-command-sequence sqn script-command-applier display-arg
+            command-script))
+
+(define (execute-command-sequence dg-or-sqn command-script)
+        (or (deduction-graph? dg-or-sqn) (sequent-node? dg-or-sqn)
+            (imps-error
+                "EXECUTE-COMMAND-SEQUENCE: ~A is not a deduction graph or sequent node."
+                dg-or-sqn))
+        (let ((sqn (if (deduction-graph? dg-or-sqn)
+                       (deduction-graph-goal dg-or-sqn) dg-or-sqn)))
+          (if (sequent-node-grounded? sqn)
+              (imps-warning
+                  "execute-command-sequence:  Starting node ~s is grounded."
+                  sqn))
+          (receive (() sqn)
+                   (interpret-command-sequence sqn
+                       interactive-command-applier '(())
+                       command-script)
+                   sqn)))
+
+(define (script-add-binding-to-display display-arg varname val)
+        (set (car display-arg) (cons (cons varname val) (car display-arg))))
+
+(define script-keyword-proc-alist nil)
+
+(define (command-sequence-keyword? word)
+  (assq? word script-keyword-proc-alist))
+
+(define (add-command-keyword word proc)
+  (push script-keyword-proc-alist (cons word proc)))
+
+(define (interpret-keyword command-applier sqn word display-arg arg)
+  (apply (cdr (assq word script-keyword-proc-alist))
+	 command-applier sqn display-arg arg))
+
+(add-command-keyword 'move-to-ancestor
+    (lambda (ca sqn display-arg arg)
+      (ignore ca display-arg)
+      (nth-ancestor sqn arg)))
+
+(add-command-keyword 'move-to-descendent
+    (lambda (ca sqn display-arg arg)
+      (ignore ca display-arg)
+      (deduction-graph-follow-path sqn arg)))
+
+(add-command-keyword 'move-to-sibling
+    (lambda (ca sqn display-arg arg)
+      (ignore ca display-arg)
+      (deduction-graph-find-sibling sqn arg)))
+
+(define (interpret-block ca sqn display-arg . commands)
+        (funcall ca sqn 'annotate '(begin-block))
+        (if (not (null? (deduction-graph-history
+                            (sequent-node-graph sqn))))
+            (set (dg-history-entry-first-unsupported-relative
+                     (car (deduction-graph-history
+                              (sequent-node-graph sqn))))
+                 sqn))
+        (receive (() sqn)
+                 (interpret-command-sequence sqn ca display-arg commands)
+                 (and (sequent-node? sqn)
+                      (>0? (deduction-graph-unended-block-count
+                               (sequent-node-graph sqn)))
+                      (funcall ca sqn 'annotate '(end-block)))
+                 sqn))
+
+(define (interpret-skip ca sqn display-arg . args) (ignore ca args display-arg)
+        sqn)
+
+(define (interpret-let-script ca sqn display-arg varname arg-count
+            script-form)
+        (let ((obj (build-script arg-count script-form value-false value-false
+                       value-false))
+              (dollar-varname (concatenate-symbol '$ varname)))
+          (funcall ca sqn 'annotate
+                   (list 'let-script varname arg-count script-form))
+          (script-add-binding-to-display display-arg varname
+              (join (object obj
+                            ((dg-command-name self) dollar-varname))
+                    obj))
+          sqn))
+
+(define (interpret-let-macete ca sqn display-arg varname macete-form)
+        (let ((interpreted-macete-form
+                  (interpret-command-argument sqn display-arg macete-form))
+              (dollar-varname (concatenate-symbol '$ varname)))
+          (funcall ca sqn 'annotate
+                   (list 'let-macete varname interpreted-macete-form))
+          (script-add-binding-to-display display-arg varname
+              (join (object nil ((name self) dollar-varname))
+                    (build-macete-from-sexp interpreted-macete-form
+                        value-false))))
+        sqn)
+
+(define (interpret-let-val ca sqn display-arg varname val-form)
+        (let ((obj (interpret-command-argument sqn display-arg val-form)))
+          (funcall ca sqn 'annotate (list 'let-val varname val-form))
+          (script-add-binding-to-display display-arg varname obj)
+          sqn))
+
+(add-command-keyword 'block interpret-block)
+
+(add-command-keyword 'skip interpret-skip)
+
+(add-command-keyword 'let-macete interpret-let-macete)
+
+(add-command-keyword 'let-script interpret-let-script)
+
+(add-command-keyword 'let-val interpret-let-val)
+
+(define (interpret-label-node ca sqn display-arg . args)
+        (ignore display-arg ca)
+        (let ((sym (car args))) (dg-register-node sym sqn) sqn))
+
+(define (interpret-jump-to-node ca sqn display-arg . args)
+        (ignore display-arg ca)
+        (let ((new-sqn (dg-get-registered-node (sequent-node-graph sqn)
+                           (car args))))
+          (if (sequent-node? new-sqn) new-sqn sqn)))
+
+(add-command-keyword 'label-node interpret-label-node)
+
+(add-command-keyword 'jump-to-node interpret-jump-to-node)
+
+(define (interpret-if ca sqn display-arg . args)
+        (destructure (((test conseq altern) args))
+            (receive (succeeds? new-sqn)
+                     (interpret-script-condition ca sqn display-arg test)
+                     (receive (() newer-sqn)
+                              (interpret-command-sequence new-sqn ca
+                                  display-arg
+                                  (list (if succeeds? conseq altern)))
+                              newer-sqn))))
+
+(define (interpret-while ca sqn display-arg . args)
+        (destructure (((test . body) args))
+            (receive (succeeds? new-sqn)
+                     (interpret-script-condition ca sqn display-arg test)
+                     (if succeeds?
+                         (receive (() newer-sqn)
+                                  (interpret-command-sequence new-sqn
+                                      ca display-arg body)
+                                  (if (sequent-node? newer-sqn)
+                                      (apply interpret-while ca
+                                       newer-sqn display-arg args)
+                                      new-sqn))
+                         new-sqn))))
+
+(define (interpret-for-nodes ca sqn display-arg . args)
+        (destructure (((list-spec . body) args))
+            (let ((nodes (interpret-for-nodes-list-spec sqn display-arg
+                             list-spec)))
+              (iterate iter ((nodes nodes) (new-sqn nil))
+                       (if (null? nodes) (or new-sqn sqn)
+                           (receive (() newer-sqn)
+                                    (interpret-command-sequence
+                                     (car nodes) ca display-arg body)
+                                    (if (sequent-node? newer-sqn)
+                                     (iter (cdr nodes) newer-sqn)
+                                     new-sqn)))))))
+
+(add-command-keyword 'if interpret-if)
+
+(add-command-keyword 'while interpret-while)
+
+(add-command-keyword 'for-nodes interpret-for-nodes)
+
+(define (interpret-script-condition ca sqn display-arg sexp)
+        (or (pair? sexp)
+            (imps-error
+                "interpret-script-condition: Bad condition ~S~%should be pair."
+                sexp))
+        (let ((proc (retrieve-script-condition-proc (car sexp))))
+          (if (procedure? proc)
+              (funcall proc ca sqn display-arg (cdr sexp))
+              (imps-error
+                  "interpret-script-condition: Bad condition, unrecognized keyword~ ~s"
+                  (car sexp)))))
+
+(define condition-keyword-proc-alist nil)
+
+(define (add-condition-keyword word proc)
+  (push condition-keyword-proc-alist (cons word proc)))
+
+(define (retrieve-script-condition-proc word)
+  (cond
+   ((assq word condition-keyword-proc-alist) => cdr)
+   (else value-false)))
+
+(add-condition-keyword 'matches?
+    (lambda (ca sqn display-arg rest)
+      (ignore ca)
+      (return
+        (sqn-matches? sqn
+            (interpret-command-argument sqn display-arg (car rest))
+            (interpret-command-argument sqn display-arg (cdr rest)))
+        sqn)))
+
+(add-condition-keyword 'minor?
+    (lambda (ca sqn display-arg rest)
+      (ignore ca display-arg rest)
+      (return
+        (any? (lambda (infn)
+                (not (eq? sqn (car (inference-node-hypotheses infn)))))
+              (sequent-node-out-arrows sqn))
+        sqn)))
+
+(add-condition-keyword 'major?
+    (lambda (ca sqn display-arg rest)
+      (ignore ca display-arg rest)
+      (return
+        (any? (lambda (infn)
+                (eq? sqn (car (inference-node-hypotheses infn))))
+              (sequent-node-out-arrows sqn))
+        sqn)))
+
+(add-condition-keyword 'generated-by-rule?
+    (lambda (ca sqn display-arg rest)
+      (ignore ca display-arg)
+      (return
+        (any? (lambda (rule-name)
+                (any? (lambda (infn)
+                        (eq? rule-name (inference-node->symbol infn)))
+                      (sequent-node-out-arrows sqn)))
+              rest)
+        sqn)))
+
+(add-condition-keyword 'succeeds?
+    (lambda (ca sqn display-arg rest)
+      (interpret-command-sequence sqn ca display-arg rest)))
+
+(add-condition-keyword 'progresses?
+    (lambda (ca sqn display-arg rest)
+      (let ((old (deduction-graph-last-index (sequent-node-graph sqn))))
+        (receive (() new-sqn)
+                 (interpret-command-sequence sqn ca display-arg rest)
+                 (return
+                   (< old
+                      (deduction-graph-last-index
+                          (sequent-node-graph sqn)))
+                   new-sqn)))))
+
+(add-condition-keyword 'not
+    (lambda (ca sqn display-arg rest)
+      (receive (satisfied? new-sqn)
+               (interpret-script-condition ca sqn display-arg (car rest))
+               (return (not satisfied?) new-sqn))))
+
+(define (interpret-conjunctive-condition ca sqn display-arg rest)
+        (if (null? rest) (return value-true sqn)
+            (receive (satisfied? new-sqn)
+                     (interpret-script-condition ca sqn display-arg
+                         (car rest))
+                     (if satisfied?
+                         (interpret-conjunctive-condition ca new-sqn
+                             display-arg (cdr rest))
+                         (return satisfied? new-sqn)))))
+
+(define (interpret-disjunctive-condition ca sqn display-arg rest)
+        (if (null? rest) (return value-false sqn)
+            (receive (satisfied? new-sqn)
+                     (interpret-script-condition ca sqn display-arg
+                         (car rest))
+                     (if satisfied? (return satisfied? new-sqn)
+                         (interpret-disjunctive-condition ca new-sqn
+                             display-arg (cdr rest))))))
+
+(add-condition-keyword 'and interpret-conjunctive-condition)
+
+(add-condition-keyword 'or interpret-disjunctive-condition)
+
+(define (sqn-matches? sqn assert assums)
+        (and (every? (lambda (x)
+                       (sqn-coerce-to-assumption sqn x value-true))
+                     assums)
+             (if (list? assert)
+                 (quick-match-list? (sequent-node-assertion sqn)
+                     (map (lambda (x)
+                            (sqn-coerce-to-expression sqn x))
+                          assert))
+                 (quick-match? (sequent-node-assertion sqn)
+                     (sqn-coerce-to-expression sqn assert)))))
+
+(define node-list-keyword-proc-alist nil)
+
+(define (add-node-list-keyword word proc)
+              (push node-list-keyword-proc-alist (cons word proc)))
+
+(define (retrieve-script-node-list-proc word)
+    (cond
+     ((assq word node-list-keyword-proc-alist) => cdr)
+     (else value-false)))
+
+(define (interpret-for-nodes-list-spec sqn display-arg sexp)
+        (or (pair? sexp)
+            (imps-error
+                "interpret-for-nodes-list-spec: Bad condition ~S~%should be pair."
+                sexp))
+        (let ((proc (retrieve-script-node-list-proc (car sexp))))
+          (if (procedure? proc) (funcall proc sqn display-arg (cdr sexp))
+              (imps-error
+                  "interpret-for-nodes-list-spec: Bad condition, unrecognized keyword~ ~s"
+                  (car sexp)))))
+
+(add-node-list-keyword 'node-and-siblings
+    (lambda (sqn display-arg arg)
+      (ignore arg display-arg)
+      (let ((infn (car (sequent-node-out-arrows sqn))))
+        (if (inference-node? infn) (inference-node-hypotheses infn)
+            nil))))
+
+(add-node-list-keyword 'minor-premises
+    (lambda (sqn display-arg arg)
+      (ignore arg display-arg)
+      (let ((infn (car (sequent-node-out-arrows sqn))))
+        (if (inference-node? infn)
+            (cdr (inference-node-hypotheses infn)) nil))))
+
+(add-node-list-keyword 'unsupported-descendents
+    (lambda (sqn display-arg arg)
+      (ignore arg display-arg)
+      (unsupported-descendents sqn)))
+
+(define (script-comment ca sqn display-arg comment-string) (ignore display-arg)
+        (if (not (eq? script-command-applier ca))
+            (let* ((history (deduction-graph-history
+                                (sequent-node-graph sqn))))
+              (if history
+                  (set (dg-history-entry-comments (car history))
+                       (cons comment-string
+                             (dg-history-entry-comments (car history)))))))
+        sqn)
+
+(define command-argument-keyword-proc-alist nil)
+
+(define (add-command-argument-keyword word proc)
+  (push command-argument-keyword-proc-alist
+	(cons word proc)))
+
+(define (interpret-command-argument sqn display-arg arg)
+  (cond
+   ((and (list? arg) (symbol? (car arg))
+	 (assq (car arg)
+	       command-argument-keyword-proc-alist))
+    =>
+    (lambda (found)
+      (funcall (cdr found) sqn display-arg
+	       (map (lambda (x)
+		      (interpret-command-argument sqn
+						  display-arg x))
+		    (cdr arg)))))
+   ((and (symbol? arg)
+	 (let ((ch (char (symbol->string arg))))
+	   (and (char= ch #\$)
+		(assq ch
+		      command-argument-keyword-proc-alist))))
+    =>
+    (lambda (found)
+      (funcall (cdr found) sqn display-arg arg)))
+   ((list? arg)
+    (map (lambda (x)
+	   (interpret-command-argument sqn display-arg x))
+	 arg))
+   (else arg)))
+
+
+(add-command-argument-keyword #\$
+    (lambda (sqn display-arg arg)
+      (ignore sqn)
+      (let ((str (symbol->string arg)))
+        (let* ((objs (read-objects-from-string (nthchdr str 1)))
+               (first (and objs (car objs))))
+          (cond
+            ((not (= (length objs) 1))
+             (imps-error "command-argument-keyword: Bad $ arg ~S" arg))
+            ((and (integer? first) (>0? first)
+                  (<= first (length display-arg)))
+             (nth display-arg first))
+            ((and (= (length objs) 1) (symbol? first)
+                  (char= (nthchar str 1) #\$))
+             first)
+            ((and (symbol? first) (assq first (nth display-arg 0))) => cdr)
+            (else (imps-error "command-argument-keyword: Bad $ arg ~S"
+                      arg)))))))
+
+(add-command-argument-keyword '%
+    (lambda (sqn display-arg bongos-socks+tamales)
+      (ignore sqn display-arg)
+      (destructure (((format-string . args) bongos-socks+tamales))
+          (apply format nil format-string args))))
+
+(add-command-argument-keyword '%sym
+    (lambda (sqn display-arg format-string+args)
+      (ignore sqn display-arg)
+      (destructure (((format-string . args) format-string+args))
+          (string->symbol
+              (string-upcase (apply format nil format-string args))))))
+
+(add-command-argument-keyword '~*
+    (lambda (sqn display-arg expr-strs)
+      (ignore display-arg)
+      (let ((accum nil)
+            (exprs (map (lambda (x)
+                          (sequent-read (sequent-node-sequent sqn) x))
+                        expr-strs)))
+        (walk (lambda (assum)
+                (if (every? (lambda (expr)
+                              (not (quick-match? assum expr)))
+                            exprs)
+                    (push accum assum)))
+              (sequent-node-assumptions sqn))
+        accum)))
+
+(add-command-argument-keyword '*
+    (lambda (sqn display-arg expr-strs)
+      (ignore display-arg)
+      (let ((accum nil)
+            (exprs (map (lambda (x)
+                          (sequent-read (sequent-node-sequent sqn) x))
+                        expr-strs)))
+        (walk (lambda (assum)
+                (if (any? (lambda (expr) (quick-match? assum expr))
+                          exprs)
+                    (push accum assum)))
+              (sequent-node-assumptions sqn))
+        accum)))
+
+(add-command-keyword 'script-comment script-comment)
+
+(define (build-readable-comment-form comments)
+        (list 'script-comment (apply string-append (reverse comments))))
+
+(define (history-entry-jump history-entry)
+        (dg-history-entry-jump-from-previous-expectation history-entry))
+
+(define (build-readable-form obj)
+        (cond
+          ((null? obj) nil)
+          ((string? obj) obj)
+          ((number? obj) obj)
+          ((symbol? obj) obj)
+          ((proper-list? obj) (map build-readable-form obj))
+          ((sequent-node? obj) (sequent-node-number obj))
+          ((expression? obj) (qp obj))
+          ((sort? obj) (sort->string obj))
+          (else (name obj))))
+
+(comment (let ((previous
+                   (dg-history-entry-previous-entry history-entry))
+               (sqn (dg-history-entry-sequent-node history-entry)))
+           (cond
+             ((null? previous) value-false)
+             ((eq? (dg-history-entry-first-unsupported-relative
+                       previous)
+                   sqn)
+              value-false)
+             ((sequent-node?
+                  (dg-history-entry-first-unsupported-relative
+                      previous))
+              (receive (index path)
+                       (relative-position-in-dg
+                           (dg-history-entry-first-unsupported-relative
+                               previous)
+                           sqn)
+                       (cons index path)))
+             (else (imps-warning "HISTORY-ENTRY-JUMP: jump undefined.")
+                   value-false))))
+
+(comment (define (deduction-graph-readable-history-list dg)
+                 (receive (command-forms ())
+                          (iterate iter
+                                   ((command-forms value-false)
+                                    (history
+                                     (deduction-graph-history dg)))
+                                   (if (null? history)
+                                    (return command-forms value-false)
+                                    (destructure*
+                                     (((history-entry . history-rest)
+                                       history)
+                                      (command
+                                       (dg-history-entry-command
+                                        history-entry))
+                                      (args
+                                       (dg-history-entry-arguments
+                                        history-entry))
+                                      (comments
+                                       (dg-history-entry-comments
+                                        history-entry)))
+                                     (cond
+                                       ((and
+                                         (eq? command
+                                          (name->command 'annotate))
+                                         (memq? 'begin-block args))
+                                        (receive (subforms rest)
+                                         (iter value-false history-rest)
+                                         (iter
+                                          (list*
+                                           (list* 'block subforms)
+                                           command-forms)
+                                          rest)))
+                                       ((and
+                                         (eq? command
+                                          (name->command 'annotate))
+                                         (memq? 'end-block args))
+                                        (return
+                                          command-forms
+                                          history-rest))
+                                       ((and
+                                         (eq? command
+                                          (name->command 'annotate))
+                                         (memq? (car args)
+                                          '(let-macete let-script)))
+                                        (iter (cons args command-forms)
+                                         history-rest))
+                                       (else
+                                        (let*
+                                         ((jump
+                                           (history-entry-jump
+                                            history-entry))
+                                          (command-forms-1
+                                           (if comments
+                                            (cons
+                                             (build-readable-comment-form
+                                              comments)
+                                             command-forms)
+                                            command-forms))
+                                          (command-forms-2
+                                           (cons
+                                            (if args
+                                             (cons
+                                              (dg-command-name command)
+                                              (build-readable-form
+                                               args))
+                                             (dg-command-name command))
+                                            command-forms-1))
+                                          (command-forms-3
+                                           (if jump
+                                            (append!
+                                             (build-readable-jump-form
+                                              jump)
+                                             command-forms-2)
+                                            command-forms-2)))
+                                          (iter command-forms-3
+                                           history-rest)))))))
+                          command-forms)))
+
+(define auto-block-print?
+        (make-simple-switch 'auto-block-print? boolean? value-true))
+
+(define (rectify-deduction-graph-history-list dg)
+        (if (auto-block-print?)
+            (block (dg-remove-block-structure dg)
+              (dg-insert-block-structure dg))
+            (dg-remove-block-structure dg))
+        (receive (command-forms ())
+                 (iterate iter
+                          ((command-forms nil)
+                           (history (deduction-graph-history dg)))
+                          (if (null? history)
+                              (return command-forms nil)
+                              (destructure*
+                                  (((history-entry . history-rest)
+                                    history)
+                                   (sqn
+                                    (dg-history-entry-sequent-node
+                                     history-entry))
+                                   (command
+                                    (dg-history-entry-command
+                                     history-entry))
+                                   (args
+                                    (dg-history-entry-arguments
+                                     history-entry))
+                                   (ann-b
+                                    (dg-history-entry-annotation-before
+                                     history-entry))
+                                   (ann-a
+                                    (dg-history-entry-annotation-after
+                                     history-entry))
+                                   (comments
+                                    (dg-history-entry-comments
+                                     history-entry))
+                                   (jump
+                                    (history-entry-jump history-entry)))
+                                  (cond
+                                    ((eq? command
+                                      (name->command 'annotate))
+                                     (let*
+                                      ((command-forms-1
+                                        (if
+                                         (or (null? comments)
+                                          (and (auto-block-print?)
+                                           (or
+                                            (memq? 'begin-block args)
+                                            (memq? 'end-block args))))
+                                         command-forms
+                                         (cons
+                                          (build-readable-comment-form
+                                           comments)
+                                          command-forms)))
+                                       (command-forms-2
+                                        (if
+                                         (and (auto-block-print?)
+                                          (or (memq? 'begin-block args)
+                                           (memq? 'end-block args)))
+                                         command-forms-1
+                                         (cons args command-forms-1)))
+                                       (command-forms-3
+                                        (if jump
+                                         (append!
+                                          (build-readable-jump-form
+                                           jump)
+                                          command-forms-2)
+                                         command-forms-2)))
+                                       (iter command-forms-3
+                                        history-rest)))
+                                    (else
+                                     (let*
+                                      ((command-forms-1
+                                        (if ann-a
+                                         (append ann-a command-forms)
+                                         command-forms))
+                                       (command-forms-2
+                                        (if comments
+                                         (cons
+                                          (build-readable-comment-form
+                                           comments)
+                                          command-forms-1)
+                                         command-forms-1))
+                                       (command-forms-3
+                                        (cons
+                                         (if args
+                                          (cons
+                                           (dg-command-name command)
+                                           (build-readable-form
+                                            (deinterpret-arguments-for-command
+                                             sqn command args)))
+                                          (dg-command-name command))
+                                         command-forms-2))
+                                       (command-forms-4
+                                        (if ann-b
+                                         (append ann-b command-forms-3)
+                                         command-forms-3))
+                                       (command-forms-5
+                                        (if jump
+                                         (append!
+                                          (build-readable-jump-form
+                                           jump)
+                                          command-forms-4)
+                                         command-forms-4)))
+                                       (iter command-forms-5
+                                        history-rest)))))))
+                 command-forms))
+
+(comment (define (rectify-deduction-graph-history-list dg)
+                 (receive (command-forms ())
+                          (iterate iter
+                                   ((command-forms value-false)
+                                    (history
+                                     (deduction-graph-history dg)))
+                                   (if (null? history)
+                                    (return command-forms value-false)
+                                    (destructure*
+                                     (((history-entry . history-rest)
+                                       history)
+                                      (command
+                                       (dg-history-entry-command
+                                        history-entry))
+                                      (args
+                                       (dg-history-entry-arguments
+                                        history-entry))
+                                      (comments
+                                       (dg-history-entry-comments
+                                        history-entry)))
+                                     (cond
+                                       ((eq? command
+                                         (name->command 'annotate))
+                                        (iter (cons args command-forms)
+                                         history-rest))
+                                       (else
+                                        (let*
+                                         ((jump
+                                           (history-entry-jump
+                                            history-entry))
+                                          (command-forms-1
+                                           (if comments
+                                            (cons
+                                             (build-readable-comment-form
+                                              comments)
+                                             command-forms)
+                                            command-forms))
+                                          (command-forms-2
+                                           (cons
+                                            (if args
+                                             (cons
+                                              (dg-command-name command)
+                                              (build-readable-form
+                                               args))
+                                             (dg-command-name command))
+                                            command-forms-1))
+                                          (command-forms-3
+                                           (if jump
+                                            (append!
+                                             (build-readable-jump-form
+                                              jump)
+                                             command-forms-2)
+                                            command-forms-2)))
+                                          (iter command-forms-3
+                                           history-rest)))))))
+                          command-forms)))
+
+(define (parenthesize-history-list history-list)
+        (receive (forms ())
+                 (iterate loop
+                          ((history-list history-list) (forms nil))
+                          (cond
+                            ((null? history-list)
+                             (return (reverse! forms) nil))
+                            ((not (pair? (car history-list)))
+                             (loop
+                               (cdr history-list)
+                               (cons (car history-list) forms)))
+                            ((eq? (caar history-list) 'end-block)
+                             (return
+                               (reverse! forms)
+                               (cdr history-list)))
+                            ((eq? (caar history-list) 'begin-block)
+                             (receive (new-forms rest)
+                                      (loop (cdr history-list) nil)
+                                      (loop
+                                        rest
+                                        (list* (list* 'block new-forms)
+                                         forms))))
+                            (else (loop
+                                    (cdr history-list)
+                                    (cons (car history-list) forms)))))
+                 forms))
+
+(define (deduction-graph-readable-history-list dg)
+        (parenthesize-history-list
+            (rectify-deduction-graph-history-list dg)))
+
+(define (build-readable-jump-form jump)
+        (destructure (((up . down) jump))
+            (cond
+              ((and (= up 1) (= (length down) 1)
+                    (not (pair? (car down))))
+               (list (list 'move-to-sibling (car down))))
+              ((null? down) (list (list 'move-to-ancestor up)))
+              (else (list (list 'move-to-ancestor up)
+                          (list 'move-to-descendent down))))))
+
+(define (shallowest-distinguishing-pattern expr exprs)
+        (let ((height (expression-height expr)))
+          (iterate loop ((n 0))
+                   (let ((pattern (display-at-depth expr n)))
+                     (cond
+                       ((<= height n) pattern)
+                       ((any? (lambda (x) (quick-match? x pattern))
+                              (delq expr exprs))
+                        (loop (1+ n)))
+                       (else pattern))))))
+
+(define (display-at-depth expr n)
+        (cond
+          ((formal-symbol? expr) expr)
+          ((= n 0) (cook-up-var-for-sort (expression-sorting expr)))
+          (else (apply (expression-quasi-constructor-if-enabled-or-constructor
+                           expr)
+                       (map (lambda (x) (display-at-depth x (- n 1)))
+                            (expression-quasi-components-if-enabled-or-components
+                                expr))))))
+
+(define (cook-up-var-for-sort sort)
+        (if (higher-sort? sort) (new-variable sort 'f nil)
+            (new-variable sort
+                (concatenate-symbol
+                    (char (symbol->string (name sort))))
+                nil)))
+
+(define command-deinterpreter-alist nil)
+
+(define (deinterpret-arguments-for-command sqn command arguments)
+  (let ((found (assq (dg-command-name command)
+		     command-deinterpreter-alist)))
+    (if found (funcall (cdr found) sqn arguments)
+	arguments)))
+
+(define (add-command-argument-deinterpreter command-name proc)
+  (push command-deinterpreter-alist (cons command-name proc)))
+
+(add-command-argument-deinterpreter 'instantiate-universal-antecedent
+    (lambda (sqn arguments)
+      (destructure (((assumption instances) arguments))
+          (list (shallowest-distinguishing-pattern
+                    (sqn-coerce-to-assumption sqn assumption value-true)
+                    (sequent-node-assumptions sqn))
+                instances))))
+
+(add-command-argument-deinterpreter 
+ 'instantiate-universal-antecedent-multiply
+ (lambda (sqn arguments)
+   (destructure (((assumption instances) arguments))
+     (list
+      (shallowest-distinguishing-pattern
+       (sqn-coerce-to-assumption sqn assumption value-true)
+       (sequent-node-assumptions sqn))
+      instances))))
+
+(define (single-arg-deinterpreter sqn arguments)
+  (list (shallowest-distinguishing-pattern
+	 (sqn-coerce-to-assumption sqn (car arguments) value-true)
+	 (sequent-node-assumptions sqn))))
+
+(add-command-argument-deinterpreter 'backchain
+      single-arg-deinterpreter)
+(add-command-argument-deinterpreter 'backchain-backwards
+      single-arg-deinterpreter)
+(add-command-argument-deinterpreter 'contrapose
+      single-arg-deinterpreter)
+(add-command-argument-deinterpreter 'simplify-antecedent
+      single-arg-deinterpreter)
+(add-command-argument-deinterpreter 'incorporate-antecedent
+      single-arg-deinterpreter)
+(add-command-argument-deinterpreter 'antecedent-inference
+      single-arg-deinterpreter)
+
+(define *block-size* 3)
+
+(define *block-increment* 1)
+
+(define (dg-history-entry-insert-block-structure entry)
+        (let ((nodes-grounded-by-cmd
+                  (dg-history-entry-nodes-grounded-by-command entry))
+              (nodes-grounded (dg-history-entry-nodes-grounded entry)))
+          (if (and (dg-history-entry-previous-entry entry)
+                   (memq? (dg-history-entry-sequent-node entry)
+                          nodes-grounded-by-cmd)
+                   (not (user-annotation? entry)))
+              (iterate loop
+                       ((current-winner entry)
+                        (current-entry
+                            (dg-history-entry-previous-entry entry))
+                        (potential-block-size 2) (current-block-size 1)
+                        (nested? value-false))
+                       (cond
+                         ((or (not (dg-history-entry? current-entry))
+                              (not (memq?
+                                    (dg-history-entry-sequent-node
+                                     current-entry)
+                                    nodes-grounded)))
+                          (maybe-insert-block-markers entry
+                              current-winner current-block-size
+                              nested?))
+                         ((user-annotation? current-entry)
+                          (loop
+                            current-winner
+                            (dg-history-entry-previous-entry
+                                current-entry)
+                            potential-block-size
+                            current-block-size
+                            nested?))
+                         ((memq? (dg-history-entry-sequent-node
+                                     current-entry)
+                                 nodes-grounded-by-cmd)
+                          (loop
+                            current-entry
+                            (dg-history-entry-previous-entry
+                                current-entry)
+                            (1+ potential-block-size)
+                            (1+ potential-block-size)
+                            nested?))
+                         ((dg-history-entry? current-winner)
+                          (maybe-insert-block-markers entry
+                              current-winner current-block-size
+                              nested?)
+                          (loop
+                            nil
+                            (dg-history-entry-previous-entry
+                                current-entry)
+                            1
+                            0
+                            value-true))
+                         (else (loop
+                                 current-winner
+                                 (dg-history-entry-previous-entry
+                                     current-entry)
+                                 1
+                                 0
+                                 nested?)))))))
+
+(define (user-annotation? entry)
+        (eq? (dg-history-entry-command entry)
+             (name->command 'annotate)))
+
+(define (maybe-insert-block-markers end begin size nested?)
+        (and (dg-history-entry? begin)
+             (not (eq? (dg-history-entry-sequent-node begin)
+                       (deduction-graph-goal
+                           (dg-history-entry-graph end))))
+             (if nested? (<= *block-increment* size)
+                 (<= *block-size* size))
+             (block (push (dg-history-entry-annotation-after end)
+                          '(end-block))
+               (let* ((responsible-script-entry
+                          (dg-find-responsible-entry-for-node
+                              (dg-history-entry-sequent-node begin)))
+                      (responsible-command
+                          (dg-history-entry-command
+                              responsible-script-entry))
+                      (target-node
+                          (dg-history-entry-sequent-node
+                              responsible-script-entry)))
+                 (receive (() down)
+                          (relative-position-in-dg target-node
+                              (dg-history-entry-sequent-node begin))
+                          (push (dg-history-entry-annotation-before
+                                    begin)
+                                (list 'script-comment
+                                      (with-output-to-string p
+                                        (format p "`~A' at ~A"
+                                         (name responsible-command)
+                                         down)))))
+                 (push (dg-history-entry-annotation-before begin)
+                       '(begin-block))))))
+
+(define (dg-find-responsible-entry-for-node sqn)
+        (any (lambda (entry)
+               (and (memq? sqn (dg-history-entry-new-nodes entry))
+                    entry))
+             (deduction-graph-history (sequent-node-graph sqn))))
+
+(define (dg-insert-block-structure dg)
+        (walk dg-history-entry-insert-block-structure
+              (deduction-graph-history dg)))
+
+(define (dg-remove-block-structure dg)
+        (walk (lambda (e)
+                (set (dg-history-entry-annotation-before e) nil)
+                (set (dg-history-entry-annotation-after e) nil))
+              (deduction-graph-history dg)))
+
+(define (turn-off-auto-block)
+        (if (true? (auto-block-print?))
+            (set (auto-block-print?) value-false)
+            (imps-error "Auto blocking is already off.")))
+
+(define (turn-on-auto-block)
+        (if (true? (auto-block-print?))
+            (imps-error "Auto blocking is already on.")
+            (set (auto-block-print?) value-true)))

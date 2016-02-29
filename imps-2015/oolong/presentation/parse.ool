@@ -1,0 +1,697 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment parse)
+
+(define-structure-type token sexpression-label null-call-method
+    left-call-method binding-power)
+
+(define (make-operator parser external-format sexpression-label
+            null-call-method left-call-method binding)
+        (let ((token-parameters (make-token)))
+          (set (token-sexpression-label token-parameters)
+               sexpression-label)
+          (set (token-null-call-method token-parameters)
+               null-call-method)
+          (set (token-left-call-method token-parameters)
+               left-call-method)
+          (set (token-binding-power token-parameters) binding)
+          (set (table-entry (parser-operator-table parser)
+                   external-format)
+               token-parameters)))
+
+(define-integrable (retrieve-token-parameters parser token)
+    (cond
+      ((table-entry (parser-operator-table parser) token))
+      (else (illegal-token-error parser token))))
+
+(define (sexpression-label parser token)
+        (let ((pars (retrieve-token-parameters parser token)))
+          (cond
+            ((token-sexpression-label pars))
+            (else (illegal-token-error parser token)))))
+
+(define (nth-sexpression-label parser token n)
+        (let ((lab (sexpression-label parser token)))
+          (if (list? lab) (nth (sexpression-label parser token) n) lab)))
+
+(define *parsing-terminators* '(|,| |)| = |;| == oo))
+
+(define (null-call-method parser token)
+        (if (operator? parser token)
+            (let ((next (next-token parser)))
+              (if (memq? next *parsing-terminators*)
+                  default-null-call-method
+                  (let ((pars (retrieve-token-parameters parser token)))
+                    (cond
+                      ((token-null-call-method pars))
+                      (else default-null-call-method)))))
+            (lambda (parser token) (ignore parser) token)))
+
+(define (default-null-call-method parser token)
+        (let ((sym (sexpression-label parser token)))
+          (if (symbol? sym) sym token)))
+
+(define (left-call-method parser token)
+        (let ((pars (retrieve-token-parameters parser token)))
+          (cond
+            ((token-left-call-method pars))
+            (else (illegal-token-error parser token)))))
+
+(define (binding-power parser token)
+        (let ((pars (table-entry (parser-operator-table parser) token)))
+          (cond
+            (pars (let ((power (token-binding-power pars)))
+                    (if (list? power) (car power) power)))
+            (else 200))))
+
+(define (alternate-binding-power parser token)
+        (let ((pars (table-entry (parser-operator-table parser) token)))
+          (cond
+            (pars (let ((power (token-binding-power pars)))
+                    (if (list? power) (cadr power) power)))
+            (else 200))))
+
+(define (operator? parser token)
+        (table-entry (parser-operator-table parser) token))
+
+(define (parse-downward parser binding)
+        (iterate loop
+                 ((parse-tree
+                      (let ((token (input-next-token parser)))
+                        (funcall (null-call-method parser token) parser
+                                 token))))
+                 (if (>= binding
+                         (binding-power parser (next-token parser)))
+                     parse-tree
+                     (let ((token (input-next-token parser)))
+                       (loop
+                         (funcall (left-call-method parser token)
+                                  parser token parse-tree))))))
+
+(define (parse-matching-operator parser match)
+        (cond
+          ((eq? match (next-token parser)) (input-next-token parser)
+           nil)
+          (else (iterate loop
+                         ((parse-tree-list
+                              (list (parse-matching-binding parser
+                                     '|,|))))
+                         (cond
+                           ((eq? match (next-token parser))
+                            (input-next-token parser)
+                            (reverse parse-tree-list))
+                           ((not (eq? '|,| (input-next-token parser)))
+                            (report-error parser
+                                "Expecting \",\" or \"~A\"." match))
+                           (else (loop
+                                   (cons
+                                    (parse-matching-binding parser
+                                     '|,|)
+                                    parse-tree-list))))))))
+
+(define (parse-matching-binding parser op)
+        (parse-downward parser (binding-power parser op)))
+
+(define (loglike-operator-method parser op)
+        (list (sexpression-label parser op)
+              (parse-matching-binding parser op)))
+
+(define (prefix-operator-next-token-check parser op)
+        (if (treat-qcs-specially?)
+            (if (symbol->quasi-constructor
+                    (sexpression-label parser op))
+                (or (eq? (next-token parser) '{)
+                    (eq? (next-token parser) '|(|)
+                    (report-error parser "~A is a quasi-constructor."
+                        op))
+                (or (eq? (next-token parser) '|(|)
+                    (illegal-token-error parser
+                        (input-next-token parser))))
+            (if (not (eq? (next-token parser) '|(|))
+                (illegal-token-error parser (input-next-token parser)))))
+
+(define (prefix-operator-method parser op)
+        (prefix-operator-next-token-check parser op)
+        (let ((match (if (eq? (next-token parser) '|(|) '|)| '})))
+          (input-next-token parser)
+          (let ((args (parse-matching-operator parser match)))
+            (list* (sexpression-label parser op) args))))
+
+(define (postfix-operator-method parser op parse-tree)
+        (list (sexpression-label parser op) parse-tree))
+
+(define (infix-operator-method parser op parse-tree)
+        (list (sexpression-label parser op) parse-tree
+              (parse-matching-binding parser op)))
+
+(define (nary-infix-operator-method parser op parse-tree)
+        (iterate loop
+                 ((parse-tree-list
+                      (list (parse-matching-binding parser op))))
+                 (cond
+                   ((not (eq? op (next-token parser)))
+                    (list* (sexpression-label parser op) parse-tree
+                           (reverse parse-tree-list)))
+                   (else (input-next-token parser)
+                         (loop
+                           (cons (parse-matching-binding parser op)
+                                 parse-tree-list))))))
+
+(define (right-associative-infix-operator-method parser op parse-tree)
+        (labels (((right-associate op a-list)
+                  (if (null? (cddr a-list))
+                      (list op (car a-list) (cadr a-list))
+                      (list op (car a-list)
+                            (right-associate op (cdr a-list))))))
+          (iterate loop
+                   ((parse-tree-list
+                        (list (parse-matching-binding parser op))))
+                   (cond
+                     ((not (eq? op (next-token parser)))
+                      (right-associate (sexpression-label parser op)
+                          (cons parse-tree (reverse parse-tree-list))))
+                     (else (input-next-token parser)
+                           (loop
+                             (cons (parse-matching-binding parser op)
+                                   parse-tree-list)))))))
+
+(define (negation-operator-method parser op)
+        (list (nth-sexpression-label parser op 0)
+              (parse-downward parser
+                  (alternate-binding-power parser op))))
+
+(define (subtraction-operator-method parser op parse-tree)
+        (list (nth-sexpression-label parser op 1) parse-tree
+              (parse-matching-binding parser op)))
+
+(define (null-call-method-sb parser op) (ignore op)
+        (let ((match ']))
+          (cond
+            ((eq? match (next-token parser)) (input-next-token parser)
+             nil)
+            (else (iterate loop
+                           ((parse-tree-list
+                                (list (parse-matching-binding parser
+                                       '|,|)))
+                            (final-separator value-false))
+                           (cond
+                             ((eq? match (next-token parser))
+                              (input-next-token parser)
+                              (reverse parse-tree-list))
+                             (final-separator
+                                 (report-error parser
+                                     "Expecting \"~A\"" match))
+                             ((not (memq? (next-token parser)
+                                    '(|,| ->)))
+                              (report-error parser
+                                  "Expecting \",\" \"->\" or \"~A\"."
+                                  match))
+                             (else (let
+                                    ((final
+                                      (eq? (input-next-token parser)
+                                       '->)))
+                                     (loop
+                                       (cons
+                                        (parse-matching-binding parser
+                                         '|,|)
+                                        parse-tree-list)
+                                       final)))))))))
+
+(define (left-call-method-lfb parser op parse-tree)
+        (or (and (symbol? parse-tree)
+                 (symbol->quasi-constructor parse-tree))
+            (illegal-token-error parser op))
+        (list* parse-tree (parse-matching-operator parser '})))
+
+(define (null-call-method-lfb parser op)
+        (list* (sexpression-label parser op)
+               (parse-matching-operator parser '})))
+
+(define (null-call-method-lp parser op) (ignore op)
+        (let ((right (parse-matching-operator parser '|)|)))
+          (if (null? right) right (car right))))
+
+(define (left-call-method-lp parser op parse-tree) (ignore op)
+        (list* parse-tree (parse-matching-operator parser '|)|)))
+
+(define (constant-method parser op) (sexpression-label parser op))
+
+(define (defined-in-sort-prefix parser op)
+        (if (not (eq? (next-token parser) '|(|))
+            (illegal-token-error parser (input-next-token parser)))
+        (input-next-token parser)
+        (let ((args (parse-matching-operator parser '|)|)))
+          (if (= (length args) 2)
+              (list* (nth-sexpression-label parser op 1) args)
+              (list* (nth-sexpression-label parser op 0) args))))
+
+(define (null-call-method-terminator parser op) (ignore op)
+        (report-error parser "premature termination of input."))
+
+(define (left-call-method-terminator parser op parse-tree) (ignore op)
+        (ignore parser) (cdr parse-tree))
+
+(define (parse-imps-cond parser op)
+        (if (not (eq? (next-token parser) '|(|))
+            (illegal-token-error parser (input-next-token parser)))
+        (input-next-token parser)
+        (let ((args (parse-matching-operator parser '|)|)))
+          (build-conditional parser op args)))
+
+(define (build-conditional parser op a-list)
+        (or (and (list? a-list) (odd? (length a-list)))
+            (report-error parser "Missing alternative in conditional."))
+        (cond
+          ((null? (cdr a-list)) (car a-list))
+          (else (list (sexpression-label parser op) (car a-list)
+                      (cadr a-list)
+                      (build-conditional parser op (cddr a-list))))))
+
+(define (prefix-sort-operator-method parser op) (ignore op)
+        (if (not (eq? (next-token parser) '[))
+            (illegal-token-error parser (input-next-token parser)))
+        (input-next-token parser)
+        (let ((args (parse-matching-operator parser '])))
+          (append args '(unit%sort))))
+
+(define (prefix-sort-dependent-operator-method parser op)
+        (prefix-operator-next-token-check parser op)
+        (let ((match (if (eq? (next-token parser) '|(|) '|)| '})))
+          (input-next-token parser)
+          (let ((args (parse-matching-operator parser match)))
+            (if (null? args) (no-sort-error parser)
+                (let* ((args (reverse args)) (sort (car args)))
+                  (list* (sexpression-label parser op)
+                         (append (reverse! (cdr args))
+                                 (list (list 'undefined sort)))))))))
+
+(define (parse-binding-operator parser op)
+        (if (not (eq? (next-token parser) '|(|))
+            (illegal-token-error parser (input-next-token parser)))
+        (let ((match '|)|))
+          (input-next-token parser)
+          (cond
+            ((eq? match (next-token parser)) (input-next-token parser)
+             nil)
+            (else (iterate loop
+                           ((parse-tree-list
+                                (list (parse-matching-binding parser
+                                       '|,|)))
+                            (colon? value-false))
+                           (if (eq? match (next-token parser))
+                               (block (input-next-token parser)
+                                 (list* op
+                                        (make-binding parser
+                                         (reverse parse-tree-list))))
+                               (let ((next (input-next-token parser)))
+                                 (cond
+                                   ((eq? '|,| next)
+                                    (loop
+                                      (cons
+                                       (parse-matching-binding parser
+                                        '|,|)
+                                       parse-tree-list)
+                                      value-false))
+                                   ((and (eq? '|:| next) (not colon?))
+                                    (loop
+                                      (list*
+                                       (list '|:|
+                                        (parse-matching-binding parser
+                                         '|,|))
+                                       parse-tree-list)
+                                      value-true))
+                                   (else
+                                    (report-error parser
+                                     "Bad binding syntax."))))))))))
+
+(define (parse-binding-operator-both-syntaxes-aux parser op)
+        (if (not (eq? (next-token parser) '|(|))
+            (illegal-token-error parser (input-next-token parser)))
+        (input-next-token parser)
+        (let ((next (next-token parser)))
+          (if (eq? next '[)
+              (let ((args (parse-matching-operator parser '|)|)))
+                (list* (sexpression-label parser op) args))
+              (if (eq? next '|,|)
+                  (block (input-next-token parser)
+                    (let ((args (parse-matching-operator parser '|)|)))
+                      (list* (sexpression-label parser op) nil args)))
+                  (let ((match '|)|))
+                    (cond
+                      ((eq? match (next-token parser))
+                       (input-next-token parser) nil)
+                      (else (iterate loop
+                                     ((parse-tree-list
+                                       (list
+                                        (parse-matching-binding parser
+                                         '|,|)))
+                                      (colon? value-false))
+                                     (if
+                                      (eq? match (next-token parser))
+                                      (block (input-next-token parser)
+                                        (list* op
+                                         (make-binding parser
+                                          (reverse parse-tree-list))))
+                                      (let
+                                       ((next
+                                         (input-next-token parser)))
+                                        (cond
+                                          ((eq? '|,| next)
+                                           (loop
+                                             (cons
+                                              (parse-matching-binding
+                                               parser '|,|)
+                                              parse-tree-list)
+                                             value-false))
+                                          ((and (eq? '|:| next)
+                                            (not colon?))
+                                           (loop
+                                             (list*
+                                              (list '|:|
+                                               (parse-matching-binding
+                                                parser '|,|))
+                                              parse-tree-list)
+                                             value-true))
+                                          (else
+                                           (report-error parser
+                                            (if colon?
+                                             "Expecting the character \",\"."
+                                             "Expecting \":\" or \",\" or \")\"."))))))))))))))
+
+(define (make-var-spec-lists-consistent une-liste)
+        (let* ((bl (map (lambda (x) (cons (cadr x) (car x)))
+                        (cadr une-liste))))
+          (list* (car une-liste) bl (cddr une-liste))))
+
+(define (parse-binding-operator-both-syntaxes parser op)
+        (make-var-spec-lists-consistent
+            (parse-binding-operator-both-syntaxes-aux parser op)))
+
+(define (make-binding parser une-liste)
+        (if (= (length une-liste) 1)
+            (report-error parser "Bad Binding Body.")
+            (iterate loop
+                     ((objects-so-far nil) (specs-so-far nil)
+                      (rem une-liste))
+                     (cond
+                       ((null? rem)
+                        (append (list (reverse! specs-so-far))
+                                objects-so-far))
+                       ((and (list? (car rem)) (eq? (caar rem) '|:|))
+                        (if (null? objects-so-far)
+                            (report-error parser "Bad binding syntax.")
+                            (loop
+                              nil
+                              (cons (list (reverse! objects-so-far)
+                                     (cadar rem))
+                                    specs-so-far)
+                              (cdr rem))))
+                       (else (loop
+                               (cons (car rem) objects-so-far)
+                               specs-so-far
+                               (cdr rem)))))))
+
+(define (ambiguous-token-error parser op)
+        (report-error parser
+            "Ambiguous token ~A encountered. Can mean: ~A" op
+            (sexpression-label parser op)))
+
+(define (illegal-list-error parser)
+        (report-error parser "Illegal list encountered."))
+
+(define (illegal-token-error parser op)
+        (report-error parser "Illegal token ~A encountered." op))
+
+(define (right-match-error parser op parse-tree) (ignore parse-tree)
+        (report-error parser "Too many ~a." op))
+
+(define (delimiter-error parser op)
+        (report-error parser "Illegal use of delimiter ~a." op))
+
+(define (no-sort-error parser)
+        (report-error parser "No sort specified."))
+
+(define port->imps-tokenizer (make-tokenizer-generator))
+
+(walk (lambda (x)
+        (make-significant-char-sequence port->imps-tokenizer x))
+      '(** -> <= >= ^^ == ++))
+
+(define *parse* (make-parser))
+
+(set (parser-tokenizer *parse*) port->imps-tokenizer)
+
+(make-operator *parse* '[ nil null-call-method-sb nil 200)
+
+(make-operator *parse* '] nil delimiter-error right-match-error 5)
+
+(make-operator *parse* '|(| nil null-call-method-lp left-call-method-lp
+    200)
+
+(make-operator *parse* '|)| nil delimiter-error right-match-error 5)
+
+(make-operator *parse* '{ 'left-french-bracket null-call-method-lfb
+    left-call-method-lfb 200)
+
+(make-operator *parse* '} nil delimiter-error right-match-error 5)
+
+(make-operator *parse* '+ '+ nil infix-operator-method 100)
+
+(make-operator *parse* '++ '++ nil infix-operator-method 100)
+
+(make-operator *parse* '- '(- sub) negation-operator-method
+    subtraction-operator-method 110)
+
+(make-operator *parse* '* '* nil infix-operator-method 120)
+
+(make-operator *parse* '** '** nil
+    right-associative-infix-operator-method 121)
+
+(make-operator *parse* '/ '/ nil infix-operator-method 121)
+
+(make-operator *parse* '^ '^ nil
+    right-associative-infix-operator-method 140)
+
+(make-operator *parse* '^^ '^^ nil infix-operator-method 120)
+
+(make-operator *parse* '! 'factorial nil postfix-operator-method 160)
+
+(make-operator *parse* 'if 'if-term parse-imps-cond nil 160)
+
+(make-operator *parse* 'if_form 'if-form parse-imps-cond nil 160)
+
+(make-operator *parse* 'if_pred 'if-term parse-imps-cond nil 160)
+
+(make-operator *parse* 'form_cond 'if-form parse-imps-cond nil 160)
+
+(make-operator *parse* 'cond 'if-term parse-imps-cond nil 160)
+
+(make-operator *parse* 'term_cond 'if-term parse-imps-cond nil 160)
+
+(make-operator *parse* 'pred_cond 'if-term parse-imps-cond nil 160)
+
+(make-operator *parse* '|#| '(is-defined is-defined-in-sort)
+    defined-in-sort-prefix nil 160)
+
+(make-operator *parse* '|'| 'diff nil postfix-operator-method 160)
+
+(make-operator *parse* '= '= nil infix-operator-method 80)
+
+(make-operator *parse* '== '== nil infix-operator-method 80)
+
+(make-operator *parse* '> '> nil infix-operator-method 80)
+
+(make-operator *parse* '>= '>= nil infix-operator-method 80)
+
+(make-operator *parse* '< '< nil infix-operator-method 80)
+
+(make-operator *parse* '<= '<= nil infix-operator-method 80)
+
+(make-operator *parse* 'not 'not loglike-operator-method nil 70)
+
+(make-operator *parse* 'iff 'iff nil infix-operator-method 65)
+
+(make-operator *parse* 'implies 'implies nil
+    right-associative-infix-operator-method 59)
+
+(make-operator *parse* 'and 'and prefix-operator-method
+    nary-infix-operator-method 60)
+
+(make-operator *parse* 'or 'or prefix-operator-method
+    nary-infix-operator-method 50)
+
+(make-operator *parse* '|,| nil nil nil 10)
+
+(make-operator *parse* '-> nil nil nil 10)
+
+(make-operator *parse* '|:| nil nil nil 10)
+
+(make-operator *parse* 'forall 'forall
+    parse-binding-operator-both-syntaxes nil 50)
+
+(make-operator *parse* 'forsome 'forsome
+    parse-binding-operator-both-syntaxes nil 50)
+
+(make-operator *parse* 'iota 'iota parse-binding-operator-both-syntaxes
+    nil 50)
+
+(make-operator *parse* 'with 'with parse-binding-operator-both-syntaxes
+    nil 50)
+
+(make-operator *parse* 'lambda 'lambda
+    parse-binding-operator-both-syntaxes nil 50)
+
+(make-operator *parse* '|;| nil null-call-method-terminator
+    left-call-method-terminator -1)
+
+(make-operator *parse* '? 'undefined loglike-operator-method nil 180)
+
+(make-operator *parse* 'falselike 'falselike prefix-operator-method nil
+    160)
+
+(make-operator *parse* 'sub_p 'sub-predicate nil infix-operator-method
+    80)
+
+(make-operator *parse* 'sub_f 'sub-function nil infix-operator-method
+    80)
+
+(make-operator *parse* 'total_q 'total?
+    prefix-sort-dependent-operator-method nil 160)
+
+(make-operator *parse* 'nonvacuous_q 'nonvacuous?
+    prefix-operator-method nil 160)
+
+(make-operator *parse* 'reflexive_q 'reflexive? prefix-operator-method
+    nil 160)
+
+(make-operator *parse* 'transitive_q 'transitive?
+    prefix-operator-method nil 160)
+
+(make-operator *parse* 'antisymmetric_q 'antisymmetric?
+    prefix-operator-method nil 160)
+
+(make-operator *parse* 'comparable_q 'comparable?
+    prefix-operator-method nil 160)
+
+(make-operator *parse* 'well_founded_q 'well-founded?
+    prefix-operator-method nil 160)
+
+(make-operator *parse* 'partial_order_q 'partial-order?
+    prefix-operator-method nil 160)
+
+(make-operator *parse* 'linear_order_q 'linear-order?
+    prefix-operator-method nil 160)
+
+(make-operator *parse* 'upper_bound_q 'upper-bound?
+    prefix-operator-method nil 160)
+
+(make-operator *parse* 'chain_q 'chain? prefix-operator-method nil 160)
+
+(make-operator *parse* 'cpo_q 'cpo? prefix-operator-method nil 160)
+
+(make-operator *parse* 'monotone_q 'monotone? prefix-operator-method
+    nil 160)
+
+(make-operator *parse* 'continuous_q 'continuous?
+    prefix-operator-method nil 160)
+
+(make-operator *parse* 'sets nil prefix-sort-operator-method nil 160)
+
+(define *language-parser-table* (make-table '*language-parser-table*))
+
+(define (language-parser language)
+        (cond
+          ((table-entry *language-parser-table* language))
+          (else *parse*)))
+
+(define (imps-string-read-proc language port)
+        (let ((sexp (parse-top-level (language-parser language) port)))
+          (if (use-old-apply-operator-form?) sexp
+              (insert-apply-operators-in-sexp sexp))))
+
+(set (imps-reader) imps-string-read-proc)
+
+;(define (build-expression-for-emacs pos str)
+;        (if (string-equal? str "")
+;            (imps-error "Null input; cursor not on formula.")
+;            (let ((obj (qr str)))
+;              (print-expression-for-emacs pos obj))))
+
+;(define (print-expression-for-emacs pos obj)
+;        (emacs-eval
+;            (format nil "(emacs-display-expression ~A ~S))" pos
+;                    (format nil "~S" obj))))
+
+(define (string->sort resolver str)
+        (list->sort resolver (parse-top-level *parse* str)))
+
+(define (string-or-list->sort resolver sorting-spec)
+        (if (string? sorting-spec) (string->sort resolver sorting-spec)
+            (list->sort resolver sorting-spec)))
+
+(define (qr-safe str)
+        (call-with-current-continuation
+            (lambda (k)
+              (bind (((imps-signal-error-procedure)
+                      (lambda (error-type f-string f-args)
+                        (ignore error-type)
+                        (funcall k
+                                 (apply format nil
+                                        (string-append
+                                         "Syntax Error -- " f-string)
+                                        f-args)))))
+                    (qr str)))))
+
+(define (qr-safe-reference str)
+        (let ((expr-or-error-message (qr-safe str)))
+          (if (expression? expr-or-error-message)
+              (object-hash expr-or-error-message)
+              expr-or-error-message)))

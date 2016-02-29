@@ -1,0 +1,278 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment quasi-constructors)
+
+(define-predicate quasi-constructor?)
+
+(define-operation (quasi-constructor-inverse q)
+    (imps-error
+        "quasi-constructor-inverse: ~S is not a quasi-constructor." q))
+
+(define-operation (build-expression-maybe q components)
+    (imps-error
+        "build-expression-maybe: ~S is not a quasi-constructor." q))
+
+(define *quasi-constructors* nil)
+
+(define (name->quasi-constructor n)
+        (any (lambda (qc) (and (eq? (name qc) n) qc))
+             *quasi-constructors*))
+
+(define symbol->quasi-constructor
+        (let ((symbol-quasi-constructor-alist nil))
+          (operation
+              (lambda (sym)
+                (cond
+                  ((assq sym symbol-quasi-constructor-alist) => cdr)
+                  (else nil)))
+              ((setter self)
+               (lambda (sym constr)
+                 (cond
+                   ((assq sym symbol-quasi-constructor-alist) =>
+                    (lambda (p) (set (cdr p) constr) constr))
+                   (else (push symbol-quasi-constructor-alist
+                               (cons sym constr))
+                         constr)))))))
+
+(define-operation (quasi-constructor-paths-to-quasi-components qc)
+    (imps-error
+        "quasi-constructor-paths-to-quasi-components: ~S is not a quasi-constructor."
+        qc))
+
+(define-settable-operation (quasi-constructor-constantlike? qc)
+    (or (eq? qc the-true) (eq? qc the-false)))
+
+(define (make-quasi-constructor-constantlike qc)
+        (set (quasi-constructor-constantlike? qc) value-true))
+
+(define (make-quasi-constructor constr-proc inverse-proc
+            list-of-path-lists symbol-form)
+        (let* ((gct-entry (make-gct-entry))
+               (table-hash (descriptor-hash gct-entry))
+               (constantlike? value-false)
+               (q-c (object (lambda components
+                              (let ((possible-expr
+                                     (funcall constr-proc components)))
+                                (if (expression? possible-expr)
+                                    possible-expr
+                                    (imps-error "~S" possible-expr))))
+                            ((build-expression-maybe soi components)
+                             (let ((possible-expr
+                                    (funcall constr-proc components)))
+                               (if (expression? possible-expr)
+                                   possible-expr value-false)))
+                            ((quasi-constructor? self) value-true)
+                            ((gct-entry-value self) gct-entry)
+                            ((quasi-constructor-inverse self)
+                             inverse-proc)
+                            ((quasi-constructor-paths-to-quasi-components
+                                 qc)
+                             list-of-path-lists)
+                            ((quasi-constructor-constantlike? qc)
+                             constantlike?)
+                            (((setter quasi-constructor-constantlike?)
+                              qc boolean)
+                             (if (boolean? boolean)
+                                 (set constantlike? boolean)
+                                 (imps-error
+                                     "set quasi-constructor-constantlike?: non-boolean argument ~S."
+                                     boolean)))
+                            ((two-d-table-hash self) table-hash)
+                            ((name self) symbol-form)
+                            ((print self port)
+                             (display symbol-form port)))))
+          (set (symbol->quasi-constructor symbol-form) q-c)
+          (push *quasi-constructors* q-c)
+          q-c))
+
+(define (expression-quasi-constructor-&-components expression)
+        (let ((qc (expression-quasi-constructor expression)))
+          (if qc
+              (return
+                qc
+                (funcall (quasi-constructor-inverse qc) expression))
+              (return value-false nil))))
+
+(define (expression-quasi-constructor expression)
+        (let ((qcs (expression-quasi-constructors expression)))
+          (and (not (null? qcs)) (car qcs))))
+
+(define (expression-quasi-components expression)
+        (receive (() q-comps)
+                 (expression-quasi-constructor-&-components expression)
+                 q-comps))
+
+(define (expression-quasi-components-or-components expression)
+        (or (expression-quasi-components expression)
+            (expression-components expression)))
+
+(define (expression-quasi-constructor-or-constructor expression)
+        (or (expression-quasi-constructor expression)
+            (expression-constructor expression)))
+
+(define (expression-quasi-constructors-and-constructor expression)
+        (append (expression-quasi-constructors expression)
+                (list (expression-constructor expression))))
+
+(define (expression-quasi-constructors expression)
+        (let ((qcs (expression-qcs expression)))
+          (if (uncomputed? qcs)
+              (let ((qcs (iterate iter
+                                  ((candidates *quasi-constructors*)
+                                   (qcs nil))
+                                  (cond
+                                    ((null? candidates) (reverse! qcs))
+                                    ((funcall
+                                      (quasi-constructor-inverse
+                                       (car candidates))
+                                      expression)
+                                     (iter (cdr candidates)
+                                      (cons (car candidates) qcs)))
+                                    (else (iter (cdr candidates) qcs))))))
+                (set (expression-qcs expression) qcs)
+                qcs)
+              qcs)))
+
+(define (quasi-constructor-simplify expression)
+        (receive (q-constr q-comps)
+                 (expression-quasi-constructor-&-components expression)
+                 (let ((simplifier (constructor-simplifier q-constr)))
+                   (if simplifier (funcall simplifier q-comps)
+                       (constructor-simplify expression)))))
+
+(define (recursive-quasi-constructor-simplify expression)
+        (receive (q-constr q-comps)
+                 (expression-quasi-constructor-&-components expression)
+                 (let ((simplifier (constructor-simplifier q-constr)))
+                   (cond
+                     (simplifier =>
+                         (lambda (simplifier)
+                           (funcall simplifier
+                                    (map
+                                     recursive-quasi-constructor-simplify
+                                     q-comps))))
+                     ((constructor-simplifier
+                          (expression-constructor expression))
+                      =>
+                      (lambda (simplifier)
+                        (funcall simplifier
+                                 (map recursive-quasi-constructor-simplify
+                                      (expression-components
+                                       expression)))))
+                     ((expression-constructor expression) =>
+                      (lambda (c)
+                        (apply c
+                               (map recursive-quasi-constructor-simplify
+                                    (expression-components expression)))))
+                     (else expression)))))
+
+(define use-quasi-constructor-form?
+        (make-simple-switch 'use-quasi-constructor-form? boolean?
+            value-true))
+
+(define *disabled-quasi-constructors* nil)
+
+(define (disable-quasi-constructor qc)
+        (set *disabled-quasi-constructors*
+             (add-set-element qc *disabled-quasi-constructors*)))
+
+(define (enable-quasi-constructor qc)
+        (set *disabled-quasi-constructors*
+             (delete-set-element qc *disabled-quasi-constructors*)))
+
+(define (quasi-constructor-if-enabled qc)
+        (and (not (memq? qc *disabled-quasi-constructors*)) qc))
+
+(define (expression-quasi-constructor-if-enabled expr)
+        (let ((qcs (expression-quasi-constructors expr)))
+          (any quasi-constructor-if-enabled qcs)))
+
+(define (expression-quasi-constructor-if-enabled-&-components
+            expression)
+        (let ((qc (expression-quasi-constructor-if-enabled expression)))
+          (if qc
+              (return
+                qc
+                (funcall (quasi-constructor-inverse qc) expression))
+              (return value-false nil))))
+
+(define (expression-quasi-components-if-enabled expression)
+        (receive (() q-comps)
+                 (expression-quasi-constructor-if-enabled-&-components
+                     expression)
+                 q-comps))
+
+(define (expression-quasi-components-if-enabled-or-components
+            expression)
+        (or (expression-quasi-components-if-enabled expression)
+            (expression-components expression)))
+
+(define (expression-quasi-constructor-if-enabled-or-constructor
+            expression)
+        (or (expression-quasi-constructor-if-enabled expression)
+            (expression-constructor expression)))
+
+(define *disabled-qcs-names*
+        '(lambda-application domain sub-predicate sub-function))
+
+(define (reset-quasi-constructors)
+        (walk enable-quasi-constructor
+              (set-difference *disabled-quasi-constructors*
+                  (map symbol->quasi-constructor *disabled-qcs-names*))))
+
+(define qc-equivalence-relation-table
+        (make-table 'qc-equivalence-relations))
+
+(define (make-quasi-constructor-equivalence-relation qc)
+        (set (table-entry qc-equivalence-relation-table qc) value-true))
+
+(define (quasi-constructor-equivalence-relation? qc)
+        (table-entry qc-equivalence-relation-table qc))

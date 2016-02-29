@@ -1,0 +1,297 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment (theories history))
+
+(define-structure-type history-event item name sexp-form
+    (((print self port)
+      (cond
+        ((history-event-sort-definition? self)
+         (format port "#{IMPS-event ~A: sort definition ~A}"
+                 (object-hash self) (history-event-name self)))
+        ((history-event-definition? self)
+         (format port "#{IMPS-event ~A: definition ~A}"
+                 (object-hash self) (history-event-name self)))
+        ((history-event-recursive-definition? self)
+         (format port "#{IMPS-event ~A: recursive definition ~A}"
+                 (object-hash self) (history-event-name self)))
+        ((history-event-mc-extension? self)
+         (format port "#{IMPS-event ~A: model extension ~A}"
+                 (object-hash self) (history-event-name self)))
+        (else (format port "#{IMPS-event ~A: theorem ~A}"
+                      (object-hash self) (history-event-name self)))))))
+
+(at-top-level
+    (block (set (history-event-item (stype-master history-event-stype))
+                value-false)
+      (set (history-event-name (stype-master history-event-stype))
+           value-false)
+      (set (history-event-sexp-form (stype-master history-event-stype))
+           value-false)))
+
+(define (history-event-sort-definition? event)
+        (sort-definition? (history-event-item event)))
+
+(define (history-event-definition? event)
+        (definition? (history-event-item event)))
+
+(define (history-event-recursive-definition? event)
+        (recursive-definition? (history-event-item event)))
+
+(define (history-event-mc-extension? event)
+        (mc-extension? (history-event-item event)))
+
+(define (history-event-theorem? event)
+        (formula? (history-event-item event)))
+
+(define (definition->history-event def)
+        (or (sort-definition? def) (definition? def)
+            (recursive-definition? def)
+            (imps-error "DEFINITION->HISTORY-EVENT: ~S ~A." def
+                "is not a sort, direct, or recursive definition"))
+        (let ((event (make-history-event)))
+          (set (history-event-item event) def)
+          (set (history-event-name event) (name def))
+          event))
+
+(define (mc-extension->history-event ext)
+        (or (mc-extension? ext)
+            (imps-error "MC-EXTENSION->HISTORY-EVENT: ~S ~A." ext
+                "is not a model conservative extension"))
+        (let ((event (make-history-event)))
+          (set (history-event-item event) ext)
+          (set (history-event-name event) (name ext))
+          event))
+
+(define (theorem->history-event formula)
+        (or (formula? formula)
+            (imps-error "THEOREM->HISTORY-EVENT: ~S ~A." formula
+                "is not a formula"))
+        (let ((event (make-history-event)))
+          (set (history-event-item event) formula)
+          (set (history-event-name event) (theorem-name formula))
+          event))
+
+(define (history-events-eq? event1 event2)
+        (or (eq? event1 event2)
+            (and (history-event-theorem? event1)
+                 (history-event-theorem? event2)
+                 (eq? (history-event-item event1)
+                      (history-event-item event2)))))
+
+(define (history-event->sexp theory event)
+        (or (history-event-sexp-form event)
+            (let ((sexp (cond
+                          ((history-event-sort-definition? event)
+                           (list 'sort-definition
+                                 (sort-definition->sexp
+                                     (history-event-item event))))
+                          ((history-event-definition? event)
+                           (list 'definition
+                                 (definition->sexp
+                                     (history-event-item event))))
+                          ((history-event-recursive-definition? event)
+                           (list 'recursive-definition
+                                 (recursive-definition->sexp
+                                     (history-event-item event))))
+                          ((history-event-mc-extension? event)
+                           (list 'mc-extension
+                                 (mc-extension->sexp
+                                     (history-event-item event))))
+                          ((history-event-theorem? event)
+                           (list 'theorem
+                                 (theorem->sexp theory
+                                     (history-event-item event))))
+                          (else (imps-error
+                                    "HISTORY-EVENT->SEXP: wierdo event ~S has no field set."
+                                    event)))))
+              (set (history-event-sexp-form event) sexp)
+              sexp)))
+
+(define (sexp->history-event theory sexp)
+        (cond
+          ((eq? 'sort-definition (car sexp))
+           (definition->history-event
+               (sexp->sort-definition theory (cadr sexp))))
+          ((eq? 'definition (car sexp))
+           (definition->history-event
+               (sexp->definition theory (cadr sexp))))
+          ((eq? 'recursive-definition (car sexp))
+           (definition->history-event
+               (sexp->recursive-definition theory (cadr sexp))))
+          ((eq? 'mc-extension (car sexp))
+           (mc-extension->history-event
+               (sexp->mc-extension theory (cadr sexp))))
+          ((eq? 'theorem (car sexp))
+           (theorem->history-event
+               (sexp->theorem theory (caadr sexp) (cadr sexp))))
+          (else (imps-error
+                    "SEXP->THEORY-HISTORY-EVENT: bogus event sexp ~s"
+                    sexp))))
+
+;;(define (event->number event) (ignore event) 0)
+
+(define-structure-type event-history validation events)
+
+(define *initial-event-history-validation* 0)
+
+(set (event-history-validation (stype-master event-history-stype))
+     *initial-event-history-validation*)
+
+(define (build-event-history validation events)
+        (if (= validation (history-compute-validation events))
+            (let ((history (make-event-history)))
+              (set (event-history-validation history) validation)
+              (set (event-history-events history) events)
+              history)
+            (imps-error "BUILD-EVENT-HISTORY: bad validation ~D."
+                validation)))
+
+(define (begin-event-history)
+        (let ((history (make-event-history)))
+          (set (event-history-events history) nil)
+          history))
+
+(define (push-history-event history event)
+        (push (event-history-events history) event)
+        (set (event-history-validation history)
+             (history-update-validation
+                 (event-history-validation history) event)))
+
+(define (theory-push-definition-event theory definition)
+        (let ((event (definition->history-event definition))
+              (history (theory-history theory)))
+          (push-history-event history event)))
+
+(define (theory-push-mc-extension-event theory extension)
+        (let ((event (mc-extension->history-event extension))
+              (history (theory-history theory)))
+          (push-history-event history event)))
+
+(define (theory-push-theorem-event theory formula)
+        (let ((event (theorem->history-event formula))
+              (history (theory-history theory)))
+          (push-history-event history event)))
+
+(define (append-histories histories)
+        (let ((events (remove-duplicates
+                          history-events-eq?
+                          (apply append
+                                 (map event-history-events histories)))))
+          (build-event-history (history-compute-validation events)
+              events)))
+
+(define (event-history->sexp theory history)
+        (list (list 'validation (event-history-validation history))
+              (list 'events
+                    (map (lambda (event)
+                           (history-event->sexp theory event))
+                         (event-history-events history)))))
+
+(define (sexp->event-history theory sexp)
+        (let ((validation (cadr (assq 'validation sexp)))
+              (events-sexp (reverse (cadr (assq 'events sexp)))))
+          (build-event-history validation
+              (map (lambda (event-sexp)
+                     (sexp->history-event theory event-sexp))
+                   events-sexp))))
+
+(define (history-update-validation validation event)
+  (ignore event)
+  validation)
+;        (fx+ validation (event->number event))
+
+(define (history-compute-validation events)
+  *initial-event-history-validation*)
+
+;;;        (iterate iter
+;;;                 ((validation *initial-event-history-validation*)
+;;;                  (events events))
+;;;                 (if (null? events) validation
+;;;                     (iter (history-update-validation validation
+;;;                               (event->number (car events)))
+;;;                           (cdr events))))
+
+(define (theory-add-history-event theory event)
+        (imps-enforce history-event? event)
+        (cond
+          ((history-event-sort-definition? event)
+           (theory-add-sort-definition (history-event-item event)))
+          ((history-event-definition? event)
+           (theory-add-definition (history-event-item event)))
+          ((history-event-recursive-definition? event)
+           (theory-add-recursive-definition (history-event-item event)))
+          ((history-event-mc-extension? event)
+           (theory-add-mc-extension (history-event-item event)))
+          ((history-event-theorem? event)
+           (theory-add-theorem theory (history-event-item event)
+               (history-event-name event) nil))
+          (else (imps-error "THEORY-ADD-HISTORY-EVENT: ~S ~A." event
+                    "is a legtimate event")))
+        (push-history-event (theory-history theory) event) event)
+
+(define (theory-history->sexp theory)
+        (event-history->sexp theory (theory-history theory)))
+
+(define (theory-execute-history-sexp theory sexp)
+        (let ((validation (cadr (assq 'validation sexp))))
+          (iterate iter
+                   ((events-sexp (reverse (cadr (assq 'events sexp))))
+                    (events nil))
+                   (if (null? events-sexp)
+                       (if (= validation
+                              (history-compute-validation events))
+                           theory
+                           (imps-error
+                               "THEORY-EXECUTE-EVENT-HISTORY-SEXP: bogus validation."))
+                       (let ((event (sexp->history-event theory
+                                     (car events-sexp))))
+                         (theory-add-history-event theory event)
+                         (iter (cdr events-sexp) (cons event events)))))))

@@ -1,0 +1,372 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment (presentation imps-schemeweb))
+
+(define (xview-figure theory-name str filename . syntax)
+        (let ((object (bind (((current-theory)
+                              (name->theory theory-name)))
+                            (if (car syntax)
+                                (eval (list 'with-imps-syntax
+                                       (car syntax) '(qr str)))
+                                (qr str)))))
+          (let ((crude-port (open filename '(out))))
+            (let ((xtv-port
+                      (output-port->tex-output-port
+                          (make-segmenting-port crude-port 50))))
+              (display-object-in-tex-format object xtv-port)
+              (close xtv-port)))))
+
+(define (xview-theory-for-figure theory-name filename)
+        (let ((crude-port (open filename '(out))))
+          (let* ((port (output-port->tex-output-port
+                           (make-segmenting-port crude-port 50)))
+                 (theory (name->theory theory-name))
+                 (component-theories
+                     (delete-set-element the-kernel-theory
+                         (theory-component-theories theory))))
+            (cond
+              ((null? component-theories))
+              ((null? (cdr component-theories))
+               (xtv-format port
+                   "\\noindent{\\bf Component theory: }~A~%~%"
+                   (backslash-special-chars
+                       (name (car component-theories)))))
+              (else (xtv-format port
+                        "\\noindent{\\bf Component theories: }")
+                    (walk (lambda (comp)
+                            (xtv-format port "~A  "
+                                (backslash-special-chars (name comp))))
+                          component-theories)))
+            (let ((axioms (theory-top-level-axioms theory)))
+              (if (null? axioms)
+                  (xtv-format port
+                      "~%~%\\noindent{\\bf Top level axioms:} There are none.~%~%")
+                  (block (xtv-format port
+                             "~%~%\\noindent{\\bf Top level axioms:} ~%
+\\begin{description}")
+                    (walk (lambda (ax)
+                            (xtv-format port "~%\\item[~A]"
+                                (backslash-special-chars
+                                    (or (name ax) "anonymous")))
+                            (xtv-format port "{ \\raggedright")
+                            (let ((tree (if
+                                         (use-old-apply-operator-form?)
+                                         (expression->sexp object)
+                                         (drop-apply-operators
+                                          (expression->sexp ax)))))
+                              (display-sexpression-in-tex-format tree
+                                  port))
+                            (xtv-format port "}"))
+                          axioms)
+                    (xtv-format port "~%\\end{description}~%~%")))))))
+
+(define (xview-language-for-env language-name filename)
+        (let ((crude-port (open filename '(out))))
+          (let* ((port (output-port->tex-output-port
+                           (make-segmenting-port crude-port 50)))
+                 (language (name->language language-name))
+                 (form (language-defining-form language))
+                 (embedded
+                     (or (assq-val 'embedded-language (cdr form))
+                         (assq-val 'embedded-languages (cdr form))))
+                 (base-type-names (assq-val 'base-types (cdr form)))
+                 (sort-specs (assq-val 'sorts (cdr form)))
+                 (constant-specs (assq-val 'constants (cdr form))))
+            (bind ((*use-periods?* value-false))
+                  (and embedded
+                       (block (xtv-format port
+                                  "~%~%\\noindent{\\em Embedded language~P:} ~%"
+                                  (length embedded))
+                         (walk (lambda (n)
+                                 (xtv-format port " ~a \\quad"
+                                     (string-downcase
+                                      (symbol->string n))))
+                               embedded)
+                         (xtv-format port "~%~%")))
+                  (and base-type-names
+                       (block (xtv-format port
+                                  "~%~%\\noindent{\\em Base type~P:} ~%"
+                                  (length base-type-names))
+                         (walk (lambda (btn)
+                                 (display-object-in-tex-format
+                                     (name->sort language btn) port)
+                                 (xtv-format port " \\quad "))
+                               base-type-names)
+                         (xtv-format port "~%~%")))
+                  (and sort-specs
+                       (block (xtv-format port
+                                  "~%~%\\noindent{\\em Sort~P:}"
+                                  (length sort-specs))
+                         (walk (lambda (ss)
+                                 (let ((sort
+                                        (name->sort language (car ss))))
+                                   (xtv-format port " \\mbox{ ")
+                                   (display-object-in-tex-format sort
+                                    port)
+                                   (xtv-format port " $ \\ll $ ")
+                                   (display-object-in-tex-format
+                                    (enclosing-sort sort) port)
+                                   (xtv-format port " }  \\quad ")))
+                               sort-specs)
+                         (xtv-format port "~%~%")))
+                  (and constant-specs
+                       (block (xtv-format port
+                                  "~%~%\\noindent{\\em Constant~P:}"
+                                  (length constant-specs))
+                         (walk (lambda (cs)
+                                 (let ((const
+                                        (find-constant-with-warning
+                                         language (car cs))))
+                                   (xtv-format port " \\mbox{ ")
+                                   (display-object-in-tex-format const
+                                    port)
+                                   (xtv-format port " : ")
+                                   (display-object-in-tex-format
+                                    (expression-sorting const) port)
+                                   (xtv-format port " }  \\newline ")))
+                               constant-specs)
+                         (xtv-format port "~%~%")))))))
+
+(define (xview-theory-for-env theory-name filename figure-label)
+        (let ((crude-port (open filename '(out))))
+          (let ((port (output-port->tex-output-port
+                          (make-segmenting-port crude-port 50)))
+                (theory (name->theory theory-name)))
+            (and (theory-original-language-name theory)
+                 (block (xtv-format port
+                            "~%~%\\noindent{\\em Language:} ~a"
+                            (string-downcase
+                                (symbol->string
+                                    (theory-original-language-name
+                                     theory))))))
+            (let ((dcs (iterate iter
+                                ((dcs (theory-distinct-constant-list
+                                       theory))
+                                 (cts (theory-component-theories
+                                       theory)))
+                                (if (null? cts) dcs
+                                    (iter
+                                     (set-difference dcs
+                                      (theory-distinct-constant-list
+                                       (car cts)))
+                                     (cdr cts))))))
+              (bind ((*use-periods?* value-false))
+                    (and dcs (not (every? null? dcs))
+                         (block (xtv-format port
+                                    "~%~%\\noindent{\\em Distinct constants:} ")
+                           (walk (lambda (dcl)
+                                   (display-object-in-tex-format dcl
+                                    port)
+                                   (xtv-format port "~%~%"))
+                                 dcs)))))
+            (and (or (theory-component-theories theory)
+                     (theory-top-level-axioms theory))
+                 (xtv-format port
+                     "~%~%\\noindent{\\em Component Theories and Axioms:} See Figure~~\\ref{~a}. "
+                     figure-label)))))
+
+(define (xview-bnf-for-env bnf-name filename)
+        (let ((crude-port (open filename '(out))))
+          (let ((port (output-port->tex-output-port
+                          (make-segmenting-port crude-port 50)))
+                (bnf (name->bnf bnf-name)))
+            (or (bnf? bnf)
+                (imps-error "BNF object named ~A not found." bnf-name))
+            (bind ((*use-periods?* value-false))
+                  (xtv-format port
+                      "~%~%\\noindent{\\em Component Theory:} ~A"
+                      (string-downcase
+                          (symbol->string
+                              (theory-name (bnf-component-theory bnf)))))
+                  (xtv-format port
+                      "~%~%\\noindent{\\em Primary Type:} ")
+                  (display-object-in-tex-format (bnf-primary-type bnf)
+                      port)
+                  (let ((sorts (delete-set-element
+                                   (bnf-primary-type bnf)
+                                   (bnf-sorts bnf))))
+                    (and sorts
+                         (block (xtv-format port
+                                    "~%~%\\noindent{\\em Subsort~P:}"
+                                    (length sorts))
+                           (walk (lambda (sort)
+                                   (xtv-format port " \\mbox{ ")
+                                   (display-object-in-tex-format sort
+                                    port)
+                                   (xtv-format port " $ \\ll $ ")
+                                   (display-object-in-tex-format
+                                    (enclosing-sort sort) port)
+                                   (xtv-format port " }  \\quad "))
+                                 sorts)
+                           (xtv-format port "~%~%"))))
+                  (let ((atoms (bnf-atoms bnf)))
+                    (and atoms
+                         (block (xtv-format port
+                                    "~%~%\\noindent{\\em Atom~P:}"
+                                    (length atoms))
+                           (walk (lambda (atom)
+                                   (xtv-format port " \\mbox{ ")
+                                   (display-object-in-tex-format atom
+                                    port)
+                                   (xtv-format port " $ : $ ")
+                                   (display-object-in-tex-format
+                                    (expression-sorting atom) port)
+                                   (xtv-format port " }  \\quad "))
+                                 atoms)
+                           (xtv-format port "~%~%"))))
+                  (let ((constructors (bnf-constructors bnf))
+                        (selector-lists (bnf-selector-lists bnf)))
+                    (and constructors
+                         (block (xtv-format port
+                                    "~%~%\\noindent{\\em Constructor~P:}
+\\begin{description}
+" (length constructors))
+                           (walk (lambda (constructor selectors)
+                                   (xtv-format port
+                                    " \\item [ \\mbox{ ")
+                                   (display-object-in-tex-format
+                                    constructor port)
+                                   (xtv-format port " } ] $ : $ ")
+                                   (display-object-in-tex-format
+                                    (expression-sorting constructor)
+                                    port)
+                                   (xtv-format port
+                                    ",  with selectors: ~% ")
+                                   (xtv-format port
+                                    "\\begin{description}~%")
+                                   (walk
+                                    (lambda (sel)
+                                      (xtv-format port
+                                       " \\item [ \\mbox{ ")
+                                      (display-object-in-tex-format sel
+                                       port)
+                                      (xtv-format port " } ] $ : $ ")
+                                      (display-object-in-tex-format
+                                       (expression-sorting sel) port)
+                                      (xtv-format port "  ~%"))
+                                    selectors)
+                                   (xtv-format port
+                                    "\\end{description}~%"))
+                                 constructors selector-lists)
+                           (xtv-format port "\\end{description}~%")
+                           (xtv-format port "~%~%"))))))))
+
+(define (xview-translation-for-env translation-name filename)
+        (let ((crude-port (open filename '(out))))
+          (let ((port (output-port->tex-output-port
+                          (make-segmenting-port crude-port 50)))
+                (translation (name->translation translation-name)))
+            (or (translation? translation)
+                (imps-error "Translation object named ~A not found."
+                    translation-name))
+            (bind ((*use-periods?* value-false))
+                  (xtv-format port
+                      "~%~%\\noindent{\\em Source Theory:} ~A"
+                      (string-downcase
+                          (symbol->string
+                              (theory-name
+                                  (translation-source-theory
+                                      translation)))))
+                  (xtv-format port
+                      "~%~%\\noindent{\\em Target Theory:} ~A"
+                      (string-downcase
+                          (symbol->string
+                              (theory-name
+                                  (translation-target-theory
+                                      translation)))))
+                  (let ((fixed (set-difference
+                                   (translation-fixed-theories
+                                    translation)
+                                   (fixed-theories-set))))
+                    (and fixed
+                         (block (xtv-format port
+                                    "~%~%\\noindent{\\em Fixed Theories:} ")
+                           (walk (lambda (f)
+                                   (xtv-format port " ~a \\quad "
+                                    (string-downcase
+                                     (symbol->string (theory-name f))))
+                                   fixed)))))
+                  (let ((sort-pairs
+                            (set-separate
+                                (lambda (p)
+                                  (not (eq? (car p) (cdr p))))
+                                (translation-sort-alist translation))))
+                    (and sort-pairs
+                         (block (xtv-format port
+                                    "~%~%\\noindent{\\em  Sort Pairs:} ")
+                           (walk (lambda (sp)
+                                   (display-object-in-tex-format
+                                    (car sp) port)
+                                   (xtv-format port " $ \\mapsto $ ")
+                                   (display-object-in-tex-format
+                                    (cdr sp) port)
+                                   (xtv-format port " \\quad "))
+                                 sort-pairs))))
+                  (let ((constant-pairs
+                            (set-separate
+                                (lambda (p)
+                                  (not (eq? (car p) (cdr p))))
+                                (translation-constant-alist
+                                    translation))))
+                    (and constant-pairs
+                         (block (xtv-format port
+                                    "~%~%\\noindent{\\em  Constant Pairs:} ")
+                           (walk (lambda (cp)
+                                   (display-object-in-tex-format
+                                    (car cp) port)
+                                   (xtv-format port " $ \\mapsto $ ")
+                                   (display-object-in-tex-format
+                                    (cdr cp) port)
+                                   (xtv-format port " \\quad "))
+                                 constant-pairs))))
+                  (and (translation-theory-interpretation? translation)
+                       (xtv-format port
+                                   "~%~%\\noindent This translation is a {\\bf theory interpretation}. "))))))

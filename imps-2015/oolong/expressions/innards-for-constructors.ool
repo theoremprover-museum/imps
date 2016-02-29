@@ -1,0 +1,1027 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment innards-for-constructors)
+
+(define old-var-lists?
+        (make-simple-switch 'old-var-lists? boolean? value-false))
+
+;;;(define coercion-warning-stream
+;;;        (make-simple-switch 'coercion-warning-stream port?
+;;;            (error-output)))
+
+(define omit-redundant-coercion-warnings
+        (make-simple-switch 'omit-redundant-coercion-warnings boolean?
+            value-true))
+
+(define omit-all-coercion-warnings?
+        (make-simple-switch 'omit-all-coercion-warnings boolean?
+            value-true))
+
+(define coercion-table (make-table 'coercion-table))
+
+(define (present-in-coercion-table? component sort)
+  (memq? sort (table-entry coercion-table component)))
+
+(define (install-in-coercion-table component sort)
+  (set (table-entry coercion-table component)
+       (cons sort (table-entry coercion-table component))))
+
+(define (sort-coercion-action expected-sort actual-sort current-component components)
+  (ignore components)
+  (cond
+   ((eq? expected-sort prop)
+    (imps-error
+     "apply-operator-checker:  conflict:  cannot coerce ~s to prop."
+     actual-sort))
+   ((omit-all-coercion-warnings?))
+   ((and (omit-redundant-coercion-warnings)
+	 (present-in-coercion-table? current-component
+				     expected-sort)))
+   (else (install-in-coercion-table current-component expected-sort))))
+;;;
+;;;	 (format (coercion-warning-stream)
+;;;		 ";coercion note: coercing ~s from ~s to ~s.~%"
+;;;		 current-component actual-sort
+;;;		 expected-sort)
+
+;;;(define (review-sort-coercions)
+;;;  (format (coercion-warning-stream)
+;;;	  "the following coercions have been made: ~%")
+;;;  (walk-table
+;;;   (lambda (expr sortings)
+;;;     (format (coercion-warning-stream)
+;;;	     "~s was coerced from ~s to:~%  ~s~%" expr
+;;;	     (expression-sorting expr) sortings))
+;;;   coercion-table))
+
+(define (same-sorted . components)
+        (or components
+            (imps-error
+                "same-sorted:  checking found null component-list"))
+        (let ((sorting (expression-sorting (car components))))
+          (walk (lambda (comp)
+                  (or (equal? sorting (expression-sorting comp))
+                      (imps-error
+                          "same-sorted: conflict of sorting: sort of ~a is not ~a"
+                          comp sorting)))
+                (cdr components))
+          sorting))
+
+(define (only-formulas . components)
+        (if (every? formula? components) prop
+            (imps-error "only-formulas: ~s contains non-formula."
+                components)))
+
+(define (just-one-formula comp)
+        (if (formula? comp) prop
+            (imps-error "just-one-formula: non-formula ~a" comp)))
+
+(define (just-two-formulas comp1 comp2) (only-formulas comp1 comp2))
+
+(define (two-same-sorted-terms comp1 comp2)
+        (if (and (term? comp1) (term? comp2)) (same-sorted comp1 comp2)
+            (imps-error "two-same-sorted-terms: non-term ~a"
+                (if (term? comp1) comp2 comp1))))
+
+(define (two-same-sorted-predicators comp1 comp2)
+        (if (and (predicator? comp1) (predicator? comp2))
+            (same-sorted comp1 comp2)
+            (imps-error "TWO-SAME-SORTED-PREDICATORS: non-term ~A"
+                (if (predicator? comp1) comp2 comp1))))
+
+(define (two-like-sorted-exprs comp1 comp2)
+        (or (sorts-may-overlap? (expression-sorting comp1)
+                (expression-sorting comp2))))
+
+(define (two-same-sorted-terms-or-fns comp1 comp2)
+        (if (and (term-or-fn? comp1) (term-or-fn? comp2))
+            (same-sorted comp1 comp2)
+            (imps-error "two-same-sorted-terms-or-fns: non-term ~a"
+                (if (term? comp1) comp2 comp1))))
+
+(define (formula-from-two-same-sorted-terms-or-fns comp1 comp2)
+        (two-same-sorted-terms-or-fns comp1 comp2) prop)
+
+(define (two-similarly-sorted-terms comp1 comp2)
+        (cond
+          ((not (term-or-fn? comp1))
+           (imps-error
+               "TWO-SIMILARLY-SORTED-TERMS: ~s neither term nor function."
+               comp1))
+          ((not (term-or-fn? comp2))
+           (imps-error
+               "TWO-SIMILARLY-SORTED-TERMS: ~s neither term nor function."
+               comp2))
+          ((same-sorted? comp1 comp2))
+          ((sorts-may-overlap? (expression-sorting comp1)
+               (expression-sorting comp2))
+           (sort-coercion-action (expression-sorting comp1)
+               (expression-sorting comp2) comp2 (list comp1 comp2))
+           value-true)
+          (else (imps-error
+                    "TWO-SIMILARLY-SORTED-TERMS: ~S and ~S have different types."
+                    comp1 comp2))))
+
+(define (equality-component-checker comp1 comp2)
+        (cond
+          ((same-sorted? comp1 comp2))
+          ((sorts-may-overlap? (expression-sorting comp1)
+               (expression-sorting comp2))
+           (sort-coercion-action (expression-sorting comp1)
+               (expression-sorting comp2) comp2 (list comp1 comp2))
+           value-true)
+          (else (imps-error
+                    "equality-component-checker: components of different types: ~s ~s"
+                    comp1 comp2)))
+        prop)
+
+(define (formula-from-term-or-fn comp1)
+        (if (term-or-fn? comp1) prop
+            (imps-error "formula-from-term-or-fn: non-term ~a" comp1)))
+
+(define (formula-from-one-comp comp1) (ignore comp1) prop)
+
+(define (no-formulas) prop)
+
+(define (expr-from-formula-and-two-like-exprs form term1 term2)
+        (if (not (formula? form))
+            (imps-error
+                "term-from-formula-and-two-terms: ~s fails to be a formula."
+                form)
+            (two-like-sorted-exprs term1 term2))
+        (sorting-lub (expression-sorting term1)
+            (expression-sorting term2)))
+
+(define (formula-from-three-formulas form1 form2 form3)
+        (if (not (formula? form1))
+            (imps-error
+                "formula-from-three-formulas: ~s fails to be a formula."
+                form1))
+        (if (not (formula? form2))
+            (imps-error
+                "formula-from-three-formulas: ~s fails to be a formula."
+                form2))
+        (if (not (formula? form3))
+            (imps-error
+                "formula-from-three-formulas: ~s fails to be a formula."
+                form3))
+        prop)
+
+(define (predicator-from-formula-and-two-predicators form pred1 pred2)
+        (if (not (formula? form))
+            (imps-error
+                "PREDICATOR-FROM-FORMULA-AND-TWO-PREDICATORS: ~S ~A."
+                form "fails to be a formula")
+            (two-similarly-sorted-predicators pred1 pred2)))
+
+(define (two-similarly-sorted-predicators comp1 comp2)
+        (cond
+          ((not (predicator? comp1))
+           (imps-error
+               "TWO-SIMILARLY-SORTED-PREDICATORS: ~S is not a predicator."
+               comp1))
+          ((not (predicator? comp2))
+           (imps-error
+               "TWO-SIMILARLY-SORTED-PREDICATOR: ~S is not a predicator."
+               comp2))
+          ((same-sorted? comp1 comp2))
+          ((sorts-may-overlap? (expression-sorting comp1)
+               (expression-sorting comp2))
+           (sort-coercion-action (expression-sorting comp1)
+               (expression-sorting comp2) comp2 (list comp1 comp2))
+           value-true)
+          (else (imps-error
+                    "TWO-SIMILARLY-SORTED-PREDICATES: ~S and ~S have different types."
+                    comp1 comp2))))
+
+(define (binary-infix-sexp-builder expr)
+        (let ((first-arg (car (expression-components expr)))
+              (second-arg (cadr (expression-components expr)))
+              (remaining (cddr (expression-components expr))))
+          (or (null? remaining)
+              (imps-error
+                  "binary-infix-sexp-builder: too many components: ~s"
+                  (expression-components expr)))
+          (list (expression->withful-sexp first-arg)
+                (name (expression-constructor expr))
+                (expression->withful-sexp second-arg))))
+
+(define (apply-operator-checker . components)
+        (let ((op (car components)))
+          (or (predicator? op) (function? op)
+              (imps-error "apply-operator-checker: bad operator ~S" op)))
+        (iterate match
+                 ((expected-sortings
+                      (higher-sort-domains
+                          (expression-sorting (car components))))
+                  (args (cdr components)))
+                 (cond
+                   ((null? args)
+                    (if (null? expected-sortings)
+                        (higher-sort-range
+                            (expression-sorting (car components)))
+                        (imps-error
+                            "apply-operator-checker:  ~d too few args. ~s"
+                            (length expected-sortings) components)))
+                   ((null? expected-sortings)
+                    (imps-error
+                        "apply-operator-checker:  ~d too many args. ~s"
+                        (length args) components))
+                   ((sortings-match-exactly? (car expected-sortings)
+                        (expression-sorting (car args)))
+                    (match (cdr expected-sortings) (cdr args)))
+                   ((sorts-may-overlap? (car expected-sortings)
+                        (expression-sorting (car args)))
+                    (sort-coercion-action (car expected-sortings)
+                        (expression-sorting (car args)) (car args)
+                        components)
+                    (match (cdr expected-sortings) (cdr args)))
+                   (else (imps-error
+                             "apply-operator-checker:  mismatch -- expected sort: ~s~&actual: ~s~&operator: ~S~&current argument: ~S"
+                             (car expected-sortings)
+                             (expression-sorting (car args))
+                             (car components) (car args))))))
+
+(define (omit-name-sexp-builder expr)
+        (let ((components (expression-components expr)))
+          (map (lambda (c) (expression->withful-sexp c)) components)))
+
+(define (binding-variables expr)
+        (enforce binding-constructor? (expression-constructor expr))
+        (cdr (expression-components expr)))
+
+(define (binding-body expr)
+        (enforce binding-constructor? (expression-constructor expr))
+        (car (expression-components expr)))
+
+(define binding-binder cdr)
+
+(define (quantifier-component-checker . body-and-vars)
+        (let ((body (car body-and-vars))
+              (var-list (cdr body-and-vars)))
+          (or (is-set? var-list)
+              (imps-error
+                  "quantifier-component-checker: duplicate occurrence in variable list ~a"
+                  var-list))
+          (or (every? variable? var-list)
+              (imps-error
+                  "quantifier-component-checker: variable list ~a does not consist of variables"
+                  var-list))
+          (or (formula? body)
+              (imps-error
+                  "quantifier-component-checker: body ~a is not a formula"
+                  body))
+          prop))
+
+(define (quantifier-sexp-builder expr)
+        (let ((constr (expression-constructor expr))
+              (var-list (binding-variables expr))
+              (body (binding-body expr)))
+          (list (name constr) (var-list->sexp var-list)
+                (cond
+                  ((quantifier-sexp-var-list-conflicts body var-list)
+                   =>
+                   (lambda (conflicts)
+                     (list 'with (var-list->sexp conflicts)
+                           (expression->withful-sexp body))))
+                  (else (expression->withful-sexp body))))))
+
+(define (quantifier-sexp-var-list-conflicts body var-list)
+        (let ((nbv-names (map name var-list)))
+          (set-separate
+              (lambda (fv)
+                (and (not (memq? fv var-list))
+                     (memq? (name fv) nbv-names)))
+              (free-variables body))))
+
+(define (var-list->sexp var-list)
+        (let ((partitioned-vars
+                  (partition-list-in-place var-list same-sorted?)))
+          (if (old-var-lists?)
+              (map (lambda (p)
+                     (list (map (lambda (v)
+                                  (expression->withful-sexp v))
+                                p)
+                           (sort->list (expression-sorting (car p)))))
+                   partitioned-vars)
+              (map (lambda (p)
+                     (cons (sort->list (expression-sorting (car p)))
+                           (map (lambda (v)
+                                  (expression->withful-sexp v))
+                                p)))
+                   partitioned-vars))))
+
+(define (partition-list-in-place s pred)
+        (iterate iter ((s s) (current-list nil) (previous-lists nil))
+                 (cond
+                   ((null? s)
+                    (reverse!
+                        (cons (reverse! current-list) previous-lists)))
+                   ((or (null? current-list)
+                        (funcall pred (car s) (car current-list)))
+                    (iter (cdr s) (cons (car s) current-list)
+                          previous-lists))
+                   (else (iter s nil
+                               (cons (reverse! current-list)
+                                     previous-lists))))))
+
+(define (quantifier-sexp-decoder sexp language
+            name-formal-symbol-alist)
+        (destructure (((constr-name var-list body-sexp . rest) sexp))
+            (ignore constr-name)
+            (or (null? rest)
+                (imps-error
+                    "quantifier-sexp-decoder: ~S found after body."
+                    rest))
+            (receive (the-variables new-associations)
+                     (quantifier-decode-var-list language var-list)
+                     (cond
+                       ((any (lambda (v)
+                               (and (find-constant language (name v))
+                                    v))
+                             the-variables)
+                        =>
+                        (lambda (v)
+                          (imps-warning
+                              "Warning: variable ~S shares name with constant ~S.~% (quantifier-sexp-decoder)~%"
+                              v (find-constant language (name v))))))
+                     (cons (sexp->expression-1 body-sexp language
+                               (append new-associations
+                                       name-formal-symbol-alist))
+                           the-variables))))
+
+(define (quantifier-decode-var-list language var-list)
+        (iterate iter
+                 ((var-list var-list) (the-variables nil)
+                  (new-associations nil))
+                 (cond
+                   ((null? var-list)
+                    (return the-variables new-associations))
+                   (else (receive (new-variables
+                                      additional-new-associations)
+                                  (quantifier-decode-var-sub-list
+                                      language (car var-list))
+                                  (iter (cdr var-list)
+                                        (append the-variables
+                                         new-variables)
+                                        (append
+                                         additional-new-associations
+                                         new-associations)))))))
+
+(define (quantifier-decode-var-sub-list language head)
+        (let ((var-names (if (old-var-lists?) (car head) (cdr head)))
+              (sorting (list->sort language
+                           (if (old-var-lists?) (cadr head) (car head)))))
+          (or (sort? sorting)
+              (imps-error "QUANTIFIER-DECODE-VAR-SUB-LIST: ~S ~A ~S."
+                  (if (old-var-lists?) (cadr head) (car head))
+                  "is not a sort in" language))
+          (iterate iter
+                   ((var-names var-names) (the-variables nil)
+                    (associations nil))
+                   (cond
+                     ((null? var-names)
+                      (return (reverse! the-variables) associations))
+                     (else (let ((new-var (find-variable
+                                           (car var-names) sorting)))
+                             (iter (cdr var-names)
+                                   (cons new-var the-variables)
+                                   (cons (cons (car var-names) new-var)
+                                    associations))))))))
+
+(define (lambda-component-checker . body-and-vars)
+        (destructure (((body . vars) body-and-vars))
+            (or (is-set? vars)
+                (imps-error
+                    "lambda-component-checker: duplicate occurrence in variable list ~a"
+                    vars))
+            (or (every? variable? vars)
+                (imps-error
+                    "lambda-component-checker: variable list ~a does not consist of variables"
+                    vars))
+            (build-maximal-higher-sort (map expression-sorting vars)
+                (expression-sorting body))))
+
+(define (is-defined-in-sort-component-checker term var)
+        (if (not (variable? var))
+            (imps-error
+                "is-defined-in-sort-component-checker: ~s not variable"
+                var))
+        (if (not (sorts-may-overlap? (expression-sorting term)
+                     (expression-sorting var)))
+            (imps-error
+                "is-defined-in-sort-component-checker: sort mismatch: ~s ~s"
+                var term))
+        prop)
+
+(define (is-defined-in-sort-sexp-builder expr)
+        (let ((constr (expression-constructor expr))
+              (term (nth (expression-components expr) 0))
+              (var (nth (expression-components expr) 1)))
+          (list (name constr) (expression->withful-sexp term)
+                (sort->list (expression-sorting var)))))
+
+(define (is-defined-in-sort-sexp-decoder sexp language
+            name-formal-symbol-alist)
+        (destructure (((() term-sexp sort) sexp))
+            (let ((sorting (list->sort language sort))
+                  (term (sexp->expression-1 term-sexp language
+                            name-formal-symbol-alist)))
+              (list term
+                    (new-variable sorting *in-sort-preferred-varname*
+                        (free-variables term))))))
+
+(define *in-sort-preferred-varname* '%ispv%)
+
+(define (undefined-of-sort-sexp-builder expr)
+        (let ((constr (expression-constructor expr))
+              (var (cadr (expression-components expr))))
+          (list (name constr) (sort->list (expression-sorting var)))))
+
+(define (undefined-of-sort-sexp-decoder sexp language
+            name-formal-symbol-alist)
+        (ignore name-formal-symbol-alist)
+        (let* ((sorting (list->sort language (cadr sexp)))
+               (var (find-variable *in-sort-preferred-varname* sorting)))
+          (list var var)))
+
+(define (undefined-of-sort-component-checker var1 var) (ignore var1)
+        (if (formula-or-predicator? var)
+            (imps-error
+                "undefined-of-sort-component-checker: prop-sorted sort ~S has no undefined expressions"
+                (expression-sorting var))
+            (expression-sorting var)))
+
+(define (iota-component-checker . body-and-vars)
+        (destructure (((body var) body-and-vars))
+            (or (null? (cddr body-and-vars))
+                (imps-error
+                    "IOTA-COMPONENT-CHECKER: length of variable list ~a is not 1"
+                  (cdr body-and-vars)))
+            (or (variable? var)
+                (imps-error
+                    "iota-component-checker: variable list contains non-variable ~a."
+                    var))
+            (and (prop-sorting? (expression-sorting var))
+                 (imps-error
+                     "IOTA-COMPONENT-CHECKER: sorting of variable ~a terminates in PROP"
+                     var))
+            (or (formula? body)
+                (imps-error
+                    "iota-component-checker: body ~a is not a formula"
+                    body))
+            (expression-sorting var)))
+
+(define (iota-p-component-checker . body-and-vars)
+        (destructure (((body var) body-and-vars))
+            (or (null? (cddr body-and-vars))
+                (imps-error
+                    "IOTA-P-COMPONENT-CHECKER: length of variable list ~a is not 1"
+		    (cdr body-and-vars)))
+            (or (variable? var)
+                (imps-error
+                    "iota-p-component-checker: variable list contains non-variable ~a."
+                    var))
+            (or (prop-sorting? (expression-sorting var))
+                (imps-error
+                    "IOTA-P-COMPONENT-CHECKER: sorting of variable ~a does not terminate in PROP"
+                    var))
+            (or (formula? body)
+                (imps-error
+                    "iota-component-checker: body ~a is not a formula"
+                    body))
+            (expression-sorting var)))
+
+(define (with-sexp-decoder sexp language name-formal-symbol-alist)
+        (destructure (((constr-name var-list body-sexp . rest) sexp))
+            (ignore constr-name)
+            (or (null? rest)
+                (imps-error "with-sexp-decoder: ~S found after body."
+                    rest))
+            (receive (the-variables new-associations)
+                     (quantifier-decode-var-list language var-list)
+                     (cond
+                       ((any (lambda (v)
+                               (and (find-constant language (name v))
+                                    v))
+                             the-variables)
+                        =>
+                        (lambda (v)
+                          (imps-warning
+                              "Warning: variable ~S shares name with constant ~S.~% (with-sexp-decoder)~%"
+                              v (find-constant language (name v))))))
+                     (list (sexp->expression-1 body-sexp language
+                               (append new-associations
+                                       name-formal-symbol-alist))))))
+
+(define (with-sexp-builder expr)
+        (let ((constr (expression-constructor expr))
+              (var-list
+                  (set-difference (free-variables expr)
+                      (current-language-default-variables)))
+              (body (car (expression-components expr))))
+          (list (name constr) (var-list->sexp var-list)
+                (expression->withful-sexp body))))
+
+(define (remove-leading-withs expr)
+        (if (eq? (expression-constructor expr)
+                 (symbol->constructor 'with))
+            (remove-leading-withs (car (expression-components expr)))
+            expr))
+
+(define (separate-bound-variables expr)
+        (receive (new-expr ()) (carry-out-separation expr nil)
+                 new-expr))
+
+(define (carry-out-separation expr avoid-vars)
+        (cond
+          ((null? (bound-variables expr)) (return expr avoid-vars))
+          ((and (binding-expression? expr)
+                (null-intersection? (binding-variables expr)
+                    avoid-vars))
+           (receive (new-body new-avoid)
+                    (carry-out-separation (binding-body expr)
+                        (set-union (binding-variables expr) avoid-vars))
+                    (return
+                      (apply (expression-constructor expr)
+                             (cons new-body (binding-variables expr)))
+                      new-avoid)))
+          ((binding-expression? expr)
+           (let* ((subst (map (lambda (v)
+                                (cons v
+                                      (new-variable
+                                       (expression-sorting v) (name v)
+                                       avoid-vars)))
+                              (binding-variables expr)))
+                  (new-var-list (map substitution-replacement subst)))
+             (receive (new-body new-avoid)
+                      (carry-out-separation
+                          (apply-substitution subst
+                              (binding-body expr))
+                          (set-union new-var-list avoid-vars))
+                      (return
+                        (apply (expression-constructor expr)
+                               (cons new-body new-var-list))
+                        new-avoid))))
+          ((expression-constructor expr)
+           (iterate iter
+                    ((components (expression-components expr))
+                     (avoid-vars avoid-vars) (clean-components nil))
+                    (cond
+                      ((null? components)
+                       (return
+                         (apply (expression-constructor expr)
+                                (reverse! clean-components))
+                         avoid-vars))
+                      (else (receive (next-comp new-avoid)
+                                     (carry-out-separation
+                                      (car components) avoid-vars)
+                                     (iter (cdr components) new-avoid
+                                      (cons next-comp clean-components)))))))
+          (else (return expr avoid-vars))))
+
+(define (separate-antecedent-and-consequent formula)
+        (iterate iter ((antecedents nil) (consequent formula))
+                 (if (eq? implication
+                          (expression-constructor consequent))
+                     (iter (cons (implication-antecedent consequent)
+                                 antecedents)
+                           (implication-consequent consequent))
+                     (return
+                       (constructor-simplify
+                           (apply conjunction (make-set antecedents)))
+                       consequent))))
+
+(define (quasi-equation-inverse formula)
+        (and (implication? formula)
+             (equation? (expression-rhs formula))
+             (let ((lhs (expression-lhs (expression-rhs formula)))
+                   (rhs (expression-rhs (expression-rhs formula))))
+               (if (eq? (expression-lhs formula)
+                        (disjunction (is-defined lhs) (is-defined rhs)))
+                   (list lhs rhs) value-false))))
+
+(define (quasi-equation-constr-proc comps)
+        (destructure (((lhs rhs . rest) comps))
+            (if (not (null? rest))
+                (imps-error
+                    "quasi-equation-constr-proc: too many arguments ~S"
+                    comps))
+            (implication
+                (disjunction (is-defined lhs) (is-defined rhs))
+                (equality lhs rhs))))
+
+(define (sub-function-constr-proc comps)
+        (destructure (((lhs rhs . rest) comps))
+            (if (not (null? rest))
+                (imps-error
+                    "SUB-FUNCTION-CONSTR-PROC: too many arguments ~S"
+                    comps))
+            (let ((sort1 (expression-sorting lhs))
+                  (sort2 (expression-sorting rhs)))
+              (if (or (not (sorts-may-overlap? sort1 sort2))
+                      (not (higher-sort? sort1)) (prop-sorting? sort1))
+                  (imps-error
+                      "SUB-FUNCTION-CONSTR-PROC: badly sorted arguments ~S ~S"
+                      lhs rhs)
+                  (let ((vars (sorts->new-variables (domain-sorts lhs)
+                                  'u
+                                  (set-union (variables lhs)
+                                      (variables rhs)))))
+                    (apply forall
+                           (implication
+                               (is-defined
+                                   (apply apply-operator lhs vars))
+                               (equality
+                                   (apply apply-operator lhs vars)
+                                   (apply apply-operator rhs vars)))
+                           vars))))))
+
+(define (sub-function-inverse formula)
+        (if (not (universal? formula)) value-false
+            (let ((vars (binding-variables formula))
+                  (body (binding-body formula)))
+              (if (not (implication? body)) value-false
+                  (let ((ant (implication-antecedent body))
+                        (con (implication-consequent body)))
+                    (if (not (and (convergence? ant) (equation? con)
+                                  (application?
+                                      (car (expression-components ant)))
+                                  (every? application?
+                                          (expression-components con))))
+                        value-false
+                        (let ((op1 (operator
+                                    (car (expression-components ant))))
+                              (op2 (operator (expression-lhs con)))
+                              (op3 (operator (expression-rhs con))))
+                          (if (not (and (eq? op1 op2)
+                                    (null-intersection? vars
+                                     (free-variables op2))
+                                    (null-intersection? vars
+                                     (free-variables op3))
+                                    (equal? vars
+                                     (arguments
+                                      (car (expression-components ant))))
+                                    (equal? vars
+                                     (arguments (expression-lhs con)))
+                                    (equal? vars
+                                     (arguments (expression-rhs con)))
+                                    (sorting-list-leq
+                                     (higher-sort-domains
+                                      (expression-sorting op2))
+                                     (map expression-sorting vars))))
+                              value-false (list op2 op3)))))))))
+
+(define (sub-predicate-constr-proc comps)
+        (destructure (((lhs rhs . rest) comps))
+            (if (not (null? rest))
+                (imps-error
+                    "SUB-PREDICATE-CONSTR-PROC: too many arguments ~S"
+                    comps))
+            (let ((sort1 (expression-sorting lhs))
+                  (sort2 (expression-sorting rhs)))
+              (if (or (not (predicate? lhs))
+                      (not (sorts-may-overlap? sort1 sort2))
+                      (not (higher-sort? sort1)))
+                  (imps-error
+                      "SUB-PREDICATE-CONSTR-PROC: badly sorted arguments ~S ~S"
+                      lhs rhs)
+                  (let ((vars (sorts->new-variables (domain-sorts lhs)
+                                  'u
+                                  (set-union (variables lhs)
+                                      (variables rhs)))))
+                    (apply forall
+                           (implication (apply apply-operator lhs vars)
+                               (apply apply-operator rhs vars))
+                           vars))))))
+
+(define (sub-predicate-inverse formula)
+        (if (not (universal? formula)) value-false
+            (let ((vars (binding-variables formula))
+                  (body (binding-body formula)))
+              (if (not (implication? body)) value-false
+                  (let ((ant (implication-antecedent body))
+                        (con (implication-consequent body)))
+                    (if (not (and (application? ant)
+                                  (application? con)))
+                        value-false
+                        (let ((op1 (operator ant))
+                              (op2 (operator con)))
+                          (if (not (and (equal? vars (arguments ant))
+                                    (equal? vars (arguments con))
+                                    (null-intersection? vars
+                                     (free-variables op1))
+                                    (null-intersection? vars
+                                     (free-variables op2))
+                                    (sorting-list-leq
+                                     (higher-sort-domains
+                                      (expression-sorting op2))
+                                     (map expression-sorting vars))))
+                              value-false (list op1 op2)))))))))
+
+(define (falselike-of-sort-constr-proc comps)
+        (destructure (((expr . rest) comps))
+            (or (null? rest)
+                (imps-error "FALSELIKE-OF-SORT-CONSTR-PROC: too many arguments ~S"
+                            comps))
+            (or (and (not (eq? (expression-sorting expr) prop))
+                     (expression-of-category-prop? expr))
+                (imps-error
+                    "FALSELIKE-OF-SORT-CONSTR-PROC: ~S is not a predicator."
+                    expr))
+            (let* ((sort (expression-sorting expr))
+                   (domains (higher-sort-domains sort))
+                   (range (higher-sort-range sort))
+                   (body (falselike range))
+                   (new-vars
+                       (sorts->new-variables domains 'u
+                           (variables body))))
+              (apply imps-lambda body new-vars))))
+
+(define (falselike-of-sort-inverse expr)
+        (and (lambda-expression? expr)
+             (let ((body (binding-body expr))
+                   (vars (binding-variables expr)))
+               (and (not (null? vars))
+                    (or (eq? body falsehood)
+                        (falselike-of-sort-inverse body))
+                    (list (find-variable *in-sort-preferred-varname*
+                              (expression-sorting expr)))))))
+
+(define (falselike-of-sort-sexp-builder expr)
+        (let ((constr (expression-quasi-constructor expr))
+              (var (car (falselike-of-sort-inverse expr))))
+          (list (name constr) (sort->list (expression-sorting var)))))
+
+(define (falselike-of-sort-sexp-decoder sexp language
+            name-formal-symbol-alist)
+        (ignore name-formal-symbol-alist)
+        (let* ((sorting (list->sort language (cadr sexp)))
+               (var (find-variable *in-sort-preferred-varname* sorting)))
+          (list var)))
+
+(define (domain-constr-proc comps)
+        (destructure (((expr . rest) comps))
+            (or (null? rest)
+                (imps-error
+                    "DOMAIN-CONSTR-PROC:  too many arguments ~S" comps))
+            (or (function? expr)
+                (imps-error
+                    "DOMAIN-CONSTR-PROC:  ~S is not a function." expr))
+            (let ((vars (sorts->new-variables
+                            (higher-sort-domains
+                                (expression-sorting expr))
+                            'x (variables expr))))
+              (apply imps-lambda
+                     (is-defined (apply apply-operator expr vars))
+                     vars))))
+
+(define (domain-inverse expr)
+        (and (lambda-expression? expr)
+             (let ((body (binding-body expr))
+                   (vars (binding-variables expr)))
+               (and (convergence? body) (<= 1 (length vars))
+                    (let* ((term (convergence-term body))
+                           (op (operator term)))
+                      (and (application? term)
+                           (equal? vars (arguments term))
+                           (null-intersection? vars
+                               (free-variables op))
+                           (sorting-list-leq
+                               (higher-sort-domains
+                                   (expression-sorting op))
+                               (map expression-sorting vars))
+                           (list op)))))))
+
+(define (range-constr-proc comps)
+        (destructure (((expr . rest) comps))
+            (or (null? rest)
+                (imps-error "RANGE-CONSTR-PROC: too many arguments ~S"
+                    comps))
+            (let ((sorting (expression-sorting expr)))
+              (or (higher-sort? (expression-sorting expr))
+                  (imps-error
+                      "RANGE-CONSTR-PROC:  ~S is not a function or predicator."
+                      expr))
+              (let* ((domain-sorts (higher-sort-domains sorting))
+                     (domain-vars
+                         (sorts->new-variables domain-sorts 'x
+                             (variables expr)))
+                     (range-sort (higher-sort-range sorting))
+                     (range-var
+                         (new-variable range-sort 'y (variables expr))))
+                (imps-lambda
+                    (apply forsome
+                           (equality
+                               (apply apply-operator expr domain-vars)
+                               range-var)
+                           domain-vars)
+                    range-var)))))
+
+(define (range-inverse expr)
+        (and (lambda-expression? expr)
+             (let ((outer-body (binding-body expr))
+                   (outer-vars (binding-variables expr)))
+               (and (equal? (length outer-vars) 1)
+                    (existential? outer-body)
+                    (let ((inner-body (binding-body outer-body))
+                          (inner-vars (binding-variables outer-body)))
+                      (and (equation? inner-body)
+                           (let ((lhs (expression-lhs inner-body))
+                                 (rhs (expression-rhs inner-body)))
+                             (and (eq? rhs (car outer-vars))
+                                  (application? lhs)
+                                  (let ((op (operator lhs))
+                                        (args (arguments lhs)))
+                                    (and (equal? args inner-vars)
+                                     (null-intersection?
+                                      (set-union inner-vars outer-vars)
+                                      (free-variables op))
+                                     (sorting-list-leq
+                                      (higher-sort-domains
+                                       (expression-sorting op))
+                                      (map expression-sorting
+                                       inner-vars))
+                                     (sorting-leq
+                                      (higher-sort-range
+                                       (expression-sorting op))
+                                      (expression-sorting
+                                       (car outer-vars)))
+                                     (list op)))))))))))
+
+(define (total?-constr-proc comps)
+        (destructure (((expr sorting-indicator . rest) comps))
+            (or (null? rest)
+                (imps-error "TOTAL?-CONSTR-PROC: too many arguments ~S"
+                    comps))
+            (let ((sorting (expression-sorting sorting-indicator)))
+              (or (higher-sort? sorting)
+                  (imps-error
+                      "TOTAL?-CONSTR-PROC:  ~S is not a function or predicator."
+                      expr))
+              (or (sorts-may-overlap? (expression-sorting expr)
+                      sorting)
+                  (imps-error
+                      "TOTAL?-CONSTR-PROC:  Type mismatch -- ~S is not of type ~S."
+                      expr sorting))
+              (or (eq? (expression-range expr)
+                       (higher-sort-range sorting))
+                  (imps-warning
+                      "TOTAL?-CONSTR-PROC: ignoring mismatch in ranges: ~S ~S.~&"
+                      (expression-range expr)
+                      (higher-sort-range sorting)))
+              (let ((domain-vars
+                        (sorts->new-variables
+                            (higher-sort-domains sorting) 'x
+                            (variables expr))))
+                (apply forall
+                       (is-defined
+                           (apply apply-operator expr domain-vars))
+                       domain-vars)))))
+
+(define (total?-inverse expr)
+        (and (universal? expr)
+             (let ((body (binding-body expr))
+                   (vars (binding-variables expr)))
+               (and (convergence? body)
+                    (let ((app (car (expression-components body))))
+                      (and (application? app)
+                           (equal? vars (arguments app))
+                           (let ((fn (operator app)))
+                             (and (null-intersection? vars
+                                      (free-variables fn))
+                                  (list fn
+                                        (undefined
+                                         (build-maximal-higher-sort
+                                          (map expression-sorting vars)
+                                          (expression-range fn))))))))))))
+
+(define (total-in-sort?-constr-proc comps)
+        (destructure (((expr sorting-indicator . rest) comps))
+            (or (null? rest)
+                (imps-error
+                    "TOTAL-IN-SORT?-CONSTR-PROC: too many arguments ~S"
+                    comps))
+            (let ((sorting (expression-sorting sorting-indicator)))
+              (or (higher-sort? sorting)
+                  (imps-error
+                      "TOTAL-IN-SORT?-CONSTR-PROC:  ~S is not a function or predicator."
+                      expr))
+              (or (sorts-may-overlap? (expression-sorting expr)
+                      sorting)
+                  (imps-error
+                      "TOTAL-IN-SORT?-CONSTR-PROC:  Type mismatch -- ~S is not of type ~S."
+                      expr sorting))
+              (let ((domain-vars
+                        (sorts->new-variables
+                            (higher-sort-domains sorting) 'x
+                            (variables expr))))
+                (apply forall
+                       (defined-in
+                           (apply apply-operator expr domain-vars)
+                           (higher-sort-range sorting))
+                       domain-vars)))))
+
+(define (total-in-sort?-inverse expr)
+        (and (universal? expr)
+             (let ((body (binding-body expr))
+                   (vars (binding-variables expr)))
+               (and (convergence-in-sort? body)
+                    (destructure
+                        (((term sort) (expression-components body)))
+                        (and (application? term)
+                             (equal? vars (arguments term))
+                             (let ((fn (operator term)))
+                               (and (null-intersection? vars
+                                     (free-variables fn))
+                                    (list fn (undefined sort))))))))))
+
+(define (nonvacuous?-constr-proc comps)
+        (destructure (((expr . rest) comps))
+            (or (null? rest)
+                (imps-error
+                    "NONVACUOUS?-CONSTR-PROC: too many arguments ~S"
+                    comps))
+            (or (predicate? expr)
+                (imps-error
+                    "NONVACUOUS?-CONSTR-PROC:  ~S is not a predicate."
+                    expr))
+            (let* ((domain-sorts
+                       (higher-sort-domains (expression-sorting expr)))
+                   (domain-vars
+                       (sorts->new-variables domain-sorts 'x
+                           (variables expr))))
+              (apply forsome (apply apply-operator expr domain-vars)
+                     domain-vars))))
+
+(define (nonvacuous?-inverse expr)
+        (and (existential? expr)
+             (let ((body (binding-body expr))
+                   (vars (binding-variables expr)))
+               (and (application? body)
+                    (equal? vars (cdr (expression-components body)))
+                    (let ((op (car (expression-components body))))
+                      (and (predicate? op)
+                           (null-intersection? vars
+                               (free-variables op))
+                           (sorting-list-leq
+                               (higher-sort-domains
+                                   (expression-sorting op))
+                               (map expression-sorting vars))
+                           (list op)))))))
+
+(define (lambda-application-constructor-proc components)
+        (apply apply-operator components))
+
+(define (lambda-application-inverse expr)
+        (if (and (application? expr)
+                 (lambda-expression? (operator expr)))
+            (expression-components expr) value-false))

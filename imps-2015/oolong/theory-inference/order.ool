@@ -1,0 +1,605 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment order)
+
+(define-operation (processor-discrete-sorts processor)
+    (enforce processor? processor) nil)
+
+(define-integrable discrete-sorts processor-discrete-sorts)
+
+(define-structure-type order-processor <=r <r discrete-sorts
+    sum-partitioner algebraic-processor handled-operators reduced-terms
+    (((algebraic-sub-processor soi)
+      (order-processor-algebraic-processor soi))
+     ((processor-simplify processor expr params)
+      (order-processor-simplify processor expr params))
+     ((processor-discrete-sorts processor)
+      (order-processor-discrete-sorts processor))
+     ((processor-reduced-terms soi)
+      (order-processor-reduced-terms soi))
+     ((partition-summation processor expr params)
+      (funcall (order-processor-sum-partitioner processor) processor
+               expr params))
+     ((processor-validity-conditions processor)
+      (append (order-processor-validity-conditions processor)
+              (processor-validity-conditions
+                  (order-processor-algebraic-processor processor))))
+     ((processor? soi) value-true)))
+
+(define (order-processor-simplify processor expr params)
+        (if (processor-reduced? processor expr params) expr
+            (select (operator expr)
+                    (((<r processor))
+                     (annotate-expression-as-reduced processor
+                         (simp< processor expr params) params))
+                    (((<=r processor))
+                     (annotate-expression-as-reduced processor
+                         (simp<= processor expr params) params))
+                    (else (simplify-by-transforms
+                              (processor-parameters-context params)
+                              expr
+                              (processor-parameters-persistence params))))))
+
+(define (order-processor-simplify-with-requirements processor context
+            expr persist)
+        (if (and (application? expr)
+                 (memq (operator expr)
+                       (order-processor-handled-operators processor)))
+            (let ((pars (make-processor-parameters)))
+              (set (processor-parameters-persistence pars) persist)
+              (set (processor-parameters-context pars) context)
+              (let ((simplified
+                        (order-processor-simplify processor expr pars)))
+                (return
+                  simplified
+                  (processor-parameters-requirements pars)
+                  value-true)))
+            (return expr nil value-false)))
+
+(define (<r processor) (order-processor-<r processor))
+
+(define (<=r processor) (order-processor-<=r processor))
+
+(define (build-order-processor-from-algebraic-processor
+            algebraic-processor operations-alist discrete-sorts)
+        (let ((<r-op (cadr (assq '< operations-alist)))
+              (<=r-op (cadr (assq '<= operations-alist)))
+              (processor (make-order-processor)))
+          (set (order-processor-reduced-terms processor) (make-table))
+          (set (order-processor-algebraic-processor processor)
+               algebraic-processor)
+          (set (order-processor-<r processor) <r-op)
+          (set (order-processor-<=r processor) <=r-op)
+          (set (order-processor-sum-partitioner processor)
+               default-summation-partitioner)
+          (set (order-processor-discrete-sorts processor)
+               discrete-sorts)
+          (set (order-processor-handled-operators processor)
+               (let ((accum nil))
+                 (if <r-op (push accum <r-op))
+                 (if <=r-op (push accum <=r-op))
+                 accum))
+          processor))
+
+(define (assert-sort-discreteness processor sort)
+        (let* ((n (find-variable 'n sort)) (m (find-variable 'm sort))
+               (1-sort (number->scalar-constant processor 1))
+               (formula (biconditional
+                            (apply-operator (<r processor) m n)
+                            (apply-operator (<=r processor)
+                                (apply-operator (+r processor) m
+                                    1-sort)
+                                n))))
+          formula))
+
+(define (order-processor-validity-conditions processor)
+        (let* ((0-sort (number->scalar-constant processor 0))
+               (formulas nil)
+               (sort (car (higher-sort-domains
+                              (expression-sorting (+r processor)))))
+               (x (find-variable 'x sort)) (y (find-variable 'y sort))
+               (z (find-variable 'z sort))
+               (+op (lambda (a b) (apply-operator (+r processor) a b)))
+               (*op (lambda (a b) (apply-operator (*r processor) a b)))
+               (<=op (lambda (a b)
+                       (apply-operator (<=r processor) a b)))
+               (<op (lambda (a b) (apply-operator (<r processor) a b))))
+          (or (and (*r processor) (or (sub-r processor) (-r processor))
+                   (processor-cancellation-valid? processor))
+              (imps-error
+                  "Algebraic structure is not a commutative integral domain containing an isomorphic copy of the integers."))
+          (if (<r processor)
+              (block (push formulas
+                           (equality (funcall *op x y)
+                               (funcall *op y x)))
+                (push formulas
+                      (disjunction (funcall <op x y) (equality x y)
+                          (funcall <op y x)))
+                (push formulas
+                      (implication
+                          (conjunction (funcall <op x y)
+                              (funcall <op y z))
+                          (funcall <op x z)))
+                (push formulas
+                      (biconditional (funcall <op x y)
+                          (funcall <op (funcall +op x z)
+                                   (funcall +op y z))))
+                (push formulas
+                      (implication
+                          (conjunction (funcall <op 0-sort x)
+                              (funcall <op 0-sort y))
+                          (funcall <op 0-sort (funcall *op x y))))
+                (push formulas (negation (funcall <op 0-sort 0-sort)))))
+          (if (<=r processor)
+              (block (push formulas
+                           (implication
+                               (conjunction (funcall <=op x y)
+                                   (funcall <=op y z))
+                               (funcall <=op x z)))
+                (push formulas
+                      (biconditional (funcall <=op x y)
+                          (funcall <=op (funcall +op x z)
+                                   (funcall +op y z))))
+                (push formulas
+                      (implication
+                          (conjunction (funcall <=op 0-sort x)
+                              (funcall <=op 0-sort y))
+                          (funcall <=op 0-sort (funcall *op x y))))
+                (if (not (<r processor))
+                    (block (push formulas
+                                 (biconditional (equality x y)
+                                     (conjunction (funcall <=op x y)
+                                      (funcall <=op y x))))
+                      (push formulas
+                            (disjunction (funcall <=op x y)
+                                (equality x y) (funcall <=op y x)))))
+                (if (<r processor)
+                    (push formulas
+                          (biconditional (funcall <=op x y)
+                              (disjunction (equality x y)
+                                  (funcall <op x y)))))))
+          (if (and (<=r processor) (<r processor))
+              (walk (lambda (x)
+                      (push formulas
+                            (assert-sort-discreteness processor x)))
+                    (processor-discrete-sorts processor)))
+          formulas))
+
+(define (remove-factor-from-list elt a-list)
+        (iterate loop ((rem-list a-list) (accum nil))
+                 (if (null? rem-list) a-list
+                     (if (alpha-equivalent? (car rem-list) elt)
+                         (append (reverse! accum) (cdr rem-list))
+                         (loop
+                           (cdr rem-list)
+                           (cons (car rem-list) accum))))))
+
+(define (factor-in-list? factor a-list)
+        (mem? alpha-equivalent? factor a-list))
+
+(define (context-immediately-entails-sign? processor context expr)
+        (let ((0-elt (number->scalar-constant processor 0)))
+          (let ((pos? (apply-operator (<r processor) 0-elt expr)))
+            (if (context-immediately-entails? context pos?) 1
+                (let ((0? (equality 0-elt expr)))
+                  (if (context-immediately-entails? context 0?) 0
+                      (let ((neg? (apply-operator (<r processor) expr
+                                      0-elt)))
+                        (if (context-immediately-entails? context neg?)
+                            -1 value-false))))))))
+
+(define (simplify-and-list-factors processor term params)
+        (apply append
+               (map (lambda (mon)
+                      (let ((simp (algebraic-processor-simplify
+                                      (algebraic-sub-processor
+                                       processor)
+                                      mon params)))
+                        (if (multiplication? processor simp)
+                            (associative-arguments simp) (list simp))))
+                    (if (multiplication? processor term)
+                        (associative-arguments term) (list term)))))
+
+(define (subtract-rh-summands-from-lh-summands processor arg1 arg2)
+        (let ((neg-1 (number->scalar-constant processor -1))
+              (accum nil))
+          (walk (lambda (x)
+                  (if (not (scalar-constant-=0? processor x))
+                      (push accum x)))
+                (if (addition? processor arg1)
+                    (associative-arguments arg1) (list arg1)))
+          (walk (lambda (f)
+                  (if (not (scalar-constant-=0? processor f))
+                      (push accum
+                            (apply-operator (*r processor) neg-1 f))))
+                (if (addition? processor arg2)
+                    (associative-arguments arg2) (list arg2)))
+          (reverse! accum)))
+
+(define (remove-common-factors processor exprs params)
+        (let ((context (processor-parameters-context params))
+              (sum-prods
+                  (map (lambda (x)
+                         (simplify-and-list-factors processor x params))
+                       exprs)))
+          (iterate loop
+                   ((common-factors nil) (total-sign 1)
+                    (factored sum-prods)
+                    (possible-factors (car sum-prods)))
+                   (if (null? possible-factors)
+                       (return
+                         (form-sum-expression processor
+                             (map (lambda (x)
+                                    (form-product-expression processor
+                                     x))
+                                  factored))
+                         total-sign)
+                       (if (and (not (scalar-constant? processor
+                                      (car possible-factors)))
+                                (every? (lambda (x)
+                                          (factor-in-list?
+                                           (car possible-factors) x))
+                                        factored))
+                           (let ((sign (context-immediately-entails-sign?
+                                        processor context
+                                        (car possible-factors))))
+                             (if sign
+                                 (loop
+                                   (cons (car possible-factors)
+                                    common-factors)
+                                   (fx* sign total-sign)
+                                   (map
+                                    (lambda (x)
+                                      (remove-factor-from-list
+                                       (car possible-factors) x))
+                                    factored)
+                                   (cdr possible-factors))
+                                 (loop
+                                   common-factors
+                                   total-sign
+                                   factored
+                                   (cdr possible-factors))))
+                           (loop
+                             common-factors
+                             total-sign
+                             factored
+                             (cdr possible-factors)))))))
+
+(define (simp< processor expr params)
+        (if (sub-r processor)
+            (let ((exprs (subtract-rh-summands-from-lh-summands
+                             processor (1starg expr) (2ndarg expr))))
+              (receive (lhs sign)
+                       (remove-common-factors processor exprs params)
+                       (let ((lhs (algebraic-processor-simplify
+                                      (algebraic-sub-processor
+                                       processor)
+                                      lhs params)))
+                         (if (scalar-constant? processor lhs)
+                             (if (< (* sign
+                                     (scalar-constant->numerical-object
+                                      processor lhs))
+                                    0)
+                                 truth falsehood)
+                             (if (zero? sign) falsehood
+                                 (block (cond
+                                          ((context-entails-linear-inequality?
+                                            processor
+                                            (if (< 0 sign)
+                                             (apply-operator
+                                              (<r processor) lhs
+                                              (number->scalar-constant
+                                               processor 0))
+                                             (apply-operator
+                                              (<r processor)
+                                              (number->scalar-constant
+                                               processor 0)
+                                              lhs))
+                                            params)
+                                           truth)
+                                          ((context-entails-linear-inequality?
+                                            processor
+                                            (if (< 0 sign)
+                                             (apply-operator
+                                              (<=r processor)
+                                              (number->scalar-constant
+                                               processor 0)
+                                              lhs)
+                                             (apply-operator
+                                              (<=r processor) lhs
+                                              (number->scalar-constant
+                                               processor 0)))
+                                            params)
+                                           falsehood)
+                                          ((< 0 sign)
+                                           (apply-invariant-binop
+                                            processor (<r processor)
+                                            lhs params))
+                                          (else
+                                           (apply-invariant-binop-reverse
+                                            processor (<r processor)
+                                            lhs params)))))))))
+            expr))
+
+(define (simp<= processor expr params)
+        (if (sub-r processor)
+            (let ((exprs (subtract-rh-summands-from-lh-summands
+                             processor (1starg expr) (2ndarg expr))))
+              (receive (lhs sign)
+                       (remove-common-factors processor exprs params)
+                       (let ((lhs (algebraic-processor-simplify
+                                      (algebraic-sub-processor
+                                       processor)
+                                      lhs params)))
+                         (if (scalar-constant? processor lhs)
+                             (if (<= (* sign
+                                      (scalar-constant->numerical-object
+                                       processor lhs))
+                                     0)
+                                 truth falsehood)
+                             (block (cond
+                                      ((context-entails-linear-inequality?
+                                        processor
+                                        (if (< 0 sign)
+                                         (apply-operator
+                                          (<=r processor) lhs
+                                          (number->scalar-constant
+                                           processor 0))
+                                         (apply-operator
+                                          (<=r processor)
+                                          (number->scalar-constant
+                                           processor 0)
+                                          lhs))
+                                        params)
+                                       truth)
+                                      ((context-entails-linear-inequality?
+                                        processor
+                                        (if (< 0 sign)
+                                         (apply-operator (<r processor)
+                                          (number->scalar-constant
+                                           processor 0)
+                                          lhs)
+                                         (apply-operator (<r processor)
+                                          lhs
+                                          (number->scalar-constant
+                                           processor 0)))
+                                        params)
+                                       (if (zero? sign) truth
+                                        falsehood))
+                                      ((< 0 sign)
+                                       (apply-invariant-binop processor
+                                        (<=r processor) lhs params))
+                                      (else
+                                       (apply-invariant-binop-reverse
+                                        processor (<=r processor) lhs
+                                        params))))))))
+            expr))
+
+(define (apply-invariant-binop processor op expr params)
+        (receive (args1 args2)
+                 (partition-summation processor expr params)
+                 (apply-operator op args1 args2)))
+
+(define (apply-invariant-binop-reverse processor op expr params)
+        (receive (args1 args2)
+                 (partition-summation processor expr params)
+                 (apply-operator op args2 args1)))
+
+(define (alternate-summation-partitioner processor expr params)
+        (ignore params)
+        (return expr (number->scalar-constant processor 0)))
+
+(define-integrable (build-monomial coeff expr) (cons expr coeff))
+
+(define-integrable (monomial-coefficient x) (cdr x))
+
+(define-integrable (monomial-base x) (car x))
+
+(define (default-summation-partitioner processor expr params)
+        (let ((args (if (addition? processor expr)
+                        (associative-arguments expr) (list expr))))
+          (iterate loop ((args args) (pos nil) (neg nil))
+                   (cond
+                     ((null? args)
+                      (receive (pos neg)
+                               (normalize-coefficients processor pos
+                                   neg)
+                               (return
+                                 (algebraic-processor-simplify
+                                     (algebraic-sub-processor
+                                      processor)
+                                     pos params)
+                                 (algebraic-processor-simplify
+                                     (algebraic-sub-processor
+                                      processor)
+                                     neg params))))
+                     ((scalar-constant? processor (car args))
+                      (if (< (scalar-constant->numerical-object
+                                 processor (car args))
+                             0)
+                          (loop
+                            (cdr args)
+                            pos
+                            (cons (build-monomial 1
+                                      (number->scalar-constant
+                                       processor
+                                       (* -1
+                                        (scalar-constant->numerical-object
+                                         processor (car args)))))
+                                  neg))
+                          (loop
+                            (cdr args)
+                            (cons (build-monomial 1 (car args)) pos)
+                            neg)))
+                     ((and (multiplication? processor (car args))
+                           (scalar-constant?
+                               (coefficient-processor processor)
+                               (car (multiplicative-associative-arguments
+                                     processor (car args)))))
+                      (let* ((assoc-args
+                                 (multiplicative-associative-arguments
+                                     processor (car args)))
+                             (coeff (car assoc-args)))
+                        (if (< (scalar-constant->numerical-object
+                                   (coefficient-processor processor)
+                                   coeff)
+                               0)
+                            (loop
+                              (cdr args)
+                              pos
+                              (cons (if
+                                     (=
+                                      (scalar-constant->numerical-object
+                                       (coefficient-processor
+                                        processor)
+                                       coeff)
+                                      -1)
+                                     (build-monomial 1
+                                      (form-external-product-expression
+                                       processor (cdr assoc-args)))
+                                     (build-monomial
+                                      (* -1
+                                       (scalar-constant->numerical-object
+                                        (coefficient-processor
+                                         processor)
+                                        coeff))
+                                      (form-external-product-expression
+                                       processor (cdr assoc-args))))
+                                    neg))
+                            (loop
+                              (cdr args)
+                              (cons (build-monomial
+                                     (scalar-constant->numerical-object
+                                      (coefficient-processor processor)
+                                      coeff)
+                                     (form-external-product-expression
+                                      processor (cdr assoc-args)))
+                                    pos)
+                              neg))))
+                     (else (loop
+                             (cdr args)
+                             (cons (build-monomial 1 (car args)) pos)
+                             neg))))))
+
+(define (normalize-coefficients processor pos neg)
+  (let ((cd 1) (cn value-false) (norm 1))
+    (walk (lambda (x)
+	    (if (not (scalar-constant? processor
+				       (monomial-base x)))
+		(block (if cn
+			   (set cn
+				(gcd
+				 (numerator
+				  (monomial-coefficient x))
+				 cn))
+			   (set cn
+				(numerator
+				 (monomial-coefficient x))))
+		       (set cd
+			    (lcm (denominator
+				  (monomial-coefficient x))
+				 cd)))))
+	  (append pos neg))
+    (set norm
+	 (if (processor-cancellation-valid?
+	      (coefficient-processor processor))
+	     (if cn (/ cd cn) cd) 1))
+    (set pos
+	 (map! (lambda (x)
+		 (if (not (scalar-constant? processor
+					    (monomial-base x)))
+		     (build-monomial
+		      (* norm (monomial-coefficient x))
+		      (monomial-base x))
+		     (build-monomial 1
+				     (number->scalar-constant processor
+							      (* norm
+								 (scalar-constant->numerical-object
+								  processor (monomial-base x)))))))
+	       pos))
+    (set neg
+	 (map! (lambda (x)
+		 (if (not (scalar-constant? processor
+					    (monomial-base x)))
+		     (build-monomial
+		      (* norm (monomial-coefficient x))
+		      (monomial-base x))
+		     (build-monomial 1
+				     (number->scalar-constant processor
+							      (* norm
+								 (scalar-constant->numerical-object
+								  processor (monomial-base x)))))))
+	       neg))
+    (set pos
+	 (map! (lambda (x)
+		 (if (= (monomial-coefficient x) 1)
+		     (monomial-base x)
+		     (apply-operator (*r processor)
+				     (number->scalar-constant
+				      (coefficient-processor processor)
+				      (monomial-coefficient x))
+				     (monomial-base x))))
+	       pos))
+    (set neg
+	 (map! (lambda (x)
+		 (if (= (monomial-coefficient x) 1)
+		     (monomial-base x)
+		     (apply-operator (*r processor)
+				     (number->scalar-constant
+				      (coefficient-processor processor)
+				      (monomial-coefficient x))
+				     (monomial-base x))))
+	       neg))
+    (let ((pos (sort pos quick-compare))
+	  (neg (sort neg quick-compare)))
+      (return
+       (form-sum-expression processor pos)
+       (form-sum-expression processor neg)))))

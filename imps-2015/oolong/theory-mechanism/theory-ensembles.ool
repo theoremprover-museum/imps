@@ -1,0 +1,971 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment theory-ensembles)
+
+(define-structure-type theory-ensemble name base-theory
+    fixed-theories-set replica-renamer theory-replica-alist
+    theory-multiple-alist canonical-translations-alist
+    initial-movable-sorts initial-movable-constants
+    nontranslating-defined-constants nontranslating-defined-sorts
+    maximum-multiple)
+
+(define find-theory-ensemble
+        (let ((alist nil))
+          (operation
+              (lambda (th fixed-theories)
+                (let ((sublist (cdr (assq th alist))))
+                  (if sublist
+                      (cdr (ass set-equal?
+                                (compress-theories fixed-theories)
+                                sublist))
+                      nil)))
+              ((setter soi)
+               (lambda (th fixed-theories new-value)
+                 (let ((look-up (assq th alist)))
+                   (if look-up
+                       (set (cdr look-up)
+                            (cons (cons fixed-theories new-value)
+                                  (cdr look-up)))
+                       (set alist
+                            (cons (cons th
+                                        (list
+                                         (cons fixed-theories
+                                          new-value)))
+                                  alist)))))))))
+
+(define name->theory-ensemble
+        (let ((alist nil))
+          (operation
+              (lambda (the-name)
+                (let ((ens (cdr (assq the-name alist))))
+                  (if ens ens value-false)))
+              ((setter soi)
+               (lambda (the-name new-value)
+                 (let ((look-up (assq the-name alist)))
+                   (if look-up (set (cdr look-up) new-value)
+                       (set alist (cons (cons the-name new-value) alist)))))))))
+
+(define (build-theory-ensemble base-theory . aux)
+        (let* ((fixed (compress-theories
+                          (if aux (car aux) (fixed-theories-set))))
+               (replica-renamer
+                   (if (cdr aux) (cadr aux) subscripting-renamer))
+               (ensemble-name (or (caddr aux) (name base-theory)))
+               (look-up (name->theory-ensemble ensemble-name)))
+          (or (theory? base-theory)
+              (imps-error "BUILD-THEORY-ENSEMBLE: ~A is not a theory."
+                  base-theory))
+          (or (every? theory? fixed)
+              (imps-error
+                  "BUILD-THEORY-ENSEMBLE: ~A contains a non-theory."
+                  fixed))
+          (if look-up
+              (block (or (set-equal?
+                             (compress-theories
+                                 (theory-ensemble-fixed-theories-set
+                                     look-up))
+                             (compress-theories fixed))
+                         (imps-error
+                             "Theory ensemble with name ~A exists with different fixed theories set."
+                             ensemble-name))
+                (or (eq? (theory-ensemble-replica-renamer look-up)
+                         replica-renamer)
+                    (imps-error
+                        "Theory ensemble with name ~A exists with different replica renamer"
+                        ensemble-name))
+                look-up)
+              (let ((obj (make-theory-ensemble)))
+                (set (theory-ensemble-base-theory obj) base-theory)
+                (set (theory-ensemble-fixed-theories-set obj) fixed)
+                (set (theory-ensemble-replica-renamer obj)
+                     replica-renamer)
+                (set (theory-ensemble-theory-replica-alist obj) nil)
+                (set (theory-ensemble-theory-multiple-alist obj)
+                     (list (cons 1 base-theory)))
+                (set (theory-ensemble-initial-movable-sorts obj)
+                     (theory-ensemble-movable-sorts obj))
+                (set (theory-ensemble-initial-movable-constants obj)
+                     (theory-ensemble-movable-constants obj))
+                (set (theory-ensemble-canonical-translations-alist obj)
+                     nil)
+                (set (find-theory-ensemble base-theory fixed) obj)
+                (set (name->theory-ensemble ensemble-name) obj)
+                (set (theory-ensemble-name obj) ensemble-name)
+                (set (theory-ensemble-nontranslating-defined-constants
+                         obj)
+                     nil)
+                (set (theory-ensemble-nontranslating-defined-sorts obj)
+                     nil)
+                (set (theory-ensemble-maximum-multiple obj) 1)
+                obj))))
+
+(define (theory-ensemble-movable-sorts ensemble)
+        (set-diff
+            (theory-ind-sorts-resolved
+                (theory-ensemble-base-theory ensemble))
+            (big-u (map theory-ind-sorts-resolved
+                        (theory-ensemble-fixed-theories-set ensemble)))))
+
+(define (theory-ensemble-movable-constants ensemble)
+        (set-diff (theory-constants
+                      (theory-ensemble-base-theory ensemble))
+                  (big-u (map theory-constants
+                              (theory-ensemble-fixed-theories-set
+                                  ensemble)))))
+
+(define (retrieve-theory-multiple theory-ensemble n)
+        (cdr (ass = n
+                  (theory-ensemble-theory-multiple-alist
+                      theory-ensemble))))
+
+(define (interpretations-from-theory theory fixed-theories)
+        (let ((fixed-theories (compress-theories fixed-theories))
+              (successes the-empty-set))
+          (walk (lambda (pair0)
+                  (if (eq? theory (car pair0))
+                      (walk (lambda (pair1)
+                              (walk (lambda (pair2)
+                                      (walk
+                                       (lambda (pair3)
+                                         (if
+                                          (set-equal? fixed-theories
+                                           (car pair3))
+                                          (walk
+                                           (lambda (pair4)
+                                             (if
+                                              (translation-theory-interpretation?
+                                               (cdr pair4))
+                                              (set successes
+                                               (add-set-element
+                                                (cdr pair4) successes))))
+                                           (cdr pair3))))
+                                       (cdr pair2)))
+                                    (cdr pair1)))
+                            (cdr pair0))))
+                (cdr *global-translation-alist*))
+          successes))
+
+(define (theory-ensemble-instances ensemble n)
+        (let ((multiple (retrieve-theory-multiple ensemble n))
+              (fixed-theories
+                  (theory-ensemble-fixed-theories-set ensemble)))
+          (if (null? multiple) the-empty-set
+              (interpretations-from-theory multiple fixed-theories))))
+
+(define (theory-ensemble-export-transportable-rwrs ensemble)
+        (let ((n (theory-ensemble-maximum-multiple ensemble))
+              (sources (theory-ensemble-computed-multiples ensemble)))
+          (iterate loop ((index 1))
+                   (if (< n index) value-true
+                       (block (walk (lambda (trans)
+                                      (if
+                                       (translation-theory-interpretation?
+                                        trans)
+                                       (theory-import-transportable-rewrite-rules
+                                        (translation-target-theory
+                                         trans)
+                                        sources)))
+                                    (theory-ensemble-instances ensemble
+                                     n))
+                         (loop (1+ n)))))))
+
+(define (theory-ensemble-computed-multiples ensemble)
+        (let ((n (theory-ensemble-maximum-multiple ensemble)))
+          (iterate loop ((index 1) (multiples nil))
+                   (if (< n index) multiples
+                       (loop
+                         (1+ index)
+                         (cons (retrieve-theory-multiple ensemble
+                                   index)
+                               multiples))))))
+
+(define (trivial-translation? translation)
+        (and (sub-theory? (translation-source-theory translation)
+                 (translation-target-theory translation))
+             (every? (lambda (x) (eq? (car x) (cdr x)))
+                     (append (translation-constant-alist translation)
+                             (translation-sort-alist translation)))))
+
+(define (theory-ensemble-instance? ensemble translation n)
+        (or (memq? translation (theory-ensemble-instances ensemble n))
+            (trivial-translation? translation)))
+
+(define (dont-translate-constant ensemble constant)
+        (or (formal-symbol? constant)
+            (imps-error "~A must be a formal symbol" constant))
+        (set (theory-ensemble-nontranslating-defined-constants
+                 ensemble)
+             (add-set-element constant
+                 (theory-ensemble-nontranslating-defined-constants
+                     ensemble))))
+
+(define (dont-translate-sort ensemble sort)
+        (or (sort? sort) (imps-error "~A must be a sort" sort))
+        (set (theory-ensemble-nontranslating-defined-sorts ensemble)
+             (add-set-element sort
+                 (theory-ensemble-nontranslating-defined-sorts
+                     ensemble))))
+
+(define (defined-constants-in-base-theory ensemble)
+        (defined-constants-in-theory-multiple ensemble 1))
+
+(define (translatable-defined-constants-in-base-theory ensemble)
+        (translatable-defined-constants-in-theory-multiple ensemble 1))
+
+(define (defined-sorts-in-base-theory ensemble)
+        (defined-sorts-in-theory-multiple ensemble 1))
+
+(define (translatable-defined-sorts-in-base-theory ensemble)
+        (translatable-defined-sorts-in-theory-multiple ensemble 1))
+
+(define (theory-ensemble-indexing-names ensemble)
+        (map name
+             (set-diff (theory-ensemble-initial-movable-sorts ensemble)
+                 (defined-sorts-in-base-theory ensemble))))
+
+(define (theory-ensemble-find-theory-multiple theory-ensemble n)
+        (or (theory-ensemble? theory-ensemble)
+            (imps-error
+                "THEORY-ENSEMBLE-FIND-THEORY-MULTIPLE: ~A is not a theory ensemble."
+                theory-ensemble))
+        (if (= n 1) (theory-ensemble-base-theory theory-ensemble)
+            (let ((look-up (retrieve-theory-multiple theory-ensemble n)))
+              (if look-up look-up
+                  (receive (theory-multiple translations)
+                           (compute-theory-multiple-and-canonical-translations
+                               theory-ensemble n)
+                           (set (theory-ensemble-theory-multiple-alist
+                                    theory-ensemble)
+                                (cons (cons n theory-multiple)
+                                      (theory-ensemble-theory-multiple-alist
+                                       theory-ensemble)))
+                           (set (theory-ensemble-canonical-translations-alist
+                                    theory-ensemble)
+                                (cons (cons (cons 1 n) translations)
+                                      (theory-ensemble-canonical-translations-alist
+                                       theory-ensemble)))
+                           (set (theory-ensemble-maximum-multiple
+                                    theory-ensemble)
+                                (max n
+                                     (theory-ensemble-maximum-multiple
+                                      theory-ensemble)))
+                           theory-multiple)))))
+
+(define (compute-theory-replica-and-canonical-translation
+            theory-ensemble subscript)
+        (let ((theory (theory-ensemble-base-theory theory-ensemble))
+              (replica-alist
+                  (theory-ensemble-theory-replica-alist
+                      theory-ensemble)))
+          (let ((look-up (ass = subscript replica-alist)))
+            (if look-up
+                (let ((translation (cdr look-up)))
+                  (return
+                    (translation-target-theory translation)
+                    translation))
+                (let* ((translation-name-and-nickname
+                           (retrieve-unused-name name->translation
+                               (name theory) '-to-
+                               (theory-ensemble-name theory-ensemble)
+                               '- subscript))
+                       (new-theory-name
+                           (retrieve-unused-name name->theory
+                               (theory-ensemble-name theory-ensemble)
+                               '- subscript))
+                       (translation
+                           (transport-theory the-kernel-translation
+                               theory the-kernel-theory
+                               (theory-ensemble-fixed-theories-set
+                                   theory-ensemble)
+                               (funcall (theory-ensemble-replica-renamer
+                                         theory-ensemble)
+                                        subscript)
+                               translation-name-and-nickname
+                               translation-name-and-nickname
+                               new-theory-name)))
+                  (set (theory-ensemble-theory-replica-alist
+                           theory-ensemble)
+                       (cons (cons subscript translation)
+                             (theory-ensemble-theory-replica-alist
+                                 theory-ensemble)))
+                  (return
+                    (translation-target-theory translation)
+                    translation))))))
+
+(define (compute-theory-multiple-and-canonical-translations
+            theory-ensemble n)
+        (let* ((up-to-n (list-up-to n))
+               (translations
+                   (map (lambda (subscript)
+                          (receive (() translation)
+                                   (compute-theory-replica-and-canonical-translation
+                                    theory-ensemble subscript)
+                                   translation))
+                        up-to-n))
+               (theory-multiple
+                   (theory-union
+                       (if (= n 2)
+                           (map translation-target-theory translations)
+                           (list (theory-ensemble-find-theory-multiple
+                                     theory-ensemble (- n 1))
+                                 (translation-target-theory
+                                     (last translations))))
+                       (retrieve-unused-name name->theory
+                           (theory-ensemble-name theory-ensemble) '- n
+                           '-tuples))))
+          (return theory-multiple translations)))
+
+(define alist-rename-indexers
+        (let ((numerical-indexer-for-weird-indexers 0))
+          (lambda (alist indexers)
+            (map (lambda (x)
+                   (let ((look-up (assq x alist)))
+                     (if look-up
+                         (if (symbol? (cadr look-up)) (cadr look-up)
+                             (increment
+                                 numerical-indexer-for-weird-indexers))
+                         (imps-error
+                             "THEORY-ENSEMBLE-FIND-THEORY-MULTIPLE: alist missing renaming for sort ~A."
+                             x))))
+                 indexers))))
+
+(define (nearly-trivial-renamer alist)
+        (lambda (the-name)
+          (let ((look-up (assq the-name alist)))
+            (if (and look-up (symbol? (cadr look-up))) (cadr look-up)
+                the-name))))
+
+(define (ensemble-default-renamer sort-renaming-alist
+            constant-renaming-alist default-indexer)
+        (let ((alist (append sort-renaming-alist
+                             constant-renaming-alist)))
+          (lambda (the-name)
+            (let ((look-up (assq the-name alist)))
+              (if (and look-up (symbol? (cadr look-up))) (cadr look-up)
+                  (apply concatenate-symbol the-name '_ default-indexer))))))
+
+(define (subscripting-renamer n)
+        (lambda (the-name) (concatenate-symbol the-name '_ n)))
+
+(define (namer-from-suggested-namer suggester theory)
+        (let ((theories
+                  (add-set-element theory
+                      (find-structural-super-theories theory))))
+          (lambda (x)
+            (retrieve-unused-name
+                (lambda (x)
+                  (any? (lambda (th)
+                          (let ((language (theory-language th)))
+                            (or (name->sort language x)
+                                (find-constant language x))))
+                        theories))
+                (funcall suggester x)))))
+
+(define (defined-constants-in-theory-multiple theory-ensemble n)
+        (let ((n-theory-multiple
+                  (theory-ensemble-find-theory-multiple theory-ensemble
+                      n)))
+          (set-diff (theory-defined-constants n-theory-multiple)
+              (big-u (map (lambda (x) (theory-defined-constants x))
+                          (theory-ensemble-fixed-theories-set
+                              theory-ensemble))))))
+
+(define (translatable-defined-constants-in-theory-multiple
+            theory-ensemble n)
+        (set-diff
+            (defined-constants-in-theory-multiple theory-ensemble n)
+            (theory-ensemble-nontranslating-defined-constants
+                theory-ensemble)))
+
+(define (defined-sorts-in-theory-multiple theory-ensemble n)
+        (let ((n-theory-multiple
+                  (theory-ensemble-find-theory-multiple theory-ensemble
+                      n)))
+          (set-diff (theory-defined-sorts n-theory-multiple)
+              (big-u (map (lambda (x) (theory-defined-sorts x))
+                          (theory-ensemble-fixed-theories-set
+                              theory-ensemble))))))
+
+(define (translatable-defined-sorts-in-theory-multiple theory-ensemble
+            n)
+        (set-diff (defined-sorts-in-theory-multiple theory-ensemble n)
+            (theory-ensemble-nontranslating-defined-sorts
+                theory-ensemble)))
+
+(define (canonical-translations-between-theory-multiples
+            theory-ensemble m n)
+        (if (or (< n m) (and (= m 1) (= n 1))) nil
+            (let ((look-up (ass equal? (cons m n)
+                                (theory-ensemble-canonical-translations-alist
+                                    theory-ensemble))))
+              (if look-up (cdr look-up)
+                  (let ((translations
+                            (compute-canonical-translations-between-theory-multiples
+                                theory-ensemble m n)))
+                    (if (not (= m 1))
+                        (set (theory-ensemble-canonical-translations-alist
+                                 theory-ensemble)
+                             (cons (cons (cons m n) translations)
+                                   (theory-ensemble-canonical-translations-alist
+                                    theory-ensemble))))
+                    translations)))))
+
+(define (base-theory-to-nth-replica-canonical-translation-alists
+            ensemble n replica-renamer)
+        (return
+          (map (lambda (x)
+                 (list (name x)
+                       (funcall (funcall replica-renamer n) (name x))))
+               (theory-ensemble-initial-movable-sorts ensemble))
+          (map (lambda (x)
+                 (list (name x)
+                       (funcall (funcall replica-renamer n) (name x))))
+               (theory-ensemble-initial-movable-constants ensemble))))
+
+(define (mth-to-nth-replica-canonical-translation-alists ensemble m n
+            replica-renamer)
+        (return
+          (map (lambda (x)
+                 (list (funcall (funcall replica-renamer m) (name x))
+                       (funcall (funcall replica-renamer n) (name x))))
+               (theory-ensemble-initial-movable-sorts ensemble))
+          (map (lambda (x)
+                 (list (funcall (funcall replica-renamer m) (name x))
+                       (funcall (funcall replica-renamer n) (name x))))
+               (theory-ensemble-initial-movable-constants ensemble))))
+
+(define (compute-canonical-translations-between-theory-multiples
+            theory-ensemble m n)
+        (if (= m 1)
+            (block (theory-ensemble-find-theory-multiple
+                       theory-ensemble n)
+              (canonical-translations-between-theory-multiples
+                  theory-ensemble m n))
+            (map (lambda (permutation)
+                   (compute-translation-between-theory-multiples-from-permutation
+                       theory-ensemble permutation n))
+                 (permutations n m))))
+
+(define (compute-translation-between-theory-multiples-from-permutation
+            theory-ensemble permutation n)
+        (let* ((m (length permutation))
+               (theory-m
+                   (theory-ensemble-find-theory-multiple
+                       theory-ensemble m))
+               (theory-n
+                   (theory-ensemble-find-theory-multiple
+                       theory-ensemble n)))
+          (if (= m 1)
+              (imps-error
+                  "COMPUTE-TRANSLATION-BETWEEN-THEORY-MULTIPLES-FROM-PERMUTATION:
+permutation ~A has length 1." permutation))
+          (let* ((language-m (theory-language theory-m))
+                 (language-n (theory-language theory-n))
+                 (the-translation-name
+                     (apply retrieve-unused-name name->translation
+                            (name theory-m) '-to- (name theory-n) '-by-
+                            (alternate-insert '- permutation)))
+                 (sequence (enumerate-permutation-entries permutation))
+                 (sort-name-alist nil) (constant-name-alist nil))
+            (walk (lambda (x)
+                    (receive (sort-alist-x constant-alist-x)
+                             (mth-to-nth-replica-canonical-translation-alists
+                                 theory-ensemble (car x) (cdr x)
+                                 (theory-ensemble-replica-renamer
+                                     theory-ensemble))
+                             (set sort-name-alist
+                                  (append sort-name-alist sort-alist-x))
+                             (set constant-name-alist
+                                  (append constant-name-alist
+                                          constant-alist-x))))
+                  sequence)
+            (let ((translation
+                      (build-translation theory-m theory-n
+                          the-empty-set
+                          (theory-ensemble-fixed-theories-set
+                              theory-ensemble)
+                          (destructure-sort-pairs sort-name-alist
+                              language-m language-n)
+                          (destructure-constant-pairs
+                              constant-name-alist language-m
+                              language-n)
+                          the-translation-name the-translation-name value-true)))
+              translation))))
+
+(define (intersperse x l)
+  (if (null? l) (list (list x))
+    (cons (cons x l)
+	  (map (lambda (y) (cons (car l) y))
+	       (intersperse x (cdr l))))))
+
+(define (permutations n m)
+  (cond
+   ((= n 0) (if (= m 0) (list nil)) nil)
+   ((= m 0) (list nil))
+   ((= m 1) (map list (list-up-to n)))
+   (else (append (permutations (- n 1) m)
+		 (apply append
+			(map (lambda (x)
+			       (intersperse (- n 1) x))
+			     (permutations (- n 1) (- m 1))))))))
+
+(define (enumerate-permutation-entries permutation)
+        (iterate loop ((j 0) (sequence nil) (permutation permutation))
+                 (if (null? permutation) (reverse! sequence)
+                     (loop
+                       (1+ j)
+                       (cons (cons j (car permutation)) sequence)
+                       (cdr permutation)))))
+
+(define (list-up-to n)
+        (iterate loop ((j 0) (subscripts nil))
+                 (if (>= j n) (reverse! subscripts)
+                     (loop (1+ j) (cons j subscripts)))))
+
+(define (natively-defined-constants-in-theory-multiple-aux
+            theory-ensemble n)
+        (iterate loop
+                 ((index 1)
+                  (proper-constants
+                      (defined-constants-in-theory-multiple
+                          theory-ensemble n)))
+                 (if (>= index n) proper-constants
+                     (let* ((translations
+                                (canonical-translations-between-theory-multiples
+                                    theory-ensemble index n))
+                            (the-constants
+                                (defined-constants-in-theory-multiple
+                                    theory-ensemble index))
+                            (translated-constants
+                                (big-u (map
+                                        (lambda (trans)
+                                          (map
+                                           (lambda (const)
+                                             (translate-expression
+                                              trans const))
+                                           the-constants))
+                                        translations))))
+                       (loop
+                         (1+ index)
+                         (set-diff
+                             (set-diff proper-constants
+                                 translated-constants)
+                             the-constants))))))
+
+(define (translations-between-theory-multiples theory-ensemble m n)
+        (let ((n-max (theory-ensemble-maximum-multiple theory-ensemble)))
+          (if (or (< n-max n) (< n-max m)) nil
+              (let ((accum nil)
+                    (multiple
+                        (theory-ensemble-find-theory-multiple
+                            theory-ensemble n)))
+                (walk (lambda (trans)
+                        (if (subtheory?
+                                (translation-target-theory trans)
+                                multiple)
+                            (push accum trans)))
+                      (theory-ensemble-instances theory-ensemble m))
+                accum))))
+
+(define (natively-defined-constants-in-theory-multiple theory-ensemble
+            n)
+        (let ((n-max (theory-ensemble-maximum-multiple theory-ensemble)))
+          (iterate loop
+                   ((index (+ n 1))
+                    (proper-constants
+                        (natively-defined-constants-in-theory-multiple-aux
+                            theory-ensemble n)))
+                   (if (> index n-max) proper-constants
+                       (let* ((translations
+                                  (translations-between-theory-multiples
+                                      theory-ensemble index n))
+                              (the-constants
+                                  (natively-defined-constants-in-theory-multiple-aux
+                                      theory-ensemble index))
+                              (translated-constants
+                                  (big-u (map
+                                          (lambda (trans)
+                                            (map
+                                             (lambda (const)
+                                               (translate-expression
+                                                trans const))
+                                             the-constants))
+                                          translations))))
+                         (loop
+                           (1+ index)
+                           (set-diff proper-constants
+                               translated-constants)))))))
+
+(define (translatable-natively-defined-constants-in-theory-multiple
+            theory-ensemble n)
+        (set-diff
+            (natively-defined-constants-in-theory-multiple
+                theory-ensemble n)
+            (theory-ensemble-nontranslating-defined-constants
+                theory-ensemble)))
+
+(define (natively-defined-sorts-in-theory-multiple-aux theory-ensemble
+            n)
+        (iterate loop
+                 ((index 1)
+                  (proper-sorts
+                      (defined-sorts-in-theory-multiple theory-ensemble
+                          n)))
+                 (if (>= index n) proper-sorts
+                     (let* ((translations
+                                (canonical-translations-between-theory-multiples
+                                    theory-ensemble index n))
+                            (sorts (defined-sorts-in-theory-multiple
+                                    theory-ensemble index))
+                            (translated-sorts
+                                (big-u (map
+                                        (lambda (trans)
+                                          (map
+                                           (lambda (sort)
+                                             (translate-sort trans
+                                              sort))
+                                           sorts))
+                                        translations))))
+                       (loop
+                         (1+ index)
+                         (set-diff
+                             (set-diff proper-sorts translated-sorts)
+                             sorts))))))
+
+(define (natively-defined-sorts-in-theory-multiple theory-ensemble n)
+        (let ((n-max (theory-ensemble-maximum-multiple theory-ensemble)))
+          (iterate loop
+                   ((index (+ n 1))
+                    (proper-sorts
+                        (natively-defined-sorts-in-theory-multiple-aux
+                            theory-ensemble n)))
+                   (if (> index n-max) proper-sorts
+                       (let* ((translations
+                                  (translations-between-theory-multiples
+                                      theory-ensemble index n))
+                              (sorts (natively-defined-sorts-in-theory-multiple-aux
+                                      theory-ensemble index))
+                              (translated-sorts
+                                  (big-u (map
+                                          (lambda (trans)
+                                            (map
+                                             (lambda (const)
+                                               (translate-sort trans
+                                                const))
+                                             sorts))
+                                          translations))))
+                         (loop
+                           (1+ index)
+                           (set-diff proper-sorts translated-sorts)))))))
+
+(define (translatable-natively-defined-sorts-in-theory-multiple
+            theory-ensemble n)
+        (set-diff
+            (natively-defined-sorts-in-theory-multiple theory-ensemble
+                n)
+            (theory-ensemble-nontranslating-defined-sorts
+                theory-ensemble)))
+
+(define (find-or-build-encompassing-translations source-theory
+            target-theory assumptions fixed-theories sort-alist
+            constant-alist the-translation-name)
+        (let ((successes
+                  (find-encompassing-translations source-theory
+                      target-theory assumptions fixed-theories
+                      sort-alist constant-alist)))
+          (if successes successes
+              (list (build-translation source-theory target-theory
+                        assumptions fixed-theories sort-alist
+                        constant-alist the-translation-name
+                        the-translation-name value-true)))))
+
+(define (multi-association-list->translation-alists al)
+        (let ((source (map car al))
+              (targets (iterate loop ((targets nil) (al (map cdr al)))
+                                (if (null? (car al)) (reverse! targets)
+                                    (loop
+                                      (cons (map car al) targets)
+                                      (map cdr al))))))
+          (map (lambda (target)
+                 (map (lambda (x y) (list x y)) source target))
+               targets)))
+
+(define (multi-association-list->translation-alist-from-theory-multiple
+            al replica-renamer)
+        (if (= (length (car al)) 2) al
+            (iterate loop
+                     ((index 0) (accum nil)
+                      (translation-alists
+                          (multi-association-list->translation-alists
+                              al)))
+                     (if (null? translation-alists)
+                         (apply append (reverse! accum))
+                         (loop
+                           (1+ index)
+                           (cons (map (lambda (x)
+                                        (list
+                                         (funcall
+                                          (funcall replica-renamer
+                                           index)
+                                          (car x))
+                                         (cadr x)))
+                                      (car translation-alists))
+                                 accum)
+                           (cdr translation-alists))))))
+
+(define (multi-association-list-length-check al n)
+        (or (list? al) (every? list? al)
+            (every? (lambda (x) (= (length x) n)) al)
+            (imps-error
+                "~A~%is a bad multiple association list for building a translation. All entries must be lists of length ~A."
+                al n)))
+
+(define (rename-indexers-for-translation-from-theory-multiple al
+            indexers)
+        (let* ((alists (multi-association-list->translation-alists al))
+               (renamed-indexers
+                   (map (lambda (x)
+                          (alternate-insert '%
+                              (alist-rename-indexers x indexers)))
+                        alists)))
+          (apply append (alternate-insert (list '$) renamed-indexers))))
+
+(define (theory-ensemble-build-translation-from-theory-multiple
+            ensemble target-theories sort-name-associations
+            constant-name-associations)
+        (multi-association-list-length-check
+            (append sort-name-associations constant-name-associations)
+            (length target-theories))
+        (let* ((n (length target-theories))
+               (source-theory
+                   (theory-ensemble-find-theory-multiple ensemble n))
+               (source-language (theory-language source-theory))
+               (target-theory (theory-union target-theories))
+               (target-language (theory-language target-theory))
+               (sort-name-pairs
+                   (multi-association-list->translation-alist-from-theory-multiple
+                       sort-name-associations
+                       (theory-ensemble-replica-renamer ensemble)))
+               (constant-name-pairs
+                   (multi-association-list->translation-alist-from-theory-multiple
+                       constant-name-associations
+                       (theory-ensemble-replica-renamer ensemble)))
+               (assumptions the-empty-set)
+               (fixed-theories
+                   (theory-ensemble-fixed-theories-set ensemble))
+               (transl-name
+                   (apply retrieve-unused-name name->translation
+                          (name source-theory) '-to-
+                          (alternate-insert '-
+                              (remove-duplicates eq?
+                                  (map name target-theories)))))
+               (sort-alist
+                   (destructure-sort-pairs sort-name-pairs
+                       source-language target-language))
+               (constant-alist
+                   (destructure-constant-pairs constant-name-pairs
+                       source-language target-language)))
+          (let ((translation
+                    (car (find-or-build-encompassing-translations
+                             source-theory target-theory assumptions
+                             fixed-theories sort-alist constant-alist
+                             transl-name))))
+            translation)))
+
+(define (theory-ensemble-transport-definitions-from-theory-multiple
+            ensemble target-theories sort-name-associations
+            constant-name-associations special-renamings)
+        (let* ((translation
+                   (theory-ensemble-build-translation-from-theory-multiple
+                       ensemble target-theories sort-name-associations
+                       constant-name-associations))
+               (renamer (namer-from-suggested-namer
+                            (nearly-trivial-renamer special-renamings)
+                            (translation-target-theory translation)))
+               (index (length target-theories))
+               (sort-const-set
+                   (append (translatable-natively-defined-constants-in-theory-multiple
+                               ensemble index)
+                           (translatable-natively-defined-sorts-in-theory-multiple
+                               ensemble index))))
+          (set (translation-default-renamer translation) renamer)
+          (if (not (trivial-translation? translation))
+              (transport-defined-sorts-and-constants translation
+                  sort-const-set renamer))
+          translation))
+
+(define (theory-ensemble-transport-definitions-from-theory-multiple-using-permutation
+            ensemble target-theories permutation sort-name-associations
+            constant-name-associations special-renamings)
+        (let ((new-target-theories
+                  (choose-list-entries target-theories permutation))
+              (new-sort-name-associations
+                  (map (lambda (x)
+                         (cons (car x)
+                               (choose-list-entries (cdr x)
+                                   permutation)))
+                       sort-name-associations))
+              (new-constant-name-associations
+                  (map (lambda (x)
+                         (cons (car x)
+                               (choose-list-entries (cdr x)
+                                   permutation)))
+                       constant-name-associations)))
+          (theory-ensemble-transport-definitions-from-theory-multiple
+              ensemble new-target-theories new-sort-name-associations
+              new-constant-name-associations special-renamings)))
+
+(define (theory-ensemble-transport-definitions-from-theory-multiples-using-multiple-permutations
+            ensemble target-theories permutations
+            sort-name-associations constant-name-associations
+            special-renamings)
+        (map (lambda (permutation)
+               (theory-ensemble-transport-definitions-from-theory-multiple-using-permutation
+                   ensemble target-theories permutation
+                   sort-name-associations constant-name-associations
+                   special-renamings))
+             permutations))
+
+(define (transport-definitions-from-theory-multiples ensemble
+            source-indices target-theories sort-name-associations
+            constant-name-associations special-renamings)
+        (let ((n (length target-theories)) (translations nil))
+          (walk (lambda (index)
+                  (let ((perms (permutations n index)))
+                    (walk (lambda (permutation)
+                            (let ((trans (theory-ensemble-transport-definitions-from-theory-multiple-using-permutation
+                                          ensemble target-theories
+                                          permutation
+                                          sort-name-associations
+                                          constant-name-associations
+                                          special-renamings)))
+                              (push translations trans)))
+                          perms)))
+                source-indices)
+          translations))
+
+(define (transport-defined-sorts-and-constants-to-theory-multiple
+            ensemble source-indices target-index)
+        (let ((target-theory
+                  (theory-ensemble-find-theory-multiple ensemble
+                      target-index))
+              (accumulated-translations the-empty-set))
+          (walk (lambda (index)
+                  (let ((translations
+                            (canonical-translations-between-theory-multiples
+                                ensemble index target-index))
+                        (perms (permutations target-index index))
+                        (sort-const-set
+                            (append (translatable-natively-defined-sorts-in-theory-multiple
+                                     ensemble index)
+                                    (translatable-natively-defined-constants-in-theory-multiple
+                                     ensemble index))))
+                    (set accumulated-translations
+                         (set-union accumulated-translations
+                             translations))
+                    (walk (lambda (translation perm)
+                            (let ((renamer (namer-from-suggested-namer
+                                            (subscripting-renamer
+                                             (apply concatenate-symbol
+                                              perm))
+                                            target-theory)))
+                              (set (translation-default-renamer
+                                    translation)
+                                   renamer)
+                              (if (not (trivial-translation?
+                                        translation))
+                                  (transport-defined-sorts-and-constants
+                                      translation sort-const-set
+                                      renamer))))
+                          translations perms)))
+                source-indices)
+          accumulated-translations))
+
+(define (transport-defined-sorts-and-constants-to-theory-multiple-using-permutations
+            ensemble perms target-index)
+        (let ((source-indices (make-set (map length perms)))
+              (target-theory
+                  (theory-ensemble-find-theory-multiple ensemble
+                      target-index))
+              (accumulated-translations the-empty-set))
+          (walk (lambda (index)
+                  (let ((translations
+                            (canonical-translations-between-theory-multiples
+                                ensemble index target-index))
+                        (all-perms (permutations target-index index))
+                        (sort-const-set
+                            (append (translatable-natively-defined-sorts-in-theory-multiple
+                                     ensemble index)
+                                    (translatable-natively-defined-constants-in-theory-multiple
+                                     ensemble index))))
+                    (set accumulated-translations
+                         (set-union accumulated-translations
+                             translations))
+                    (walk (lambda (translation perm)
+                            (if (mem? equal? perm perms)
+                                (let ((renamer
+                                       (namer-from-suggested-namer
+                                        (subscripting-renamer
+                                         (apply concatenate-symbol
+                                          perm))
+                                        target-theory)))
+                                  (set (translation-default-renamer
+                                        translation)
+                                       renamer)
+                                  (if (not
+                                       (trivial-translation?
+                                        translation))
+                                      (transport-defined-sorts-and-constants
+                                       translation sort-const-set
+                                       renamer)))))
+                          translations all-perms)))
+                source-indices)
+          accumulated-translations))

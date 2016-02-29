@@ -1,0 +1,140 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment sequence-parse-print)
+
+(define (prefix-sequence-operator-method parser op)
+        (if (not (eq? (next-token parser) '{))
+            (report-error parser
+                "~A is a quasi-constructor, expecting \"{\" but found ~A."
+                op (input-next-token parser)))
+        (let ((match '}))
+          (input-next-token parser)
+          (if (eq? match (next-token parser))
+              (report-error parser "Bad sequence.")
+              (iterate loop
+                       ((parse-tree-list
+                            (list (parse-matching-binding parser '|,|))))
+                       (cond
+                         ((eq? match (next-token parser))
+                          (input-next-token parser)
+                          (let* ((sort (car parse-tree-list))
+                                 (args (reverse (cdr parse-tree-list))))
+                            (build-sequence-from-conses args sort)))
+                         (else (let ((next (input-next-token parser)))
+                                 (or (eq? next '|,|)
+                                     (report-error parser
+                                      "~A in illegal context." next))
+                                 (loop
+                                   (cons
+                                    (parse-matching-binding parser
+                                     '|,|)
+                                    parse-tree-list)))))))))
+
+;; modified by jt Wed Nov 12 14:31:15 EST 1997. nil (whose value is value-false) is
+;; replaced by the symbol 'nil, in the TEA package. Obscure, ha.
+
+(define (build-sequence-from-conses a-list sort)
+        (let ((sexp%nil (list 'nil (list 'undefined sort))))
+          (cond
+            ((null? a-list) sexp%nil)
+            ((null? (cdr a-list)) (list 'cons (car a-list) sexp%nil))
+            ((null? (cddr a-list))
+             (list 'cons (car a-list)
+                   (list 'cons (cadr a-list) sexp%nil)))
+            (else (list 'cons (car a-list)
+                        (build-sequence-from-conses (cdr a-list) sort))))))
+
+;; modified by jt Sun Mar 22 23:53:02 EST 1998, for the same ridiculous reason as above.
+
+(define (present-sequence formatter op args bp)
+        (iterate loop ((rem-args args) (accum nil))
+                 (let ((1st (present-tree formatter (car rem-args) 0))
+                       (2nd (cadr rem-args)))
+                   (if (and (list? 2nd) (eq? (car 2nd) op))
+                       (loop (cdr 2nd) (cons 1st accum))
+                       (if (and (list? 2nd) (= (length 2nd) 2)
+                                (eq? (car 2nd) 'nil) (list? (cadr 2nd))
+                                (= (length (cadr 2nd)) 2)
+                                (eq? (car (cadr 2nd)) 'undefined))
+                           (let ((sort (cadr (cadr 2nd)))
+                                 (accum (list* 1st accum)))
+                             (list 'seq '{
+                                   (map-alternate-insert '|,| identity
+                                    (reverse accum))
+                                   '|,| (present-list sort) '}))
+                           (present-prefix-operator formatter op args
+                               bp))))))
+
+(define (present-tex-sequence formatter op args bp)
+        (iterate loop ((rem-args args) (accum nil))
+                 (let ((1st (present-tree formatter (car rem-args) 0))
+                       (2nd (cadr rem-args)))
+                   (if (and (list? 2nd) (eq? (car 2nd) op))
+                       (loop (cdr 2nd) (cons 1st accum))
+                       (if (and (list? 2nd) (= (length 2nd) 2)
+                                (eq? (car 2nd) 'nil) (list? (cadr 2nd))
+                                (= (length (cadr 2nd)) 2)
+                                (eq? (car (cadr 2nd)) 'undefined))
+                           (let ((sort (cadr (cadr 2nd)))
+                                 (accum (list* 1st accum)))
+                             (list " seq " " \\{ "
+                                   (map-alternate-insert '|,| identity
+                                    (reverse accum))
+                                   '|,| sort " \\} "))
+                           (present-prefix-operator formatter op args
+                               bp))))))
+
+(make-operator *parse* 'seq nil prefix-sequence-operator-method nil
+    200)
+
+(make-presentation-format *form* 'cons 'cons present-sequence 80)
+
+(make-presentation-format *tex-form* 'cons 'cons present-tex-sequence 80)

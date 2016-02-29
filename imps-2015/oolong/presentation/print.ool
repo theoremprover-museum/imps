@@ -1,0 +1,1463 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment print)
+
+(define-structure-type sexpression-label presentation-format
+    presentation-method binding-power)
+
+(define (make-presentation-format formatter sexpression-label
+            external-format presentation-method binding)
+        (let ((token-parameters (make-sexpression-label)))
+          (set (sexpression-label-presentation-format token-parameters)
+               external-format)
+          (set (sexpression-label-presentation-method token-parameters)
+               presentation-method)
+          (set (sexpression-label-binding-power token-parameters)
+               binding)
+          (set (table-entry (formatter-operator-table formatter)
+                   sexpression-label)
+               token-parameters)))
+
+(define (presentation-format formatter token)
+        (let ((occurs (table-entry (formatter-operator-table formatter)
+                          token)))
+          (cond
+            (occurs (sexpression-label-presentation-format occurs))
+            (else token))))
+
+(define (presentation-method formatter token)
+        (let ((occurs (table-entry (formatter-operator-table formatter)
+                          token)))
+          (cond
+            (occurs (sexpression-label-presentation-method occurs))
+            (else (default-prefix-presentation-method formatter)))))
+
+(define (presentation-binding-power formatter token)
+        (let ((occurs (table-entry (formatter-operator-table formatter)
+                          token)))
+          (cond
+            (occurs (sexpression-label-binding-power occurs))
+            (else 200))))
+
+(define fully-parenthesize
+        (make-simple-switch 'fully-parenthesize (always value-true) value-false))
+
+(define (parenthesize-conditionally condition s-exp)
+        (if (or condition (fully-parenthesize)) (list '|(| s-exp '|)|)
+            s-exp))
+
+(define (present-nary-infix-operator formatter op args bp)
+        (let ((weight (presentation-binding-power formatter op)))
+          (list *pp-block* 0
+                (cond
+                  ((null? args)
+                   (list* (presentation-format formatter op)
+                          '(|(| |)|)))
+                  ((null? (cdr args))
+                   (list (presentation-format formatter op) '|(|
+                         (present-tree formatter (car args) 0) '|)|))
+                  (else (parenthesize-conditionally (> bp weight)
+                            (map-alternate-insert
+                                (presentation-format formatter op)
+                                (lambda (z)
+                                  (list (present-tree formatter z
+                                         weight)
+                                        (list *pp-break* 0)))
+                                args)))))))
+
+(define (present-logical-nary-infix-operator formatter op args bp)
+        (let ((weight (presentation-binding-power formatter op)))
+          (list *pp-block* 0
+                (cond
+                  ((null? args)
+                   (list* (presentation-format formatter op)
+                          '(|(| |)|)))
+                  ((null? (cdr args))
+                   (list (presentation-format formatter op) '|(|
+                         (present-tree formatter (car args) 0) '|)|))
+                  (else (parenthesize-conditionally (>= bp weight)
+                            (map-alternate-insert
+                                (list (list *pp-break* 0)
+                                      (presentation-format formatter
+                                       op)
+                                      (list *pp-break* 0))
+                                (lambda (z)
+                                  (list (present-tree formatter z
+                                         weight)))
+                                args)))))))
+
+(define (prefix-operator-delimiters op)
+        (if (and (symbol->quasi-constructor op) (treat-qcs-specially?))
+            (return '{ '}) (return '|(| '|)|)))
+
+(define (present-prefix-operator formatter op args bp)
+        (receive (left-delimiter right-delimiter)
+                 (prefix-operator-delimiters op)
+                 (parenthesize-conditionally (> bp 200)
+                     (list (presentation-format formatter op)
+                           left-delimiter
+                           (list *pp-block* 0
+                                 (map-alternate-insert
+                                     (list '|,| (list *pp-break* 0))
+                                     (lambda (z)
+                                       (present-tree formatter z 0))
+                                     args)
+                                 right-delimiter)))))
+
+(define (present-loglike-operator formatter op args bp)
+        (let ((weight (presentation-binding-power formatter op)))
+          (parenthesize-conditionally (>= bp weight)
+              (list (presentation-format formatter op)
+                    (present-tree formatter (car args) weight)))))
+
+(define (present-non-associative-infix-operator formatter op args bp)
+        (let ((weight (presentation-binding-power formatter op)))
+          (parenthesize-conditionally (>= bp weight)
+              (list *pp-block* 0
+                    (present-tree formatter (car args) weight)
+                    (presentation-format formatter op)
+                    (list *pp-break* 0)
+                    (present-tree formatter (cadr args) weight)))))
+
+(define (present-relational-infix-operator formatter op args bp)
+        (let ((weight (presentation-binding-power formatter op)))
+          (parenthesize-conditionally (>= bp weight)
+              (list *pp-block* 0
+                    (present-tree formatter (car args) weight)
+                    (list *pp-break* 0)
+                    (presentation-format formatter op)
+                    (present-tree formatter (cadr args) weight)))))
+
+(define (present-logical-infix-operator formatter op args bp)
+        (let ((weight (presentation-binding-power formatter op)))
+          (parenthesize-conditionally (>= bp weight)
+              (list *pp-block* 0
+                    (present-tree formatter (car args) weight)
+                    (list *pp-break* 0)
+                    (presentation-format formatter op)
+                    (list *pp-break* 0)
+                    (present-tree formatter (cadr args) weight)))))
+
+(define (present-binary-infix-operator formatter op args bp)
+        (let ((weight (presentation-binding-power formatter op)))
+          (parenthesize-conditionally (> bp weight)
+              (list *pp-block* 0
+                    (present-tree formatter (car args) weight)
+                    (list *pp-break* 0)
+                    (presentation-format formatter op)
+                    (present-tree formatter (cadr args) (1+ weight))))))
+
+(define (present-subtraction-operator formatter op args bp)
+        (let ((weight (presentation-binding-power formatter op)))
+          (parenthesize-conditionally (>= bp weight)
+              (list *pp-block* 0
+                    (present-tree formatter (car args) weight)
+                    (presentation-format formatter op)
+                    (list *pp-break* 0)
+                    (present-tree formatter (cadr args) weight)))))
+
+(define (present-postfix-operator formatter op args bp) (ignore bp)
+        (parenthesize-conditionally value-false
+            (list (present-tree formatter (car args)
+                      (presentation-binding-power formatter op))
+                  (presentation-format formatter op))))
+
+(define (present-sort-dependent-prefix-operator formatter op args bp)
+        (ignore bp)
+        (let* ((args (reverse! args)) (sort (cadar args))
+               (rem-args (cdr args)))
+          (receive (left-delimiter right-delimiter)
+                   (prefix-operator-delimiters op)
+                   (list *pp-block* 0
+                         (presentation-format formatter op)
+                         left-delimiter
+                         (alternate-insert '|,|
+                             (append (map
+                                      (lambda (z)
+                                        (present-tree formatter z 0))
+                                      (reverse! rem-args))
+                                     (list (present-list sort))))
+                         right-delimiter))))
+
+(define arrow-for-function-specs
+        (make-simple-switch 'arrow-for-function-specs boolean? value-false))
+
+(define (present-list-with-sets args)
+        (cond
+          ((proper-list? args)
+           (cond
+             ((eq? (last args) 'unit%sort)
+              (cons 'sets
+                    (list* '[
+                           (append (map-alternate-insert '|,|
+                                    present-list-with-sets
+                                    (all-but-last args))
+                                   '(])))))
+             ((arrow-for-function-specs)
+              (list* '[
+                     (append (map-alternate-insert '|,|
+                                 present-list-with-sets
+                                 (all-but-last args))
+                             (list '->
+                                   (present-list-with-sets (last args))
+                                   ']))))
+             (else (list* '[
+                          (append (map-alternate-insert '|,|
+                                      present-list-with-sets args)
+                                  '(]))))))
+          ((atom? args) args)
+          (else args)))
+
+(define present-list present-list-with-sets)
+
+(define (present-undefined-of-sort formatter op args bp) (ignore bp)
+        (list *pp-block* 0 (presentation-format formatter op)
+              (present-list (car args))))
+
+(define (present-prefix-with-sort-arg formatter op args bp) (ignore bp)
+        (receive (left-delimiter right-delimiter)
+                 (prefix-operator-delimiters op)
+                 (list (presentation-format formatter op)
+                       left-delimiter (present-list (car args))
+                       right-delimiter)))
+
+(define (present-defined-in-sort formatter op args bp) (ignore bp)
+        (list *pp-block* 0 (presentation-format formatter op) '|(|
+              (present-tree formatter (car args) 0) '|,|
+              (present-list (cadr args)) '|)|))
+
+(define (present-in-sort formatter op args bp) (ignore bp)
+        (list (presentation-format formatter op) '|(|
+              (present-tree formatter (car args) 0) '|,|
+              (present-list (cadr args)) '|)|))
+
+(define (present-cond formatter op args bp) (ignore bp)
+        (list *pp-block* 2
+              (iterate loop ((args args) (accum nil))
+                       (let ((1st (present-tree formatter (car args) 0))
+                             (2nd (present-tree formatter (cadr args)
+                                      0))
+                             (3rd (caddr args)))
+                         (if (and (list? 3rd) (eq? (car 3rd) op))
+                             (loop
+                               (cdr 3rd)
+                               (list* (list 1st '|,|
+                                       (list *pp-break* 1) 2nd)
+                                      accum))
+                             (let ((accum
+                                    (list*
+                                     (present-tree formatter 3rd 0)
+                                     (list 1st '|,| (list *pp-break* 1)
+                                      2nd)
+                                     accum)))
+                               (if (= (length accum) 2)
+                                   (list*
+                                    (car
+                                     (presentation-format formatter op))
+                                    '|(|
+                                    (append
+                                     (map-alternate-insert
+                                      (list '|,| (list *pp-break* 1))
+                                      identity (reverse! accum))
+                                     '(|)|)))
+                                   (list
+                                    (cadr
+                                     (presentation-format formatter op))
+                                    '|(|
+                                    (map-alternate-insert
+                                     (list '|,| (list *pp-break* 1))
+                                     identity (reverse! accum))
+                                    '|)|))))))))
+
+(define (present-binding-operator formatter op args bp) (ignore bp)
+        (list *pp-block* 2 (presentation-format formatter op) '|(|
+              (present-specification-list (car args)) '|,|
+              (list *pp-break* 0)
+              (present-tree formatter (cadr args) 0) '|)|))
+
+(define (present-binding-operator-1-line formatter op args bp)
+        (ignore bp)
+        (list (presentation-format formatter op) '|(|
+              (present-specification-list (car args)) '|,|
+              (present-tree formatter (cadr args) 0) '|)|))
+
+(define (present-specification-list args)
+        (map-alternate-insert '|,| present-sort-specs args))
+
+(define (present-sort-specs arg)
+        (list (map-alternate-insert '|,| identity (cdr arg)) '|:|
+              (present-list-with-sets (car arg))))
+
+(define-integrable (list-constructor arg) (car arg))
+
+(define-integrable (binding-list-variables arg) (caar (cadr arg)))
+
+(define (binder-variables arg) (apply append (map cdr (cadr arg))))
+
+(define-integrable (binder-body arg) (caddr arg))
+
+(define (iteration-operator-same-binding-variables? args)
+        (and (list? (car args)) (list? (cadr args))
+             (eq? (list-constructor (car args)) 'lambda)
+             (eq? (list-constructor (cadr args)) 'lambda)
+             (equal? (binding-list-variables (car args))
+                     (binding-list-variables (cadr args)))))
+
+;;;(define (sort->string sort)
+;;;  (with-output-to-string port
+;;;          (with-open-ports ((pt (output-port->imps-output-port-for-sorts port)))
+;;;            (write pt (sort->list sort)))))
+
+(define (sort->string sort)
+  (with-output-to-string 
+    port
+    (let ((pt (output-port->imps-output-port-for-sorts port)))
+      (write pt (sort->list sort)))))
+
+(define *form* (make-tree-formatter))
+
+(set (default-prefix-presentation-method *form*)
+     present-prefix-operator)
+
+(make-presentation-format *form* '+ '+ present-binary-infix-operator
+    100)
+
+(make-presentation-format *form* '++ '++ present-binary-infix-operator
+    100)
+
+(make-presentation-format *form* '- '- present-loglike-operator 111)
+
+(make-presentation-format *form* 'sub '- present-subtraction-operator
+    110)
+
+(make-presentation-format *form* '* '* present-binary-infix-operator
+    120)
+
+(make-presentation-format *form* '** '**
+    present-non-associative-infix-operator 121)
+
+(make-presentation-format *form* '/ '/
+    present-non-associative-infix-operator 121)
+
+(make-presentation-format *form* '^ '^
+    present-non-associative-infix-operator 140)
+
+(make-presentation-format *form* '^^ '^^
+    present-non-associative-infix-operator 140)
+
+(make-presentation-format *form* 'factorial '! present-postfix-operator
+    160)
+
+(make-presentation-format *form* 'is-defined '|#|
+    present-prefix-operator 160)
+
+(make-presentation-format *form* '= '=
+    present-relational-infix-operator 80)
+
+(make-presentation-format *form* 'sub-function " sub_f "
+    present-binary-infix-operator 80)
+
+(make-presentation-format *form* 'sub-predicate " sub_p "
+    present-binary-infix-operator 80)
+
+(make-presentation-format *form* '== "=="
+    present-relational-infix-operator 80)
+
+(make-presentation-format *form* '> '> present-binary-infix-operator
+    80)
+
+(make-presentation-format *form* '>= '>= present-binary-infix-operator
+    80)
+
+(make-presentation-format *form* '< '<
+    present-relational-infix-operator 80)
+
+(make-presentation-format *form* '<= '<=
+    present-relational-infix-operator 80)
+
+(make-presentation-format *form* 'iff " iff "
+    present-logical-infix-operator 65)
+
+(make-presentation-format *form* 'implies " implies "
+    present-logical-infix-operator 59)
+
+(make-presentation-format *form* 'and " and "
+    present-logical-nary-infix-operator 60)
+
+(make-presentation-format *form* 'or " or "
+    present-logical-nary-infix-operator 50)
+
+(make-presentation-format *form* 'forall 'forall
+    present-binding-operator 50)
+
+(make-presentation-format *form* 'with 'with present-binding-operator
+    50)
+
+(make-presentation-format *form* 'lambda 'lambda
+    present-binding-operator 50)
+
+(make-presentation-format *form* 'iota 'iota present-binding-operator
+    50)
+
+(make-presentation-format *form* 'forsome 'forsome
+    present-binding-operator 50)
+
+(make-presentation-format *form* 'if-form '(if_form if_form)
+    present-cond 80)
+
+(make-presentation-format *form* 'if '(if if) present-cond 80)
+
+(make-presentation-format *form* 'if-pred '(if_pred if_pred)
+    present-cond 80)
+
+(make-presentation-format *form* 'undefined '?
+    present-undefined-of-sort 50)
+
+(make-presentation-format *form* 'falselike 'falselike
+    present-prefix-with-sort-arg 160)
+
+(make-presentation-format *form* 'is-defined-in-sort '|#|
+    present-defined-in-sort 50)
+
+(make-presentation-format *form* 'total? 'total_q
+    present-sort-dependent-prefix-operator 160)
+
+(make-presentation-format *form* 'vacuous? 'vacuous_q
+    present-prefix-operator 160)
+
+(make-presentation-format *form* 'reflexive? 'reflexive_q
+    present-prefix-operator 160)
+
+(make-presentation-format *form* 'transitive? 'transitive_q
+    present-prefix-operator 160)
+
+(make-presentation-format *form* 'antisymmetric? 'antisymmetric_q
+    present-prefix-operator 160)
+
+(make-presentation-format *form* 'comparable? 'comparable_q
+    present-prefix-operator 160)
+
+(make-presentation-format *form* 'well-founded? 'well_founded_q
+    present-prefix-operator 160)
+
+(make-presentation-format *form* 'partial-order? 'partial_order_q
+    present-prefix-operator 160)
+
+(make-presentation-format *form* 'linear-order? 'linear_order_q
+    present-prefix-operator 160)
+
+(make-presentation-format *form* 'upper-bound? 'upper_bound_q
+    present-prefix-operator 160)
+
+(make-presentation-format *form* 'chain? 'chain_q
+    present-prefix-operator 160)
+
+(make-presentation-format *form* 'cpo? 'cpo_q present-prefix-operator
+    160)
+
+(make-presentation-format *form* 'monotone? 'monotone_q
+    present-prefix-operator 160)
+
+(make-presentation-format *form* 'continuous? 'continuous_q
+    present-prefix-operator 160)
+
+(make-presentation-format *form* 'nonvacuous? 'nonvacuous_q
+    present-prefix-operator 160)
+
+(define (qp-string exp)
+        (sexp->output-string *form* (expression->sexp exp)))
+
+;;;(define (imps-string-print-proc sexp port)
+;;;  (with-open-ports ((le-port (output-port->imps-output-port port *form*)))
+;;;		   (write le-port sexp)
+;;;		   (write-char le-port #\;)))
+
+(define (imps-string-print-proc sexp port)
+  (let ((le-port (output-port->imps-output-port port *form*)))
+    (write le-port sexp)
+    (write-char le-port #\;)))
+
+
+(set (imps-printer) imps-string-print-proc)
+
+(add-syntax 'string-syntax imps-string-read-proc
+    imps-string-print-proc)
+
+(define tex-correspondence-table (make-hash-table equal? value-false))
+
+(define (find-tex-correspondence char-list)
+  (let ((look-up (table-entry tex-correspondence-table char-list)))
+    (cond
+     (look-up)
+     ((<= 2 (length char-list))
+      (append '(#\{ #\\ #\r #\m #\Space) char-list
+	      '(#\Space #\})))
+     (else char-list))))
+
+
+(define (process-characters-for-tex-soft char-list)
+  (iterate loop ((x char-list) (current nil) (accum nil) (tail nil))
+    (cond
+     ((null? x)
+      (append accum
+	      (append (reverse! current) tail)))
+     ((and (char= (car x) #\_)
+	   (dont-subscript-underscores?))
+      (loop
+       (cdr x)
+       (list* #\_ #\\ current)
+       accum
+       tail))
+     ((and (cdr x) (char= (car x) #\_))
+      (let ((current (reverse! current)))
+	(loop
+	 (cdr x)
+	 nil
+	 (append accum
+		 (append current '(#\_ #\{)))
+	 (cons #\} tail))))
+     ((char= (car x) #\_)
+      (loop
+       (cdr x)
+       (list* #\} #\{ #\_ current)
+       accum
+       tail))
+     ((char= (car x) #\%)
+      (loop
+       (cdr x)
+       (list* #\_ #\\ current)
+       accum
+       tail))
+     ((char= (car x) #\$)
+      (loop
+       (cdr x)
+       (list* #\$ #\\ current)
+       accum
+       tail))
+     (else
+      (loop
+       (cdr x)
+       (cons (car x) current)
+       accum
+       tail)))))
+
+(define (make-tex-correspondence symbol-or-str to-str)
+  (let ((str (if (symbol? symbol-or-str)
+		   (process-characters-for-tex-soft
+		    (string->list
+		     (string-downcase!
+		      (symbol->string symbol-or-str))))
+		   (string->list symbol-or-str))))
+      (set (table-entry tex-correspondence-table str) (string->list to-str))))
+
+(define (tex-process-symbol x)
+        (let ((explode (string->list
+                           (string-downcase! (symbol->string x)))))
+          (list->string (process-characters-for-tex explode))))
+
+(define dont-subscript-underscores?
+        (make-simple-switch 'dont-subscript-underscores? boolean?
+            value-false))
+
+(define (process-characters-for-tex char-list)
+        (iterate loop
+                 ((x char-list) (current nil) (accum nil) (tail nil))
+                 (cond
+                   ((null? x)
+                    (append accum
+                            (append (find-tex-correspondence
+                                     (reverse! current))
+                                    tail)))
+                   ((and (char= (car x) #\_)
+                         (dont-subscript-underscores?))
+                    (loop (cdr x) (list* #\_ #\\ current) accum tail))
+                   ((and (cdr x) (char= (car x) #\_))
+                    (let ((current (find-tex-correspondence
+                                    (reverse! current))))
+                      (loop
+                        (cdr x)
+                        nil
+                        (append accum (append current '(#\_ #\{)))
+                        (cons #\} tail))))
+                   ((char= (car x) #\_)
+                    (loop
+                      (cdr x)
+                      (list* #\} #\{ #\_ current)
+                      accum
+                      tail))
+                   ((char= (car x) #\%)
+                    (loop (cdr x) (list* #\_ #\\ current) accum tail))
+                   ((char= (car x) #\$)
+                    (loop (cdr x) (list* #\$ #\\ current) accum tail))
+                   (else (loop
+                           (cdr x)
+                           (cons (car x) current)
+                           accum
+                           tail)))))
+
+(define maximum-nesting-for-logical-expressions
+        (make-simple-switch 'max-nesting integer? 3))
+
+(define current-indentation (make-simple-switch 'depth string? ""))
+
+(define current-bullet-symbol
+        (make-simple-switch 'symbol list?
+            '(" \\bullet " " \\bullet \\," " \\circ \\,"
+              " \\diamond \\, " " \\bowtie \\," " \\dagger \\,"
+              "\\sharp \\, " " \\cdot ")))
+
+(define (present-tex-subtraction-operator formatter op args bp)
+        (let ((weight (presentation-binding-power formatter op)))
+          (parenthesize-conditionally (>= bp weight)
+              (list (present-tree formatter (car args) 0)
+                    (presentation-format formatter op)
+                    (present-tree formatter (cadr args) weight)))))
+
+(define (prefix-tex-operator-delimiters op)
+        (if (and (symbol->quasi-constructor op) (treat-qcs-specially?))
+            (return " \\{ " " \\} ") (return '|(| '|)|)))
+
+(define (present-tex-prefix-operator formatter op args bp) (ignore bp)
+        (receive (left-delimiter right-delimiter)
+                 (prefix-tex-operator-delimiters op)
+                 (list (presentation-format formatter op)
+                       left-delimiter
+                       (map-alternate-insert '|,|
+                           (lambda (z) (present-tree formatter z 0))
+                           args)
+                       right-delimiter)))
+
+(define (present-tex-sort-dependent-prefix-operator formatter op args
+            bp)
+        (ignore bp)
+        (let* ((args (reverse! args)) (sort (cadar args))
+               (rem-args (cdr args)))
+          (list (presentation-format formatter op)
+                (parenthesize-conditionally t
+                    (alternate-insert '|,|
+                        (append (map (lambda (z)
+                                       (present-tree formatter z 0))
+                                     (reverse! rem-args))
+                                (list (present-tex-sorting sort
+                                       value-false))))))))
+
+(define (present-tex-binary-infix-operator formatter op args bp)
+        (let ((weight (presentation-binding-power formatter op)))
+          (parenthesize-conditionally (> bp weight)
+              (list (present-tree formatter (car args) weight)
+                    (presentation-format formatter op)
+                    (present-tree formatter (cadr args) weight)))))
+
+(define (present-tex-logical-operator formatter op args bp)
+        (let ((weight (presentation-binding-power formatter op)))
+          (if (> (maximum-nesting-for-logical-expressions) 0)
+              (bind (((current-indentation)
+                      (string-append (current-indentation) "X"))
+                     ((current-bullet-symbol)
+                      (cdr (current-bullet-symbol)))
+                     ((maximum-nesting-for-logical-expressions)
+                      (subtract1
+                          (maximum-nesting-for-logical-expressions))))
+                    (list (car (presentation-format formatter op))
+                          " \\newline "
+                          (map-alternate-insert " \\newline "
+                              (lambda (z)
+                                (list (format nil " \\phantom{~a} "
+                                       (current-indentation))
+                                      (car (current-bullet-symbol))
+                                      (present-tree formatter z 0)))
+                              args)))
+              (parenthesize-conditionally (> bp weight)
+                  (map-alternate-insert
+                      (cadr (presentation-format formatter op))
+                      (lambda (z) (present-tree formatter z weight))
+                      args)))))
+
+(comment (define (present-tex-conditional-formula-old formatter op args
+                     bp)
+                 (ignore bp)
+                 (let ((newlines?
+                           (> (maximum-nesting-for-logical-expressions)
+                              0)))
+                   (bind (((current-indentation)
+                           (string-append (current-indentation) "X"))
+                          ((current-bullet-symbol)
+                           (cdr (current-bullet-symbol)))
+                          ((maximum-nesting-for-logical-expressions) 0))
+                         (receive (last args)
+                                  (iterate loop
+                                           ((args args) (accum value-false))
+                                           (let
+                                            ((1st
+                                              (present-tree formatter
+                                               (car args) 0))
+                                             (2nd
+                                              (present-tree formatter
+                                               (cadr args) 0))
+                                             (3rd (caddr args)))
+                                             (if
+                                              (and (list? 3rd)
+                                               (eq? (car 3rd) op))
+                                              (loop
+                                                (cdr 3rd)
+                                                (list* (list 1st 2nd)
+                                                 accum))
+                                              (return
+                                                (present-tree formatter
+                                                 3rd 0)
+                                                (reverse
+                                                 (list* (list 1st 2nd)
+                                                  accum))))))
+                                  (if newlines?
+                                      (list
+                                       " \\mbox{ conditionally }  "
+                                       " \\newline "
+                                       (format nil " \\phantom{~a} "
+                                        (current-indentation))
+                                       (car (current-bullet-symbol))
+                                       (map-alternate-insert
+                                        (list " \\newline "
+                                         (format nil " \\phantom{~a} "
+                                          (current-indentation))
+                                         (car (current-bullet-symbol)))
+                                        (lambda (x)
+                                          (list " \\mbox{ if }" (car x)
+                                           " \\mbox{ then }" (cadr x)))
+                                        args)
+                                       " \\newline "
+                                       (format nil " \\phantom{~a} "
+                                        (current-indentation))
+                                       (car (current-bullet-symbol))
+                                       " \\mbox{ otherwise }" last)
+                                      (list
+                                       (map-alternate-insert '|,|
+                                        (lambda (x)
+                                          (list " \\mbox{ if }" (car x)
+                                           " \\mbox{ then }" (cadr x)))
+                                        args)
+                                       " \\mbox{ otherwise }" last)))))))
+
+(comment (define (present-tex-conditional-formula formatter op args bp)
+                 (ignore bp)
+                 (let ((newlines?
+                           (> (maximum-nesting-for-logical-expressions)
+                              0)))
+                   (bind (((current-indentation)
+                           (string-append (current-indentation) "X"))
+                          ((current-bullet-symbol)
+                           (cdr (current-bullet-symbol)))
+                          ((maximum-nesting-for-logical-expressions) 0))
+                         (receive (last args)
+                                  (iterate loop
+                                           ((args args) (accum value-false))
+                                           (let
+                                            ((1st
+                                              (present-tree formatter
+                                               (car args) 0))
+                                             (2nd
+                                              (present-tree formatter
+                                               (cadr args) 0))
+                                             (3rd (caddr args)))
+                                             (if
+                                              (and (list? 3rd)
+                                               (eq? (car 3rd) op))
+                                              (loop
+                                                (cdr 3rd)
+                                                (list* (list 1st 2nd)
+                                                 accum))
+                                              (return
+                                                (present-tree formatter
+                                                 3rd 0)
+                                                (reverse
+                                                 (list* (list 1st 2nd)
+                                                  accum))))))
+                                  (cond
+                                    ((not newlines?)
+                                     (list
+                                      (map-alternate-insert '|,|
+                                       (lambda (x)
+                                         (list " \\mbox{ if }" (car x)
+                                          " \\mbox{ then }" (cadr x)))
+                                       args)
+                                      " \\mbox{ otherwise }" last))
+                                    ((= (length args) 1)
+                                     (list
+                                      " \\mbox{ conditionally, if }  "
+                                      (caar args) " \\newline "
+                                      (format nil " \\phantom{~a} "
+                                       (current-indentation))
+                                      (car (current-bullet-symbol))
+                                      " \\mbox{ then }" (cadar args)
+                                      " \\newline "
+                                      (format nil " \\phantom{~a} "
+                                       (current-indentation))
+                                      (car (current-bullet-symbol))
+                                      " \\mbox{ otherwise }" last))
+                                    (else
+                                     (list " \\mbox{ conditionally }  "
+                                      " \\newline "
+                                      (format nil " \\phantom{~a} "
+                                       (current-indentation))
+                                      (car (current-bullet-symbol))
+                                      (map-alternate-insert
+                                       (list " \\newline "
+                                        (format nil " \\phantom{~a} "
+                                         (current-indentation))
+                                        (car (current-bullet-symbol)))
+                                       (lambda (x)
+                                         (list " \\mbox{ if }" (car x)
+                                          " \\mbox{ then }" (cadr x)))
+                                       args)
+                                      " \\newline "
+                                      (format nil " \\phantom{~a} "
+                                       (current-indentation))
+                                      (car (current-bullet-symbol))
+                                      " \\mbox{ otherwise }" last))))))))
+
+(define (present-tex-conditional-formula formatter op args bp)
+        (ignore bp)
+        (let ((newlines?
+                  (> (maximum-nesting-for-logical-expressions) 0)))
+          (bind (((current-indentation)
+                  (string-append (current-indentation) "X"))
+                 ((current-bullet-symbol)
+                  (cdr (current-bullet-symbol)))
+                 ((maximum-nesting-for-logical-expressions) 0))
+                (receive (last args)
+                         (iterate loop ((args args) (accum nil))
+                                  (let ((1st
+                                         (present-tree formatter
+                                          (car args) 0))
+                                        (2nd
+                                         (present-tree formatter
+                                          (cadr args) 0))
+                                        (3rd (caddr args)))
+                                    (if
+                                     (and (list? 3rd)
+                                      (eq? (car 3rd) op))
+                                     (loop
+                                       (cdr 3rd)
+                                       (list* (list 1st 2nd) accum))
+                                     (return
+                                       (present-tree formatter 3rd 0)
+                                       (reverse
+                                        (list* (list 1st 2nd) accum))))))
+                         (cond
+                           ((not newlines?)
+                            (list (map-alternate-insert '|,|
+                                      (lambda (x)
+                                        (list " \\mbox{ if }" (car x)
+                                         " \\mbox{ then }" (cadr x)))
+                                      args)
+                                  " \\mbox{ else }" last))
+                           ((= (length args) 1)
+                            (list " \\mbox{ conditionally, if }  "
+                                  (caar args) " \\newline "
+                                  (format nil " \\phantom{~a} "
+                                          (current-indentation))
+                                  (car (current-bullet-symbol))
+                                  " \\mbox{ then }" (cadar args)
+                                  " \\newline "
+                                  (format nil " \\phantom{~a} "
+                                          (current-indentation))
+                                  (car (current-bullet-symbol))
+                                  " \\mbox{ else }" last))
+                           (else (list " \\mbox{ conditionally }  "
+                                       " \\newline "
+                                       (format nil " \\phantom{~a} "
+                                        (current-indentation))
+                                       (car (current-bullet-symbol))
+                                       (map-alternate-insert
+                                        (list " \\newline "
+                                         (format nil " \\phantom{~a} "
+                                          (current-indentation))
+                                         (car (current-bullet-symbol)))
+                                        (lambda (x)
+                                          (list " \\mbox{ if }" (car x)
+                                           " \\mbox{ then }" (cadr x)))
+                                        args)
+                                       " \\newline "
+                                       (format nil " \\phantom{~a} "
+                                        (current-indentation))
+                                       (car (current-bullet-symbol))
+                                       " \\mbox{ otherwise }" last)))))))
+
+(define (present-tex-non-associative-infix-operator formatter op args
+            bp)
+        (let ((weight (presentation-binding-power formatter op)))
+          (parenthesize-conditionally (>= bp weight)
+              (list (present-tree formatter (car args) weight)
+                    (presentation-format formatter op)
+                    (present-tree formatter (cadr args) weight)))))
+
+(define (present-tex-exponentiation formatter op args bp) (ignore bp)
+        (let ((weight (presentation-binding-power formatter op)))
+          (list '{ (present-tree formatter (car args) weight) '}
+                (presentation-format formatter op) '{
+                (present-tree formatter (cadr args) 0) '})))
+
+(comment (define (present-tex-quantification-operator formatter op args
+                     bp)
+                 (let ((weight (presentation-binding-power formatter
+                                   op))
+                       (top-level-form
+                           (if (list? (presentation-format formatter
+                                       op))
+                               (car (presentation-format formatter op))
+                               (presentation-format formatter op)))
+                       (nested-form
+                           (if (list? (presentation-format formatter
+                                       op))
+                               (cadr (presentation-format formatter op))
+                               (presentation-format formatter op))))
+                   (if (> (maximum-nesting-for-logical-expressions) 0)
+                       (list top-level-form
+                             (present-tex-parameter-list (car args))
+                             " \\quad "
+                             (present-tree formatter (cadr args) 0))
+                       (parenthesize-conditionally (> bp weight)
+                           (list nested-form
+                                 (present-tex-parameter-list
+                                     (car args))
+                                 " \\quad "
+                                 (present-tree formatter (cadr args) 0)))))))
+
+(comment (define (present-tex-lambda-abstraction formatter op args bp)
+                 (ignore bp)
+                 (list " [ \\," (present-tex-parameter-list (car args))
+                       " \\, " " \\mapsto " " \\, "
+                       (present-tree formatter (cadr args) 0) "\\, ] ")))
+
+(comment used to be
+         (define (present-tex-lambda-abstraction formatter op args bp)
+                 (ignore bp)
+                 (list (presentation-format formatter op) " \\{ "
+                       (present-tex-parameter-list (car args)) " \\, "
+                       " | " " \\, "
+                       (present-tree formatter (cadr args) 0) " \\} ")))
+
+(define (present-tex-with formatter op args bp) (ignore bp)
+        (if (or (brief-parameter-specification?)
+                (dont-list-free-variables?))
+            (present-tree formatter (cadr args) 0)
+            (list (presentation-format formatter op)
+                  (present-tex-parameter-list (car args)) " \\quad "
+                  (present-tree formatter (cadr args) 0))))
+
+(define (present-tex-parameter-list args)
+        (map-alternate-insert '|,| present-tex-parameter-specification
+            args))
+
+(define brief-parameter-specification?
+        (make-simple-switch 'parameter-brevity boolean? value-false))
+
+(define dont-list-free-variables?
+        (make-simple-switch 'conceal-free-variables boolean? value-false))
+
+(define (present-tex-parameter-specification spec)
+        (if (brief-parameter-specification?)
+            (alternate-insert '|,| (cdr spec))
+            (append (alternate-insert '|,| (cdr spec))
+                    (list " : "
+                          (present-tex-sorting (car spec) value-true)))))
+
+(define (present-tex-sorting sorting top-level)
+        (cond
+          ((atom? sorting) sorting)
+          (else (let ((rev (reverse (map
+                                     (lambda (x)
+                                       (present-tex-sorting x value-false))
+                                     sorting)))
+                      (cross " \\times ") (into " \\rightharpoonup "))
+                  (if (eq? (car rev) 'unit%sort)
+                      (list* 'sets '[
+                             (append (alternate-insert cross
+                                      (reverse (cdr rev)))
+                                     '(])))
+                      (let ((presentation
+                                (reverse (list* (car rev) into
+                                          (alternate-insert cross
+                                           (cdr rev))))))
+                        (if top-level presentation
+                            (list '[ presentation ']))))))))
+
+(define (present-tex-differentiation formatter op args bp) (ignore bp)
+        (cond
+          ((and (list? (car args)) (eq? (caar args) 'lambda))
+           (present-tex-leibniz-notation formatter op args))
+          (else (present-tex-newton-notation formatter op args))))
+
+(define (present-tex-leibniz-notation formatter op args)
+        (let* ((weight (presentation-binding-power formatter op))
+               (var (present-tree formatter (caaar (cadar args)) 0))
+               (body (present-tree formatter (caddr (car args)) weight))
+               (degree (if (= 1 (cadr args)) nil
+                           (list (present-tree formatter (cadr args) 0)))))
+          (list* '{ 'd '^ '{ degree '} body " \\over " 'd var '^ '{
+                 degree '(} }))))
+
+(define (present-tex-newton-notation formatter op args)
+        (let ((weight (presentation-binding-power formatter op))
+              (degree (cond
+                        ((= (cadr args) 1) " \\prime ")
+                        ((= (cadr args) 2)
+                         (list " \\prime " " \\prime "))
+                        (else (present-tree formatter (cadr args) 0)))))
+          (list '{ (present-tree formatter (car args) weight) '} '^ '{
+                degree '})))
+
+(define (present-tex-undefined-of-sort formatter op args bp)
+        (ignore bp)
+        (list (presentation-format formatter op) '_ '{
+              (present-tex-sorting (car args) value-false) '}))
+
+(define (present-subscripted-sort-arg formatter op args bp) (ignore bp)
+        (list (presentation-format formatter op) '_ '{
+              (present-tex-sorting (car args) value-false) '}))
+
+(define (present-tex-defined-in-sort formatter op args bp) (ignore bp)
+        (list (present-tree formatter (car args) 0)
+              (presentation-format formatter op)
+              (present-tex-sorting (cadr args) value-false)))
+
+(define (present-tex-in-sort formatter op args bp) (ignore bp)
+        (list (presentation-format formatter op) '|(|
+              (present-tree formatter (car args) 0) '|,|
+              (present-list (cadr args)) '|)|))
+
+(define (present-tex-nonstrict-if formatter op args bp) (ignore op bp)
+        (bind (((maximum-nesting-for-logical-expressions) 0))
+              (list "\\{" (present-tree formatter (cadr args) 0)
+                    "\\mbox { if }"
+                    (present-tree formatter (car args) 0)
+                    "\\mbox{,  otherwise   }"
+                    (present-tree formatter (caddr args) 0) "\\}")))
+
+(define (present-tex-delimited-expression formatter op args bp)
+        (ignore bp)
+        (list (car (presentation-format formatter op))
+              (alternate-insert '|,|
+                  (map (lambda (x) (present-tree formatter x 0)) args))
+              (cadr (presentation-format formatter op))))
+
+(define (present-tex-delimited-expression-with-dots formatter op args
+            bp)
+        (ignore bp)
+        (list (car (presentation-format formatter op))
+              (alternate-insert '|.|
+                  (map (lambda (x) (present-tree formatter x 0)) args))
+              (cadr (presentation-format formatter op))))
+
+(define (present-tex-delimited-expression-with-two-colons formatter op
+            args bp)
+        (ignore bp)
+        (list (car (presentation-format formatter op))
+              (alternate-insert "::"
+                  (map (lambda (x) (present-tree formatter x 0)) args))
+              (cadr (presentation-format formatter op))))
+
+(define (present-tex-braced-arguments formatter op args bp) (ignore bp)
+        (list (presentation-format formatter op) " { "
+              (alternate-insert '|,|
+                  (map (lambda (x) (present-tree formatter x 0)) args))
+              " } "))
+
+(define (present-tex-choose formatter op args bp) (ignore bp)
+        (list* " { " " { " (present-tree formatter (car args) 0) " } "
+               (presentation-format formatter op) " { "
+               (present-tree formatter (cadr args) 0) '(" } " " } ")))
+
+(define (present-tex-interval-iteration-operator formatter op args bp)
+        (ignore bp)
+        (let ((low (present-tree formatter (car args) 0))
+              (up (present-tree formatter (cadr args) 0))
+              (fn (caddr args)))
+          (if (and (list? fn) (eq? (car fn) 'lambda)
+                   (= (length (binder-variables fn)) 1))
+              (list (presentation-format formatter op) "_{ "
+                    (car (binder-variables fn)) " = " low " } " "^{ "
+                    up " } "
+                    (present-tree formatter (binder-body fn) 0))
+              (list (presentation-format formatter op) "_{ " low " } "
+                    "^{ " up " } " (present-tree formatter fn 0)))))
+
+(define (present-tex-limit-operator formatter op args bp) (ignore bp)
+        (let ((fn (car args)))
+          (if (and (list? fn) (eq? (car fn) 'lambda)
+                   (= (length (binder-variables fn)) 1))
+              (list (presentation-format formatter op) "_{ "
+                    (car (binder-variables fn))
+                    " \\rightarrow \\infty } "
+                    (present-tree formatter (binder-body fn) 0))
+              (list (presentation-format formatter op)
+                    (present-tree formatter fn 0)))))
+
+(define (present-tex-symbol formatter op args bp) (ignore args bp)
+        (list (presentation-format formatter op)))
+
+(define *tex-form* (make-tree-formatter))
+
+(set (default-prefix-presentation-method *tex-form*)
+     present-tex-prefix-operator)
+
+(set (composite-presentation-method *tex-form*)
+     (lambda (formatter op args binding-power)
+       (parenthesize-conditionally (> binding-power 200)
+           (list (present-tree formatter op 200) '|(|
+                 (alternate-insert '|,|
+                     (map (lambda (z) (present-tree formatter z 0))
+                          args))
+                 '|)|))))
+
+(make-presentation-format *tex-form* '+ '+
+    present-tex-binary-infix-operator 100)
+
+(make-presentation-format *tex-form* '++ '+
+    present-tex-binary-infix-operator 100)
+
+(make-presentation-format *tex-form* '- '- present-loglike-operator
+    110)
+
+(make-presentation-format *tex-form* 'sub '-
+    present-tex-subtraction-operator 110)
+
+(make-presentation-format *tex-form* '* " \\cdot "
+    present-tex-binary-infix-operator 120)
+
+(make-presentation-format *tex-form* '** " \\cdot "
+    present-tex-binary-infix-operator 120)
+
+(make-presentation-format *tex-form* '/ '/
+    present-tex-non-associative-infix-operator 121)
+
+(make-presentation-format *tex-form* '^ '^ present-tex-exponentiation
+    140)
+
+(make-presentation-format *tex-form* '^^ '^ present-tex-exponentiation
+    140)
+
+(make-presentation-format *tex-form* 'factorial '!
+    present-postfix-operator 160)
+
+(make-presentation-format *tex-form* 'is-defined " \\downarrow "
+    present-postfix-operator 160)
+
+(make-presentation-format *tex-form* '= '=
+    present-tex-binary-infix-operator 80)
+
+(make-presentation-format *tex-form* 'sub-function " \\sqsubseteq "
+    present-tex-binary-infix-operator 80)
+
+(make-presentation-format *tex-form* 'included " \\subseteq "
+    present-tex-binary-infix-operator 80)
+
+(make-presentation-format *tex-form* 'total? 'total
+    present-tex-sort-dependent-prefix-operator 160)
+
+(make-presentation-format *tex-form* '== " \\simeq "
+    present-tex-binary-infix-operator 80)
+
+(make-presentation-format *tex-form* '> '>
+    present-tex-binary-infix-operator 80)
+
+(make-presentation-format *tex-form* '>= " \\geq "
+    present-tex-binary-infix-operator 80)
+
+(make-presentation-format *tex-form* '< '<
+    present-tex-binary-infix-operator 80)
+
+(make-presentation-format *tex-form* '<= " \\leq "
+    present-tex-binary-infix-operator 80)
+
+(make-presentation-format *tex-form* 'abs (list " | " " | ")
+    present-tex-delimited-expression 80)
+
+(make-presentation-format *tex-form* 'sqrt " \\sqrt "
+    present-tex-braced-arguments 160)
+
+(make-presentation-format *tex-form* 'iff (list "\\iff " "\\iff ")
+    present-tex-logical-operator 65)
+
+(make-presentation-format *tex-form* 'implies
+    (list "{ \\rm implication }" " \\supset ")
+    present-tex-logical-operator 64)
+
+(make-presentation-format *tex-form* 'not " \\neg "
+    present-tex-prefix-operator 200)
+
+(make-presentation-format *tex-form* 'and
+    (list "{ \\rm conjunction } " " \\wedge ")
+    present-tex-logical-operator 60)
+
+(make-presentation-format *tex-form* 'or
+    (list "{ \\rm disjunction }  " " \\vee ")
+    present-tex-logical-operator 50)
+
+(make-presentation-format *tex-form* 'with " \\mbox{ \\rm with }"
+    present-tex-with 50)
+
+(make-presentation-format *tex-form* 'comb " \\choose "
+    present-tex-choose 160)
+
+(make-presentation-format *tex-form* 'if-form 'if
+    present-tex-conditional-formula 50)
+
+(make-presentation-format *tex-form* 'if-pred 'if
+    present-tex-conditional-formula 50)
+
+(make-presentation-format *tex-form* 'undefined " \\bot "
+    present-tex-undefined-of-sort 50)
+
+(make-presentation-format *tex-form* 'falselike 'falselike
+    present-subscripted-sort-arg 50)
+
+(make-presentation-format *tex-form* 'is-defined-in-sort
+    " \\downarrow " present-tex-defined-in-sort 50)
+
+(make-presentation-format *tex-form* 'in-sort 'insort
+    present-tex-in-sort 50)
+
+(make-presentation-format *tex-form* 'sum " \\sum "
+    present-tex-interval-iteration-operator 50)
+
+(make-presentation-format *tex-form* 'prod " \\prod "
+    present-tex-interval-iteration-operator 50)
+
+(make-presentation-format *tex-form* 'lim " \\lim "
+    present-tex-limit-operator 50)
+
+(make-tex-correspondence "alpha" "\\alpha")
+
+(make-tex-correspondence "beta" "\\beta")
+
+(make-tex-correspondence "gamma" "\\gamma")
+
+(make-tex-correspondence "delta" "\\delta")
+
+(make-tex-correspondence "veps" "\\varepsilon")
+
+(make-tex-correspondence "eps" "\\epsilon")
+
+(make-tex-correspondence "sigma" "\\sigma")
+
+(make-tex-correspondence "phi" "\\phi")
+
+(make-tex-correspondence "vphi" "\\varphi")
+
+(make-tex-correspondence "psi" "\\psi")
+
+(make-tex-correspondence "rho" "\\rho")
+
+(make-tex-correspondence "mu" "\\mu")
+
+(make-tex-correspondence "pi" "\\pi")
+
+(make-tex-correspondence "eta" "\\eta")
+
+(make-tex-correspondence "iota" "\\iota")
+
+(make-tex-correspondence "theta" "\\theta")
+
+(make-tex-correspondence "omega" "\\omega")
+
+(make-tex-correspondence "ff" " { \\bf F }")
+
+(make-tex-correspondence "nn" " { \\bf N }")
+
+(make-tex-correspondence "zz" " { \\bf Z }")
+
+(make-tex-correspondence "rr" " { \\bf R }")
+
+(make-tex-correspondence "qq" " { \\bf Q }")
+
+(make-tex-correspondence "pp" " { \\bf P }")
+
+(make-tex-correspondence "uu" " { \\bf U }")
+
+(make-tex-correspondence "<=" " \\leq ")
+
+(make-tex-correspondence "prop" " \\ast ")
+
+(define (present-tex-quantification-operator formatter op args bp)
+        (let ((weight (presentation-binding-power formatter op))
+              (top-level-form
+                  (if (list? (presentation-format formatter op))
+                      (car (presentation-format formatter op))
+                      (presentation-format formatter op)))
+              (nested-form
+                  (if (list? (presentation-format formatter op))
+                      (cadr (presentation-format formatter op))
+                      (presentation-format formatter op))))
+          (destructure (((typing body) args))
+              (cond
+                ((not (> (maximum-nesting-for-logical-expressions) 0))
+                 (parenthesize-conditionally (> bp weight)
+                     (list nested-form
+                           (present-tex-parameter-list typing)
+                           " \\quad " (present-tree formatter body 0))))
+                ((and (eq? op 'forall) (list? body)
+                      (eq? (car body) 'implies)
+                      (short-sexp? (cadr body)))
+                 (format-forall-such-that formatter top-level-form
+                     typing body))
+                (else (list top-level-form
+                            (present-tex-parameter-list typing)
+                            " \\quad " (present-tree formatter body 0)))))))
+
+(define (format-forall-such-that formatter top-level-form typing body)
+        (destructure (((() antecedent consequent) body))
+            (list top-level-form (present-tex-parameter-list typing)
+                  " \\quad \\mbox{s. t.} \\quad "
+                  (bind (((maximum-nesting-for-logical-expressions) 0))
+                        (present-tree formatter antecedent 0))
+                  " , \\newline\\phantom{X}"
+                  (present-tree formatter consequent 0))))
+
+(define (present-tex-lambda-abstraction formatter op args bp)
+        (ignore bp)
+        (if (<= (maximum-nesting-for-logical-expressions) 0)
+            (list " [ \\," (present-tex-parameter-list (car args))
+                  " \\, " " \\mapsto " " \\, "
+                  (present-tree formatter (cadr args) 0) "\\, ] ")
+            (bind (((maximum-nesting-for-logical-expressions)
+                    (-1+ (maximum-nesting-for-logical-expressions)))
+                   ((current-indentation)
+                    (string-append (current-indentation) "XX")))
+                  (list " [ \\,"
+                        (present-tex-parameter-list (car args)) " \\, "
+                        " \\mapsto " " \\newline "
+                        (format nil " \\phantom{~a} "
+                                (current-indentation))
+                        (present-tree formatter (cadr args) 0)
+                        "\\, ] "))))
+
+(define *small-tex-expression-cutoff* 50)
+
+(define (short-sexp? expr)
+        (< (tex-expression-width expr) *small-tex-expression-cutoff*))
+
+(define (tex-expression-width expr)
+        (string-length (format nil "~A" expr)))
+
+(make-presentation-format *tex-form* 'forall
+    (list " \\forall " "\\forall ") present-tex-quantification-operator
+    50)
+
+(make-presentation-format *tex-form* 'forsome
+    (list " \\exists " "\\exists ") present-tex-quantification-operator
+    50)
+
+(make-presentation-format *tex-form* 'iota (list " \\iota " "\\iota ")
+    present-tex-quantification-operator 50)
+
+(make-presentation-format *tex-form* 'lambda " \\lambda "
+    present-tex-lambda-abstraction 50)
+
+(make-presentation-format *tex-form* 'if 'if
+    present-tex-conditional-formula 50)
+
+(define (sexp-lambda-abstraction? sexp)
+        (and (pair? sexp) (eq? (car sexp) 'lambda)))
+
+(define (composite-presentation-method-for-tex formatter op args
+            binding-power)
+        (if (and (sexp-lambda-abstraction? op)
+                 (> (maximum-nesting-for-logical-expressions) 0))
+            (present-let formatter op args binding-power)
+            (present-application formatter op args binding-power)))
+
+(define (present-application formatter op args binding-power)
+        (if (every? short-sexp? args)
+            (parenthesize-conditionally (> binding-power 200)
+                (list (present-tree formatter op 200) '|(|
+                      (alternate-insert '|,|
+                          (map (lambda (z)
+                                 (present-tree formatter z 0))
+                               args))
+                      '|)|))
+            (parenthesize-conditionally (> binding-power 200)
+                (list (present-tree formatter op 200) '|(|
+                      " \\newline "
+                      (map-alternate-insert
+                          (format nil ", \\newline \\phantom{~a} "
+                                  (current-indentation))
+                          (lambda (z) (present-tree formatter z 0))
+                          args)
+                      '|)|))))
+
+(define (present-let-gather-typed-vars op)
+        (let ((typing (cadr op)))
+          (iterate iter ((typing typing) (vars nil))
+                   (if (null? typing) vars
+                       (let ((type (caar typing)))
+                         (iter (cdr typing)
+                               (append vars
+                                       (map (lambda (v) (cons v type))
+                                        (cdar typing)))))))))
+
+(define (present-let formatter op args binding-power)
+        (let ((vars-w-types (present-let-gather-typed-vars op)))
+          (list " \\mbox{ let } "
+                (alternate-insert "\\mbox{  and } "
+                    (map (lambda (v+t arg)
+                           (list (car v+t) " : "
+                                 (present-tex-sorting (cdr v+t) value-true)
+                                 "\\mbox{  be } "
+                                 (present-tree formatter arg 0)))
+                         vars-w-types args))
+                " \\mbox{  in } \\newline "
+                (format nil " \\phantom{~a} " (current-indentation))
+                (present-tree formatter (caddr op) 0))))
+
+(set (composite-presentation-method *tex-form*)
+     composite-presentation-method-for-tex)
+
+(make-tex-correspondence "pi" "\\pi")

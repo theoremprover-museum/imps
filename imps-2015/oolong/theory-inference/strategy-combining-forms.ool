@@ -1,0 +1,332 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment strategy-combining-forms)
+
+;'((define (fixpoint-goal-form-recognizer rec-pred-const)
+;          (lambda (expr)
+;            (and (universal? expr)
+;                 (let ((body (binding-body expr))
+;                       (u-vars (binding-variables expr)))
+;                   (and (implication? body)
+;                        (let ((antecedent (implication-antecedent body)))
+;                          (and (application? antecedent)
+;                               (eq? (operator antecedent)
+;                                    rec-pred-const)
+;                               (set-equal? u-vars
+;                                   (arguments antecedent)))))))))
+;  (define (deduction-graph-direct-inference-to-fixpoint-goal-form
+;              rec-const sqn kappa)
+;          (if ((fixpoint-goal-form-recognizer rec-const)
+;               (sequent-node-assertion sqn))
+;              (kappa sqn)
+;              (receive (infn major-premise)
+;                       (deduction-graph-direct-inference-to-satisfaction
+;                           (fixpoint-goal-form-recognizer rec-const)
+;                           sqn)
+;                       (if (succeed-without-grounding? infn)
+;                           (kappa major-premise) (fail)))))
+;  (define (fixpoint-instantiator sqn imps-pred rec-pred-const)
+;          (let ((theorem (name->theorem
+;                             (concatenate-symbol (name rec-pred-const)
+;                                 '-minimality_
+;                                 (name (context-theory
+;                                        (sequent-node-context sqn))))))
+;                (terms (list imps-pred))
+;                (givens (sequent-node-assumptions sqn)))
+;            (if (not (theorem? theorem))
+;                (imps-error
+;                    "fixpoint-predicate-instantiator: Cannot find theorem named ~S."
+;                    (concatenate-symbol (name rec-pred-const)
+;                        '-minimality))
+;                (invoke-if-necessary
+;                    (instantiate-theorem sqn theorem terms
+;                        'no-antecedent-infs)
+;                    (lambda (infn)
+;                      (invoke-if-necessary
+;                          (beta-reduce-antecedent-strategy-aux-1
+;                              (major-premise infn)
+;                              (infn-new-assumption infn givens))
+;                          (lambda (infn)
+;                            (invoke-if-necessary
+;                                (dg-primitive-inference-antecedent-inference
+;                                    (major-premise infn)
+;                                    (infn-new-assumption infn givens))
+;                                (lambda (infn)
+;                                  (let* ((sqn
+;                                          (inference-node-2nd-hypothesis
+;                                           infn))
+;                                         (main-assumption
+;                                          (sqn-new-assumption sqn
+;                                           givens)))
+;                                    (continue-terminal-command-with-command
+;                                     prove-by-direct-inference sqn
+;                                     (list (make-strategy-parameters))
+;                                     (lambda (new-sqn)
+;                                       (auto-instantiate-backchain-and-simplify
+;                                        new-sqn main-assumption))))
+;                                  (invoke-if-necessary
+;                                      (dg-primitive-inference-contraposition
+;                                       (major-premise infn)
+;                                       (infn-new-assumption infn
+;                                        givens))
+;                                      (lambda (infn)
+;                                        (invoke-if-necessary
+;                                         (dg-primitive-inference-weak-simplification
+;                                          (major-premise
+;                                           (dg-primitive-inference-extensionality
+;                                            (major-premise infn))))
+;                                         (lambda (infn)
+;                                           (let
+;                                            ((new-infn
+;                                              (dg-primitive-inference-direct-inference
+;                                               (major-premise infn)))
+;                                             (givens
+;                                              (sequent-node-assumptions
+;                                               (major-premise infn))))
+;                                             (invoke-if-necessary
+;                                              new-infn
+;                                              (lambda (infn)
+;                                                (let*
+;                                                 ((new-infn
+;                                                   (dg-primitive-inference-direct-inference
+;                                                    (major-premise
+;                                                     infn)))
+;                                                  (premise-length
+;                                                   (if
+;                                                    (succeed-without-grounding?
+;                                                     new-infn)
+;                                                    (length
+;                                                     (inference-node-hypotheses
+;                                                      new-infn))
+;                                                    0)))
+;                                                  (cond
+;                                                    ((= premise-length
+;                                                      2)
+;                                                     (prove-by-direct-inference
+;                                                      (major-premise
+;                                                       new-infn)
+;                                                      (make-strategy-parameters))
+;                                                     (selective-antecedent-inferences-strategy
+;                                                      (inference-node-2nd-hypothesis
+;                                                       new-infn)
+;                                                      (set-difference
+;                                                       (sequent-node-assumptions
+;                                                        (inference-node-2nd-hypothesis
+;                                                         new-infn))
+;                                                       givens)))
+;                                                    ((= premise-length
+;                                                      1)
+;                                                     (prove-by-direct-inference
+;                                                      (major-premise
+;                                                       new-infn)
+;                                                      (make-strategy-parameters)))
+;                                                    (else value-true)))))))))))))))))))
+;  (define (fixpoint-induction-strategy sqn rec-pred-const imps-pred)
+;          (deduction-graph-direct-inference-to-fixpoint-goal-form
+;              rec-pred-const sqn
+;              (lambda (sqn)
+;                (fixpoint-instantiator sqn
+;                    (or imps-pred
+;                        ((fixpoint-compute-imps-pred)
+;                         (sequent-node-assertion sqn)))
+;                    rec-pred-const))))
+;  (define (fixpoint-compute-imps-pred-default assertion)
+;          (apply imps-lambda
+;                 (conjunction
+;                     (implication-antecedent (binding-body assertion))
+;                     (implication-consequent (binding-body assertion)))
+;                 (binding-variables assertion)))
+;  (define fixpoint-compute-imps-pred
+;          (make-simple-switch 'fixpoint-compute-imps-pred procedure?
+;              fixpoint-compute-imps-pred-default)))
+
+;(define (infn-new-assumption infn givens)
+;        (sqn-new-assumption (major-premise infn) givens))
+
+;(define (sqn-new-assumption sqn givens)
+;        (let ((val (car (set-difference (sequent-node-assumptions sqn)
+;                            givens))))
+;          (if (formula? val) val
+;              (imps-error
+;                  "sqn-new-assumption: new assumption not found in ~%~S~%~%~S"
+;                  (sequent-node-assumptions sqn) givens))))
+
+(define (invoke-if-necessary infn kappa)
+        (if (succeed-without-grounding? infn) (funcall kappa infn)
+            infn))
+
+(define (invoke-on-sqn-if-necessary sqn kappa)
+        (if (and (sequent-node? sqn) (not (immediately-grounded? sqn)))
+            (funcall kappa sqn) sqn))
+
+(define (command-new-unsupported-nodes command sqn aux)
+        (let ((old-unsupported
+                  (deduction-graph-unsupported-nodes
+                      (sequent-node-graph sqn))))
+          (apply command sqn aux)
+          (set-difference
+              (deduction-graph-unsupported-nodes
+                  (sequent-node-graph sqn))
+              old-unsupported)))
+
+(define (continue-command-on-unsupported-descendants command sqn aux
+            kappa)
+        (funcall kappa (command-new-unsupported-nodes command sqn aux)))
+
+(define (make-sqn-list-continuation sqn-continuation)
+        (lambda (sqn-list)
+          (map (lambda (sqn)
+                 (invoke-on-sqn-if-necessary sqn sqn-continuation))
+               sqn-list)))
+
+(define (continue-terminal-command-with-command terminal-command sqn
+            aux continuation-command)
+        (continue-command-on-unsupported-descendants terminal-command
+            sqn aux (make-sqn-list-continuation continuation-command)))
+
+(define (continue-failing-command command sqn aux failure-command)
+        (or (command-new-unsupported-nodes command sqn aux)
+            (invoke-on-sqn-if-necessary sqn failure-command)))
+
+;(define (auto-instantiate-backchain-and-simplify sqn
+;            universal-antecedent)
+;        (let ((givens (sequent-node-assumptions sqn)))
+;          (continue-terminal-command-with-command
+;              auto-instantiate-universal-antecedent sqn
+;              (list universal-antecedent)
+;              (lambda (new-sqn)
+;                (walk (lambda (assumption)
+;                        (continue-terminal-command-with-command
+;                            dg-primitive-inference-backchain-inference
+;                            new-sqn (list assumption)
+;                            dg-primitive-inference-simplification))
+;                      (set-difference
+;                          (sequent-node-assumptions new-sqn) givens))))))
+
+;'((define (tree-induction-strengthen-predicate universal-implication)
+;          (let ((lang (theory-language generic-theory-1))
+;                (nbvs (binding-variables universal-implication)))
+;            (let ((bound-var (car nbvs))
+;                  (subtree-op (find-constant lang 'subtree)))
+;              (if (and (expression? subtree-op)
+;                       (sorts-may-overlap?
+;                           (expression-sorting bound-var)
+;                           (list->sort lang 'pre%tree)))
+;                  (destructure
+;                      (((antecedent consequent)
+;                        (expression-components
+;                            (binding-body universal-implication)))
+;                       (new-var (new-variable
+;                                    (expression-sorting bound-var) 'f
+;                                    (variables universal-implication))))
+;                      (apply imps-lambda
+;                             (conjunction antecedent
+;                                 (forall (implication
+;                                          (apply-operator subtree-op
+;                                           new-var bound-var)
+;                                          (apply-substitution
+;                                           (list
+;                                            (list* bound-var new-var))
+;                                           consequent))
+;                                         new-var))
+;                             nbvs))
+;                  (if (expression? subtree-op)
+;                      (imps-error
+;                          "tree-induction-strengthen-predicate: Variable ~S has bad type."
+;                          bound-var)
+;                      (imps-error
+;                          "tree-induction-strengthen-predicate: Can't find operator \"subtree\"~% -- is $GENERIC_THEORIES/pre-trees loaded?"))))))
+;  (define (tree-induction-strategy sqn rec-pred-const imps-pred)
+;          (bind (((fixpoint-compute-imps-pred)
+;                  tree-induction-strengthen-predicate))
+;                (fixpoint-induction-strategy sqn rec-pred-const
+;                    imps-pred)))
+;  (define (tree-induction-show-predicate sqn rec-pred-const)
+;          (bind (((fixpoint-compute-imps-pred)
+;                  tree-induction-strengthen-predicate))
+;                (deduction-graph-direct-inference-to-fixpoint-goal-form
+;                    rec-pred-const sqn
+;                    (lambda (sqn)
+;                      (print-expression-for-emacs "(point-max)"
+;                          ((fixpoint-compute-imps-pred)
+;                           (sequent-node-assertion sqn)))
+;                      sqn))))
+;  (build-universal-command
+;      (lambda (sqn rec-pred-const)
+;        (tree-induction-show-predicate sqn
+;            (find-constant-with-warning
+;                (theory-language
+;                    (deduction-graph-theory (sequent-node-graph sqn)))
+;                rec-pred-const)))
+;      'tree-induction-show-predicate (always value-true)
+;      'symbol-retrieval-protocol)
+;  (build-universal-command
+;      (lambda (sqn rec-pred-const imps-pred-string)
+;        (tree-induction-strategy sqn
+;            (find-constant-with-warning
+;                (theory-language
+;                    (deduction-graph-theory (sequent-node-graph sqn)))
+;                rec-pred-const)
+;            (and (string? imps-pred-string)
+;                 (sequent-read (sequent-node-sequent sqn)
+;                     imps-pred-string))))
+;      'tree-induction (always value-true) 'fixpoint-induction-rp)
+;  (build-universal-command
+;      (lambda (sqn rec-pred-const imps-pred-string)
+;        (fixpoint-induction-strategy sqn
+;            (find-constant-with-warning
+;                (theory-language
+;                    (deduction-graph-theory (sequent-node-graph sqn)))
+;                rec-pred-const)
+;            (and (string? imps-pred-string)
+;                 (sequent-read (sequent-node-sequent sqn)
+;                     imps-pred-string))))
+;      'fixpoint-induction (always value-true) 'fixpoint-induction-rp))

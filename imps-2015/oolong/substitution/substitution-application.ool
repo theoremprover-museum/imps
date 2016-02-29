@@ -1,0 +1,510 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment substitution-application)
+
+(define (free-for? t v e)
+        (let ((t-variables (free-variables t)))
+          (or (not (memq? v (free-variables e)))
+              (null-intersection? t-variables (bound-variables e))
+              (and (null-intersection? t-variables
+                       (newly-bound-variables e))
+                   (every? (lambda (c) (free-for? t v c))
+                           (expression-components e))))))
+
+(define (var-names-disjoint? expr1 expr2)
+        (let ((vars1 (variables expr1)) (vars2 (variables expr2)))
+          (every? (lambda (v1)
+                    (let ((n (name v1)))
+                      (every? (lambda (v2) (not (eq? n (name v2))))
+                              vars2)))
+                  vars1)))
+
+(define (free-by-name-for? t v e)
+        (and (free-for? t v e)
+             (or (not (memq? v (free-variables e)))
+                 (var-names-disjoint? e t))))
+
+(define (free-and-bound-variables-disjoint? expr)
+        (null-intersection? (free-variables expr)
+            (bound-variables expr)))
+
+(define (canonicalize expr)
+        (if (any? canonical-variable? (free-variables expr)) value-false
+            (iterate iter ((expr expr) (back 0))
+                     (cond
+                       ((formal-symbol? expr) expr)
+                       ((not (binding-expression? expr))
+                        (let ((constr (expression-constructor expr))
+                              (comps (expression-components expr)))
+                          (apply constr
+                                 (map (lambda (expr) (iter expr back))
+                                      comps))))
+                       (else (let ((constr
+                                    (expression-constructor expr))
+                                   (body (binding-body expr))
+                                   (subst
+                                    (make-canonical-substitution
+                                     (binding-variables expr) back)))
+                               (apply constr
+                                      (apply-substitution subst
+                                       (iter body (1+ back)))
+                                      (map cdr subst))))))))
+
+(define (canonical-variable? var)
+        (and (variable? var) (canonical-symbol? (name var))))
+
+(define (make-canonical-substitution vars back) (enforce is-set? vars)
+        (iterate iter
+                 ((over 0) (vars vars) (subst the-empty-substitution))
+                 (if (null? vars) (reverse! subst)
+                     (iter (fx+ over 1) (cdr vars)
+                           (cons (cons (car vars)
+                                       (make-canonical-variable back
+                                        over
+                                        (expression-sorting (car vars))))
+                                 subst)))))
+
+(define (make-canonical-variable back over sorting)
+        (find-variable (make-canonical-symbol back over) sorting))
+
+(define (make-canonical-symbol n1 n2)
+        (string->symbol (format nil "v~D_~D" n1 n2)))
+
+(define (canonical-symbol? sym)
+        (let ((str (symbol->string sym)))
+          (and (or (char= (string-elt str 0) #\v)
+                   (char= (string-elt str 0) #\V))
+               (let ((un-pos (string-posq #\_ str))
+                     (len (string-length str)))
+                 (and un-pos
+                      (iterate iter ((i 1))
+                               (cond
+                                 ((fx= i len) value-true)
+                                 ((fx= i un-pos) (iter (fx+ i 1)))
+                                 ((digit? (string-elt str i) 10)
+                                  (iter (fx+ i 1)))
+                                 (else value-false))))))))
+
+(define (apply-substitution-fastidiously sub expr)
+        (if (every-subst-component?
+                (lambda (comp)
+                  (let ((r (substitution-replacement comp)) (t (substitution-target comp)))
+                    (or (eq? r t) (free-by-name-for? r t expr))))
+                sub)
+            (apply-subst-to-exp-with-exoscopes sub expr nil)
+            (apply-subst-to-exp-with-exoscopes sub
+                (change-bound-variables expr
+                    (set-union (free-variables expr)
+                        (collect-set free-variables
+                            (map-substitution substitution-replacement sub))))
+                nil)))
+
+(define (apply-substitution-at-path subst expr path)
+        (let ((effective-subst
+                  (substitution-filter-relevance subst expr
+                      (bound-variables-on-path expr path))))
+          (substitution-at-path expr
+              (apply-substitution-fastidiously effective-subst
+                  (follow-path expr path))
+              path)))
+
+(define (apply-substitution sub expr)
+        (if (every-subst-component?
+                (lambda (comp)
+                  (free-for? (substitution-replacement comp) (substitution-target comp) expr))
+                sub)
+            (apply-subst-to-exp-with-exoscopes sub expr nil)
+            (apply-subst-to-exp-with-exoscopes sub
+                (change-bound-variables expr
+                    (set-union
+                        (collect-set free-variables
+                            (map-substitution substitution-replacement sub))
+                        (free-variables expr)))
+                nil)))
+
+(define (apply-subst-to-exp-with-exoscopes sub exp exoscopes)
+        (cond
+          ((constant? exp) exp)
+          ((subset? (free-variables exp) exoscopes) exp)
+          ((variable? exp)
+           (let ((repl (substitution-find-replacement sub exp)))
+             (or repl exp)))
+          (else (let ((sub sub))
+                  (cond
+                    ((empty-substitution? sub) exp)
+                    ((binding-expression? exp)
+                     (apply-subst-to-binding-exp-with-exoscopes sub exp
+                         exoscopes))
+                    (else (apply-subst-to-non-binding-exp-with-exoscopes
+                              sub exp exoscopes)))))))
+
+(define (apply-subst-to-binding-exp-with-exoscopes sub exp exoscopes)
+        (apply (expression-constructor exp)
+               (apply-subst-to-exp-with-exoscopes sub
+                   (car (expression-components exp))
+                   (set-union (newly-bound-variables exp) exoscopes))
+               (cdr (expression-components exp))))
+
+(define (apply-subst-to-non-binding-exp-with-exoscopes sub exp
+            exoscopes)
+        (apply (expression-constructor exp)
+               (map (lambda (x)
+                      (apply-subst-to-exp-with-exoscopes sub x
+                          exoscopes))
+                    (expression-components exp))))
+
+(define (filter-substitution filter? subst)
+        (iterate iter ((subst-comps subst) (val nil))
+                 (cond
+                   ((null? subst-comps) (reverse! val))
+                   ((funcall filter? (car subst-comps))
+                    (iter (cdr subst-comps)
+                          (cons (car subst-comps) val)))
+                   (else (iter (cdr subst-comps) val)))))
+
+(define (substitution-filter-relevance sub exp exoscopes)
+        (iterate rel-sub ((sub-comps sub) (val nil))
+                 (if (empty-substitution? sub-comps) val
+                     (let ((first (first-subst-component sub-comps))
+                           (rest (rest-of-subst sub-comps)))
+                       (if (relevant-subst-component? first exp
+                               exoscopes)
+                           (rel-sub rest (cons first val))
+                           (rel-sub rest val))))))
+
+(define (relevant-subst-component? sub-comp exp exoscopes)
+        (let ((target (funcall substitution-target sub-comp)))
+          (and (not (memq? target exoscopes))
+               (memq? target (free-variables exp)))))
+
+(define (free-under-exoscopes? exp exoscopes)
+        (null-intersection? (free-variables exp) exoscopes))
+
+(define (free-occurrence? exp1 exp2 exoscopes)
+        (let ((f-vs (free-variables exp1))
+              (b-vs (bound-variables exp1)) (cs (constants exp1))
+              (h (expression-height exp1)))
+          (iterate iter ((big-exp exp2) (exoscopes exoscopes))
+                   (or (eq? exp1 big-exp)
+                       (and (< h (expression-height big-exp))
+                            (null-intersection? f-vs exoscopes)
+                            (subset? f-vs (free-variables big-exp))
+                            (subset? b-vs (bound-variables big-exp))
+                            (subset? cs (constants big-exp))
+                            (let ((new-exoscopes
+                                      (set-union
+                                       (newly-bound-variables exp2)
+                                       exoscopes))
+                                  (components
+                                      (if (binding-expression? exp2)
+                                       (car
+                                        (expression-components exp2))
+                                       (expression-components exp2))))
+                              (any? (lambda (exp)
+                                      (iter exp new-exoscopes))
+                                    components)))))))
+
+(define (match-by-leading-constants? expr pattern)
+        (or (variable? pattern)
+            (and (eq? (expression-constructor expr)
+                      (expression-constructor pattern))
+                 (or (not (lead-constant?
+                              (expression-lead-constant pattern)))
+                     (eq? (expression-lead-constant expr)
+                          (expression-lead-constant pattern)))
+                 (or (not (lead-constant?
+                              (expression-second-lead-constant pattern)))
+                     (eq? (expression-second-lead-constant expr)
+                          (expression-second-lead-constant pattern))))))
+
+(define (match-check-within-host? expr pattern exoscopes)
+        (cond
+          ((eq? expr pattern) value-true)
+          ((< (expression-height expr) (expression-height pattern))
+           value-false)
+          ((not (subset? (expression-constants pattern)
+                         (expression-constants expr)))
+           value-false)
+          ((or (constant? pattern)
+               (subset? (free-variables pattern) exoscopes))
+           (eq? expr pattern))
+          (else value-true)))
+
+(define (match-within-host-under-exoscopes expr pattern exoscopes
+            triviality-ok?)
+        (if (match-check-within-host? expr pattern exoscopes)
+            (let ((subst (match-under-exoscopes expr pattern exoscopes)))
+              (cond
+                ((and triviality-ok? (succeed? subst)) subst)
+                ((and (succeed? subst)
+                      (not (identity-substitution? subst)))
+                 subst)
+                ((binding-expression? expr)
+                 (let ((nbvs (binding-variables expr))
+                       (body (binding-body expr)))
+                   (match-within-host-under-exoscopes body pattern
+                       (set-union nbvs exoscopes) triviality-ok?)))
+                (else (iterate iter
+                               ((comps (expression-components expr)))
+                               (if (null? comps) (fail)
+                                   (let
+                                    ((subst
+                                      (match-within-host-under-exoscopes
+                                       (car comps) pattern exoscopes
+                                       triviality-ok?)))
+                                     (if (succeed? subst) subst
+                                      (iter (cdr comps)))))))))
+            (fail)))
+
+(define (match-pattern-within-host-under-exoscopes expr host exoscopes
+            triviality-ok?)
+        (let ((paths (paths-to-satisfaction host
+                         (lambda (subexpr)
+                           (match-by-leading-constants? expr subexpr))
+                         -1)))
+          (iterate iter ((paths paths) (substs nil))
+                   (if (null? paths) substs
+                       (let* ((path (car paths))
+                              (exoscopes
+                                  (set-union
+                                      (bound-variables-on-path host
+                                       path)
+                                      exoscopes))
+                              (pattern (follow-path host path))
+                              (subst (match-under-exoscopes expr
+                                      pattern exoscopes)))
+                         (if (and (succeed? subst)
+                                  (or triviality-ok?
+                                      (not
+                                       (identity-substitution? subst)))
+                                  (not (any?
+                                        (lambda (subst2)
+                                          (substitutions-equal? subst
+                                           subst2))
+                                        substs)))
+                             (iter (cdr paths) (cons subst substs))
+                             (iter (cdr paths) substs)))))))
+
+(define (expression-change-free-variables expression avoid-vars)
+        (apply-substitution
+            (iterate iter
+                     ((remaining avoid-vars) (new-vars nil)
+                      (avoid-all avoid-vars))
+                     (if (null? remaining)
+                         (targets-and-replacements->subst avoid-vars
+                             (reverse! new-vars))
+                         (let ((new-var (new-variable
+                                         (expression-sorting
+                                          (car remaining))
+                                         (expression-name
+                                          (car remaining))
+                                         avoid-all)))
+                           (iter (cdr remaining)
+                                 (cons new-var new-vars)
+                                 (cons new-var avoid-all)))))
+            expression))
+
+(define (make-variable-renaming vars avoid-vars)
+        (iterate loop
+                 ((vars vars) (subst nil)
+                  (big-avoid-vars (set-union vars avoid-vars)))
+                 (if (null? vars) subst
+                     (let* ((var (car vars))
+                            (new-var (new-variable
+                                      (expression-sorting var)
+                                      (expression-name var)
+                                      big-avoid-vars)))
+                       (loop
+                         (cdr vars)
+                         (cons (cons var new-var) subst)
+                         (cons new-var big-avoid-vars))))))
+
+(define (apply-variable-renaming subst expr)
+        (cond
+          ((assq expr subst) => cdr)
+          ((formal-symbol? expr) expr)
+          (else (apply (expression-constructor expr)
+                       (map (lambda (comp)
+                              (apply-variable-renaming subst comp))
+                            (expression-components expr))))))
+
+(define (change-ambiguously-named-variables expr avoid-vars)
+        (if (is-set? (map name (variables expr))) expr
+            (let* ((vars (ambiguously-named-variables expr))
+                   (subst (make-variable-renaming vars
+                              (set-union (variables expr) avoid-vars))))
+              (apply-variable-renaming subst expr))))
+
+(define (ambiguously-named-variables expr)
+        (let ((original-vars (variables expr)))
+          (iterate loop ((vars (variables expr)) (an-vars nil))
+                   (if (null? vars) an-vars
+                       (let ((var (car vars)))
+                         (if (memq? (name var)
+                                    (map name (delq var original-vars)))
+                             (loop (cdr vars) (cons var an-vars))
+                             (loop (cdr vars) an-vars)))))))
+
+(define (change-bound-variables expr avoid-vars)
+        (let ((subst (make-variable-renaming (bound-variables expr)
+                         (set-union (free-variables expr) avoid-vars))))
+          (apply-bound-variable-renaming subst expr)))
+
+(define (apply-bound-variable-renaming subst expr)
+        (iterate loop ((expr expr) (bound nil))
+                 (cond
+                   ((memq? expr bound) (cdr (assq expr subst)))
+                   ((formal-symbol? expr) expr)
+                   (else (apply (expression-constructor expr)
+                                (let ((bound
+                                       (if (binding-expression? expr)
+                                        (set-union bound
+                                         (binding-variables expr))
+                                        bound)))
+                                  (map (lambda (x) (loop x bound))
+                                       (expression-components expr))))))))
+
+(define (change-bound-variables-as-needed expr avoid-vars)
+        (let ((rename-vars
+                  (set-intersection (bound-variables expr) avoid-vars))
+              (avoid-vars
+                  (set-union (bound-variables expr) avoid-vars)))
+          (apply-bound-variable-renaming-as-needed
+              (make-variable-renaming rename-vars avoid-vars) expr)))
+
+(define (apply-bound-variable-renaming-as-needed subst expr)
+        (let ((domain (map car subst)))
+          (iterate loop ((expr expr) (bound nil))
+                   (cond
+                     ((null-intersection? (bound-variables expr)
+                          domain)
+                      expr)
+                     ((memq? expr bound)
+                      (or (cdr (assq expr subst)) expr))
+                     ((formal-symbol? expr) expr)
+                     (else (apply (expression-constructor expr)
+                                  (let ((bound
+                                         (if (binding-expression? expr)
+                                          (set-union bound
+                                           (binding-variables expr))
+                                          bound)))
+                                    (map (lambda (x) (loop x bound))
+                                     (expression-components expr)))))))))
+
+(define (change-bound-variables-selectively expr do-vars avoid-vars)
+        (let ((subst (make-variable-renaming (bound-variables expr)
+                         (set-union (variables expr) avoid-vars))))
+          (apply-bound-variable-renaming-selectively subst do-vars
+              expr)))
+
+(define (apply-bound-variable-renaming-selectively subst do-vars expr)
+        (iterate loop ((expr expr) (bound nil))
+                 (cond
+                   ((memq? expr (intersection bound do-vars))
+                    (cdr (assq expr subst)))
+                   ((formal-symbol? expr) expr)
+                   (else (apply (expression-constructor expr)
+                                (let ((bound
+                                       (if (binding-expression? expr)
+                                        (set-union bound
+                                         (binding-variables expr))
+                                        bound)))
+                                  (map (lambda (x) (loop x bound))
+                                       (expression-components expr))))))))
+
+(define (restore-bound-variables-where-possible previous-renaming expr)
+        (let ((fvs (expression-free-variables expr)))
+          (apply-bound-variable-renaming-as-needed
+              (iterate iter
+                       ((previous-renaming previous-renaming)
+                        (subfunction-of-inverse nil))
+                       (if (null? previous-renaming)
+                           subfunction-of-inverse
+                           (destructure
+                               (((target . replacement)
+                                 (car previous-renaming)))
+                               (if (memq? target fvs)
+                                   (iter (cdr previous-renaming)
+                                    subfunction-of-inverse)
+                                   (iter (cdr previous-renaming)
+                                    (cons (cons replacement target)
+                                     subfunction-of-inverse))))))
+              expr)))
+
+(define (make-bound-variables-unique expr avoid-vars)
+        (cond
+          ((formal-symbol? expr) expr)
+          ((not (binding-expression? expr))
+           (let ((constr (expression-constructor expr))
+                 (comps (expression-components expr)))
+             (apply constr
+                    (iterate iter
+                             ((comps comps) (new-comps nil)
+                              (avoid-vars avoid-vars))
+                             (if (null? comps) (reverse! new-comps)
+                                 (let ((new
+                                        (make-bound-variables-unique
+                                         (car comps) avoid-vars)))
+                                   (iter (cdr comps)
+                                    (cons new new-comps)
+                                    (set-union (bound-variables new)
+                                     avoid-vars))))))))
+          (else (let ((expr (change-bound-variables expr avoid-vars)))
+                  (let ((constr (expression-constructor expr))
+                        (body (binding-body expr))
+                        (nbvs (binding-variables expr)))
+                    (apply constr
+                           (make-bound-variables-unique body
+                               (set-union nbvs avoid-vars))
+                           nbvs))))))
+
+(define (bound-variables-unique? expr avoid-vars)
+        (eq? expr (make-bound-variables-unique expr avoid-vars)))

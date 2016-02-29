@@ -1,0 +1,260 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment (inferences relative-position))
+
+(define (nth-ancestor sqn n)
+        (iterate iter ((n n) (current-sqn sqn) (infns-visited nil))
+                 (if (=0? n) current-sqn
+                     (let ((infns (sequent-node-out-arrows current-sqn)))
+                       (cond
+                         ((null? infns)
+                          (imps-error
+                              "nth-ancestor -- reached root from ~s at ~s"
+                              sqn current-sqn))
+                         ((any-such-that
+                              (lambda (infn)
+                                (not (memq? infn infns-visited)))
+                              infns)
+                          =>
+                          (lambda (infn)
+                            (iter (-1+ n)
+                                  (inference-node-conclusion infn)
+                                  (cons infn infns-visited))))
+                         (else (imps-error
+                                   "nth-ancestor -- exhausted infns from ~s at ~s"
+                                   sqn current-sqn)))))))
+
+(define (enumerate-ancestors sqn)
+        (iterate iter ((ancestors (list sqn)) (infns-visited nil))
+                 (let ((infns (sequent-node-out-arrows (car ancestors))))
+                   (cond
+                     ((null? infns) (reverse! ancestors))
+                     ((any-such-that
+                          (lambda (infn)
+                            (not (memq? infn infns-visited)))
+                          infns)
+                      =>
+                      (lambda (infn)
+                        (iter (cons (inference-node-conclusion infn)
+                                    ancestors)
+                              (cons infn infns-visited))))
+                     (else (reverse! ancestors))))))
+
+(define (find-common-ancestor sqn-1 sqn-2)
+        (and (sequent-node? sqn-1) (sequent-node? sqn-2)
+             (let ((ancestors-1 (enumerate-ancestors sqn-1)))
+               (iterate iter ((current-sqn sqn-2) (infns-visited nil))
+                        (let ((infns (sequent-node-out-arrows
+                                      current-sqn)))
+                          (cond
+                            ((memq? current-sqn ancestors-1)
+                             current-sqn)
+                            ((any-such-that
+                                 (lambda (infn)
+                                   (not (memq? infn infns-visited)))
+                                 infns)
+                             =>
+                             (lambda (infn)
+                               (iter (inference-node-conclusion infn)
+                                     (cons infn infns-visited))))
+                            (else value-false)))))))
+
+(define (find-path-to-descendent ancestor descendent)
+        (iterate iter
+                 ((sqns-traversed (list descendent))
+                  (infns-traversed nil))
+                 (let ((current-sqn (car sqns-traversed)))
+                   (if (eq? current-sqn ancestor)
+                       (sqns+infns->path sqns-traversed
+                           infns-traversed)
+                       (let ((infns (sequent-node-out-arrows
+                                     current-sqn)))
+                         (cond
+                           ((any-such-that
+                                (lambda (infn)
+                                  (not (memq? infn infns-traversed)))
+                                infns)
+                            =>
+                            (lambda (infn)
+                              (iter (cons
+                                     (inference-node-conclusion infn)
+                                     sqns-traversed)
+                                    (cons infn infns-traversed))))
+                           (else (imps-error
+                                     "find-path-to-descendent -- suspicious descendent ~s of ~s"
+                                     descendent ancestor))))))))
+
+(define (sqns+infns->path sqns infns)
+        (iterate iter
+                 ((path nil) (current-sqn (car sqns))
+                  (remaining-sqns (cdr sqns)) (infns infns))
+                 (if (null? infns) (reverse! path)
+                     (destructure
+                         (((next-sqn . rest-sqns) remaining-sqns)
+                          ((current-infn . rest-infns) infns))
+                         (let ((infn-index
+                                   (posq current-infn
+                                    (sequent-node-in-arrows
+                                     current-sqn)))
+                               (sqn-index
+                                   (posq next-sqn
+                                    (inference-node-hypotheses
+                                     current-infn))))
+                           (if (=0? infn-index)
+                               (iter (cons sqn-index path) next-sqn
+                                     rest-sqns rest-infns)
+                               (iter (cons (cons infn-index sqn-index)
+                                      path)
+                                     next-sqn rest-sqns rest-infns)))))))
+
+(define (generations-to-descendent ancestor descendent)
+        (iterate iter
+                 ((n 0) (current-sqn descendent) (infns-visited nil))
+                 (if (eq? current-sqn ancestor) n
+                     (let ((infns (sequent-node-out-arrows current-sqn)))
+                       (cond
+                         ((any-such-that
+                              (lambda (infn)
+                                (not (memq? infn infns-visited)))
+                              infns)
+                          =>
+                          (lambda (infn)
+                            (iter (1+ n)
+                                  (inference-node-conclusion infn)
+                                  (cons infn infns-visited))))
+                         (else (imps-error
+                                   "generations-to-descendent -- suspicious descendent ~s of ~s"
+                                   descendent ancestor)))))))
+
+(define (relative-position-in-dg sqn-1 sqn-2)
+        (let ((common-ancestor (find-common-ancestor sqn-1 sqn-2)))
+          (if common-ancestor
+              (return
+                (generations-to-descendent common-ancestor sqn-1)
+                (find-path-to-descendent common-ancestor sqn-2))
+              (return value-false value-false))))
+
+(define (deduction-graph-follow-path ancestor dg-path)
+        (labels (((rec-call infn-index sqn-index path-rest)
+                  (deduction-graph-follow-path
+                      (nth (inference-node-hypotheses
+                               (nth (sequent-node-in-arrows ancestor)
+                                    infn-index))
+                           sqn-index)
+                      path-rest)))
+          (cond
+            ((null? dg-path) ancestor)
+            ((pair? (car dg-path))
+             (destructure
+                 ((((infn-index . sqn-index) . path-rest) dg-path))
+                 (rec-call infn-index sqn-index path-rest)))
+            ((integer? (car dg-path))
+             (destructure
+                 (((sqn-index . path-rest) dg-path) (infn-index 0))
+                 (rec-call infn-index sqn-index path-rest)))
+            (else (imps-error
+                      "deduction-graph-follow-path -- Bad path ~s."
+                      dg-path)))))
+
+(define (deduction-graph-find-sibling child index)
+        (deduction-graph-follow-path (nth-ancestor child 1)
+            (list index)))
+
+(define (sequent-node-first-unsupported-relative sqn)
+        (let ((ancestor
+                  (any-such-that
+                      (lambda (sqn)
+                        (not (sequent-node-grounded? sqn)))
+                      (enumerate-ancestors sqn))))
+          (cond
+            ((sequent-node? ancestor)
+             (sequent-node-first-unsupported-descendent ancestor))
+            ((immediately-grounded?
+                 (deduction-graph-goal (sequent-node-graph sqn)))
+             (imps-congratulation
+                 "sequent-node-first-unsupported-relative: Graph grounded.")
+             value-true)
+            (else (sequent-node-first-unsupported-descendent
+                      (deduction-graph-goal (sequent-node-graph sqn)))))))
+
+(define (sequent-node-first-unsupported-descendent sqn)
+        (cond
+          ((not (sequent-node? sqn))
+           (maybe-imps-error
+               "sequent-node-first-unsupported-descendent: Bad sqn ~S."
+               sqn))
+          ((sequent-node-grounded? sqn) value-false)
+          (else (iterate iter ((sqn sqn) (already-seen nil))
+                         (if (or (unsupported? sqn)
+                                 (memq? sqn already-seen))
+                             sqn
+                             (iter (sequent-node-first-ungrounded-child
+                                    sqn)
+                                   (cons sqn already-seen)))))))
+
+(define (sequent-node-first-ungrounded-child sqn)
+        (let ((infns (sequent-node-in-arrows sqn)))
+          (if (null? infns)
+              (imps-error
+                  "sequent-node-first-ungrounded-child: No support for ~S"
+                  sqn)
+              (imps-enforce sequent-node?
+                  (any-such-that
+                      (lambda (sqn)
+                        (not (sequent-node-grounded? sqn)))
+                      (inference-node-hypotheses (car infns)))))))
+
+(define (unsupported-descendents sqn)
+        (set-separate
+            (lambda (unsupported-sqn)
+              (memq? sqn (enumerate-ancestors unsupported-sqn)))
+            (deduction-graph-unsupported-nodes
+                (sequent-node-graph sqn))))

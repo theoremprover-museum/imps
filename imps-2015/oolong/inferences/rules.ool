@@ -1,0 +1,1112 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment rules)
+
+(define-predicate rule?)
+
+(define-operation (rule-generator rule) (if (rule? rule) rule value-false))
+
+(define-operation (rule-major-premises-proc rule hyps)
+    (list (car hyps)))
+
+(define-operation (rule-soundness-predicate rule)
+    (imps-error "RULE-SOUNDNESS-PREDICATE: method undefined."))
+
+(define-operation (->rule generator)
+    (if (rule? generator) generator
+        (imps-error "->rule: Don't know how to coerce ~S into a rule."
+            generator)))
+
+(define node-simplification
+        (object (lambda (sequents)
+                  (let* ((conclusion (last sequents))
+                         (context (sequent-context conclusion))
+                         (assertion (sequent-assertion conclusion))
+                         (simplified-assertion
+                             (syllogistic-inference-simplify context
+                                 assertion)))
+                    (if (eq? assertion simplified-assertion) value-false
+                        (build-inference node-simplification
+                            (if (truth? simplified-assertion) nil
+                                (list (build-sequent context
+                                       simplified-assertion)))
+                            conclusion))))
+                ((rule? self) value-true)
+                ((rule-soundness-predicate self) (always value-true))
+                ((name self)
+                 (if (simplify-quasi-constructors-messily?)
+                     'insistent-simplification 'simplification))))
+
+(define node-simplification-with-minor-premises
+        (object (lambda (sequents)
+                  (let ((conclusion (last sequents)))
+                    (let ((context (sequent-context conclusion))
+                          (assertion (sequent-assertion conclusion)))
+                      (receive (simplified-assertion minor-premises)
+                               (simplify-with-minor-premises context
+                                   assertion)
+                               (if (eq? assertion simplified-assertion)
+                                   value-false
+                                   (build-inference
+                                    node-simplification-with-minor-premises
+                                    (if (truth? simplified-assertion)
+                                     minor-premises
+                                     (cons
+                                      (build-sequent context
+                                       simplified-assertion)
+                                      minor-premises))
+                                    conclusion))))))
+                ((rule? self) value-true)
+                ((rule-soundness-predicate self) (always value-true))
+                ((name self) 'simplification-with-minor-premises)))
+
+(define weakening-rule
+        (object (lambda (sequents)
+                  (or (null? (cddr sequents))
+                      (imps-error
+                          "WEAKENING-RULE: Too many sequents ~S"
+                          sequents))
+                  (let ((conc (last sequents)) (hyp (car sequents)))
+                    (if (and (not (eq? conc hyp))
+                             (sequent-weakens-sequent? hyp conc))
+                        (build-inference weakening-rule (list hyp)
+                            conc)
+                        value-false)))
+                ((rule? self) value-true)
+                ((rule-soundness-predicate self) (always value-true))
+                ((name self) 'weakening)))
+
+(define (sequent-weakens-sequent? premise conclusion)
+        (and (alpha-equivalent? (sequent-assertion premise)
+                 (sequent-assertion conclusion))
+             (let ((conc-context (sequent-context conclusion)))
+               (every? (lambda (a)
+                         (or (context-contains-entry? conc-context a)
+                             (mem? alpha-equivalent? a
+                                   (context-assumptions conc-context))))
+                       (sequent-assumptions premise)))))
+
+(at-top-level
+    (let ((theorem-rules (make-table 'theorem-rules)))
+      (define (theorem-discharge-rule theorem)
+              (or (table-entry theorem-rules theorem)
+                  (let ((rule (make-object)))
+                    (labels (((fun-54 self) value-true)
+                             ((fun-55 self)
+                              (lambda (theory)
+                                (theory-theorem? theory theorem)))
+                             ((fun-56 self) 'theorem-assumption)
+                             ((obj-fun-57 sequents)
+                              (if (not (null? (cddr sequents)))
+                                  (imps-error
+                                      "theorem-discharge-rule : Too many sequents ~S"
+                                      sequents))
+                              (let ((conclusion (last sequents))
+                                    (given-premise
+                                     (and (not (null? (cdr sequents)))
+                                      (car sequents))))
+                                (theorem-discharge-rule-aux theorem
+                                    conclusion given-premise rule))))
+                      (refurnish-object rule obj-fun-57 (rule? fun-54)
+                          (rule-soundness-predicate fun-55)
+                          (name fun-56))
+                      (set (table-entry theorem-rules theorem) rule)
+                      rule))))))
+
+(define (theorem-discharge-rule-aux theorem conclusion given-premise
+            rule)
+        (let ((premise (build-sequent
+                           (context-add-assumption
+                               (sequent-context conclusion) theorem)
+                           (sequent-assertion conclusion))))
+          (cond
+            ((eq? premise conclusion) value-false)
+            ((not given-premise)
+             (build-inference rule (list premise) conclusion))
+            ((sequent-entails-sequent? given-premise premise)
+             (build-inference rule (list given-premise) conclusion))
+            (else value-false))))
+
+(define (unfold-defined-constant-rule constant definition paths)
+        (let ((defining-expr
+                  (if (definition? definition)
+                      (definition-defining-expr definition)
+                      (nth (recursive-definition-rec-defining-expr-list
+                               definition)
+                           (pos eq? constant
+                                (recursive-definition-constant-list
+                                    definition))))))
+          (let ((rule (make-object)))
+            (labels (((fun-58 self) value-true)
+                     ((fun-59 self) unfold-defined-constant-rule)
+                     ((fun-60 self) (always value-true))
+                     ((fun-61 self) 'defined-constant-unfolding)
+                     ((obj-fun-62 sequents)
+                      (let* ((major-premise
+                                 (if (null? (cdr sequents)) value-false
+                                     (car sequents)))
+                             (conclusion (last sequents))
+                             (assertion (sequent-assertion conclusion))
+                             (context (sequent-context conclusion)))
+                        (if (not (null? (cddr sequents)))
+                            (imps-error
+                                "UNFOLD-DEFINED-CONSTANT-RULE: too many hypotheses ~S"
+                                (reverse (cdr (reverse sequents)))))
+                        (let ((hypothesis-assertion
+                                  (expand-constant-occurrences constant
+                                      defining-expr assertion paths)))
+                          (cond
+                            ((eq? hypothesis-assertion assertion)
+                             value-false)
+                            ((and (not (null? major-premise))
+                                  (sequent-entails-sequent?
+                                      major-premise
+                                      (build-sequent context
+                                       hypothesis-assertion)))
+                             (build-inference rule (list major-premise)
+                                 conclusion))
+                            ((not (null? major-premise)) value-false)
+                            (else (build-inference rule
+                                      (list
+                                       (build-sequent context
+                                        hypothesis-assertion))
+                                      conclusion)))))))
+              (refurnish-object rule obj-fun-62 (rule? fun-58)
+                  (rule-generator fun-59)
+                  (rule-soundness-predicate fun-60) (name fun-61))
+              rule))))
+
+(define (contraposition-rule context-formula)
+        (let ((self (make-object)))
+          (labels (((fun-63 self) value-true)
+                   ((fun-64 self) (always value-true))
+                   ((fun-65 self) 'contraposition)
+                   ((fun-66 self) contraposition-rule)
+                   ((obj-fun-67 sequents)
+                    (or (null? (cdr sequents))
+                        (imps-error
+                            "contraposition->inference: Too many sequents ~S"
+                            sequents))
+                    (let ((conc (car sequents)))
+                      (if (mem? alpha-equivalent? context-formula
+                                (sequent-assumptions conc))
+                          (let ((prem (build-sequent
+                                       (context-add-assumption
+                                        (context-omit-assumptions
+                                         (sequent-context conc)
+                                         (set-separate
+                                          (lambda (assumption)
+                                            (alpha-equivalent?
+                                             context-formula
+                                             assumption))
+                                          (context-assumptions
+                                           (sequent-context conc))))
+                                        (push-not
+                                         (sequent-assertion conc)))
+                                       (push-not context-formula))))
+                            (build-inference self (list prem) conc))
+                          value-false))))
+            (refurnish-object self obj-fun-67 (rule? fun-63)
+                (rule-soundness-predicate fun-64) (name fun-65)
+                (rule-generator fun-66))
+            self)))
+
+(define (backchain-rule context-formula)
+        (let ((self (make-object)))
+          (labels (((fun-68 self) value-true)
+                   ((fun-69 self) (always value-true))
+                   ((fun-70 self) 'backchain-inference)
+                   ((fun-71 self) backchain-rule)
+                   ((obj-fun-72 sequents)
+                    (or (null? (cddr sequents))
+                        (imps-error
+                            "backchain-rule: Too many sequents ~S"
+                            sequents))
+                    (let ((hyps (backchain-through-sequent
+                                    (last sequents) context-formula)))
+                      (and hyps
+                           (build-inference self hyps (last sequents))))))
+            (refurnish-object self obj-fun-72 (rule? fun-68)
+                (rule-soundness-predicate fun-69) (name fun-70)
+                (rule-generator fun-71))
+            self)))
+
+(define (raise-conditionals paths)
+        (let ((self (make-object)))
+          (labels (((fun-73 self) value-true)
+                   ((fun-74 self) (always value-true))
+                   ((fun-75 self) 'raise-conditional-inference)
+                   ((fun-76 self) raise-conditionals)
+                   ((obj-fun-77 sequents)
+                    (or (null? (cddr sequents))
+                        (imps-error
+                            "RAISE-CONDITIONALS: too many sequents ~s"
+                            sequents))
+                    (let* ((conc (last sequents))
+                           (hyp (and (cdr sequents) (car sequents)))
+                           (assertion (sequent-assertion conc))
+                           (new-assertion
+                               (raise-conditionals-make-assertion
+                                   assertion (sort-paths paths))))
+                      (cond
+                        ((eq? assertion new-assertion) value-false)
+                        ((not hyp)
+                         (build-inference self
+                             (list (build-sequent
+                                    (sequent-context conc)
+                                    new-assertion))
+                             conc))
+                        ((sequent-entails-sequent? hyp
+                             (build-sequent (sequent-context conc)
+                                 new-assertion))
+                         (build-inference self (list hyp) conc))
+                        (else value-false)))))
+            (refurnish-object self obj-fun-77 (rule? fun-73)
+                (rule-soundness-predicate fun-74) (name fun-75)
+                (rule-generator fun-76))
+            self)))
+
+(define (raise-conditionals-make-assertion assertion paths)
+        (let* ((quads (map (lambda (path)
+                             (frontpath-lastformula-backpath-conditional
+                                 assertion path))
+                           paths))
+               (good-quads (remove-bad-quadruples quads)))
+          (iterate loop ((quads good-quads) (assertion assertion))
+                   (if (null? quads) assertion
+                       (let* ((front-path (nth (car quads) 0))
+                              (last-formula (nth (car quads) 1))
+                              (back-paths (nth (car quads) 2))
+                              (components
+                                  (expression-components
+                                      (nth (car quads) 3)))
+                              (test (nth components 0))
+                              (conseq (nth components 1))
+                              (altern (nth components 2))
+                              (new-conseq
+                                  (iterate loop
+                                           ((new-conseq last-formula)
+                                            (back-paths back-paths))
+                                           (if (null? back-paths)
+                                            new-conseq
+                                            (loop
+                                              (substitution-at-path
+                                               new-conseq conseq
+                                               (car back-paths))
+                                              (cdr back-paths)))))
+                              (new-altern
+                                  (iterate loop
+                                           ((new-altern last-formula)
+                                            (back-paths back-paths))
+                                           (if (null? back-paths)
+                                            new-altern
+                                            (loop
+                                              (substitution-at-path
+                                               new-altern altern
+                                               (car back-paths))
+                                              (cdr back-paths))))))
+                         (loop
+                           (cdr quads)
+                           (substitution-at-path assertion
+                               (if-form test new-conseq new-altern)
+                               front-path)))))))
+
+(define (frontpath-lastformula-backpath-conditional assertion path)
+        (iterate loop
+                 ((path path) (rev nil) (host assertion)
+                  (last assertion) (front-rev nil) (back-rev nil))
+                 (cond
+                   ((and (null? path) (conditional? host))
+                    (list (reverse front-rev) last (reverse back-rev)
+                          host))
+                   ((null? path)
+                    (imps-error
+                        "FRONTPATH-LASTFORMULA-BACKPATH-CONDITIONAL: ~S ~A."
+                        path "is not a path to a conditional"))
+                   (else (receive (new-host new-path)
+                                  (host-and-path-after-step host path)
+                                  (let ((new-rev (cons (car path) rev)))
+                                    (if (formula? new-host)
+                                     (loop
+                                       new-path
+                                       new-rev
+                                       new-host
+                                       new-host
+                                       new-rev
+                                       nil)
+                                     (let
+                                      ((new-back-rev
+                                        (cons (car path) back-rev)))
+                                       (loop
+                                         new-path
+                                         new-rev
+                                         new-host
+                                         last
+                                         front-rev
+                                         new-back-rev)))))))))
+
+(define (remove-bad-quadruples quads)
+        (let ((new-quads (remove-bad-quadruples-aux quads)))
+          (iterate loop ((quads new-quads) (good-quads nil))
+                   (if (null? quads) good-quads
+                       (let* ((first-quad (car quads))
+                              (first-front-path (nth first-quad 0))
+                              (first-last-formula (nth first-quad 1))
+                              (first-back-paths (nth first-quad 2))
+                              (first-conditional (nth first-quad 3))
+                              (new-back-paths
+                                  (set-separate
+                                      (lambda (back-path)
+                                        (null-intersection?
+                                         (bound-variables-on-path
+                                          first-last-formula back-path)
+                                         (free-variables
+                                          first-conditional)))
+                                      first-back-paths)))
+                         (if (null? new-back-paths)
+                             (loop (cdr quads) good-quads)
+                             (loop
+                               (cdr quads)
+                               (cons (list first-front-path
+                                      first-last-formula new-back-paths
+                                      first-conditional)
+                                     good-quads))))))))
+
+(define (remove-bad-quadruples-aux quads)
+        (iterate loop1 ((quads quads) (good-quads nil))
+                 (if (null? quads) good-quads
+                     (let* ((first-quad (car quads))
+                            (first-front-path (nth first-quad 0))
+                            (first-last-formula (nth first-quad 1))
+                            (first-back-path (nth first-quad 2))
+                            (first-conditional (nth first-quad 3)))
+                       (if (eq? (length quads) 1)
+                           (cons (list first-front-path
+                                       first-last-formula
+                                       (list first-back-path)
+                                       first-conditional)
+                                 good-quads)
+                           (iterate loop2
+                                    ((qs (cdr quads)) (bad-qs nil)
+                                     (back-paths
+                                      (list first-back-path)))
+                                    (if (null? qs)
+                                     (loop1
+                                      (set-diff quads
+                                       (cons first-quad bad-qs))
+                                      (cons
+                                       (list first-front-path
+                                        first-last-formula back-paths
+                                        first-conditional)
+                                       good-quads))
+                                     (let*
+                                      ((q (car qs))
+                                       (front-path (nth q 0))
+                                       (back-path (nth q 2))
+                                       (conditional (nth q 3)))
+                                       (cond
+                                         ((and
+                                           (equal? first-front-path
+                                            front-path)
+                                           (eq? first-conditional
+                                            conditional))
+                                          (loop2 (cdr qs)
+                                           (cons q bad-qs)
+                                           (cons back-path back-paths)))
+                                         ((or
+                                           (and
+                                            (equal? first-front-path
+                                             front-path)
+                                            (not
+                                             (eq? first-conditional
+                                              conditional)))
+                                           (and
+                                            (not
+                                             (equal? first-front-path
+                                              front-path))
+                                            (path-extends?
+                                             first-front-path
+                                             front-path)))
+                                          (loop2 (cdr qs)
+                                           (cons q bad-qs) back-paths))
+                                         ((and
+                                           (not
+                                            (equal? first-front-path
+                                             front-path))
+                                           (path-extends? front-path
+                                            first-front-path))
+                                          (loop1
+                                           (set-diff quads
+                                            (cons first-quad bad-qs))
+                                           good-quads))
+                                         (else
+                                          (loop2 (cdr qs) bad-qs
+                                           back-paths)))))))))))
+
+(define (parity-at-path formula path)
+        (iterate iter ((formula formula) (path path) (so-far 1))
+                 (cond
+                   ((zero? so-far) 0)
+                   ((null? path) so-far)
+                   ((not (formula? formula)) 0)
+                   (else (receive (new-formula new-path)
+                                  (host-and-path-after-step formula
+                                      path)
+                                  (iter new-formula new-path
+                                        (fx* so-far
+                                         (funcall
+                                          (constructor-parity
+                                           (expression-constructor
+                                            formula))
+                                          (car path)))))))))
+
+(define (path-to-positive-location? expr path)
+        (< 0 (parity-at-path expr path)))
+
+(define (virtual-path-to-positive-location? expr virtual-path)
+        (every? (lambda (path) (< 0 (parity-at-path expr path)))
+                (expand-virtual-path expr virtual-path)))
+
+(define (force-substitution premise-exprs conclusion-exprs paths)
+        (let ((soi (make-object)))
+          (labels (((fun-78 soi) value-true) ((fun-79 soi) (always value-true))
+                   ((fun-80 soi) 'force-substitution)
+                   ((fun-81 soi) force-substitution)
+                   ((obj-fun-82 seqs)
+                    (if (null? paths) value-false
+                        (block (or (sequent? (car seqs))
+                                   (sequent? (last seqs))
+                                   (imps-error
+                                    "force-substitution: neither premise nor conclusion given ~S"
+                                    seqs))
+                          (or (= (length seqs) 2)
+                              (imps-error
+                                  "force-substitution: wrong number of sequents in ~S."
+                                  seqs))
+                          (let* ((premise (or (car seqs)
+                                           (build-sequent
+                                            (sequent-context
+                                             (last seqs))
+                                            (substitutions-at-paths
+                                             (sequent-assertion
+                                              (last seqs))
+                                             premise-exprs
+                                             (map list paths)))))
+                                 (conclusion
+                                     (or (last seqs)
+                                      (build-sequent
+                                       (sequent-context (car seqs))
+                                       (substitutions-at-paths
+                                        (sequent-assertion (car seqs))
+                                        conclusion-exprs
+                                        (map list paths))))))
+                            (if (and conclusion-exprs premise-exprs)
+                                (or (and
+                                     (every?
+                                      (lambda (conclusion-expr path)
+                                        (alpha-equivalent?
+                                         conclusion-expr
+                                         (follow-path
+                                          (sequent-assertion
+                                           conclusion)
+                                          path)))
+                                      conclusion-exprs paths)
+                                     (every?
+                                      (lambda (premise-expr path)
+                                        (alpha-equivalent? premise-expr
+                                         (follow-path
+                                          (sequent-assertion premise)
+                                          path)))
+                                      premise-exprs paths))
+                                    (imps-error
+                                     "force-substitution: mismatch between targets and replacements")))
+                            (let* ((conclusion-exprs
+                                    (if conclusion-exprs
+                                     conclusion-exprs
+                                     (map
+                                      (lambda (path)
+                                        (follow-path
+                                         (sequent-assertion conclusion)
+                                         path))
+                                      paths)))
+                                   (premise-exprs
+                                    (if premise-exprs premise-exprs
+                                     (map
+                                      (lambda (path)
+                                        (follow-path
+                                         (sequent-assertion premise)
+                                         path))
+                                      paths)))
+                                   (minor-premise-contexts
+                                    (map
+                                     (lambda (path)
+                                       (local-context-at-path
+                                        (sequent-context conclusion)
+                                        (sequent-assertion conclusion)
+                                        path))
+                                     paths))
+                                   (minor-premise-common-context
+                                    (build-context
+                                     (sequent-theory conclusion)
+                                     (big-cap
+                                      (map context-assumptions
+                                       minor-premise-contexts))))
+                                   (parities
+                                    (map
+                                     (lambda (path)
+                                       (parity-at-path
+                                        (sequent-assertion conclusion)
+                                        path))
+                                     paths))
+                                   (minor-premise-assertions
+                                    (map
+                                     (lambda
+                                      (premise-expr conclusion-expr
+                                       parity)
+                                       (cond
+                                         ((not (formula? premise-expr))
+                                          (quasi-equality
+                                           conclusion-expr
+                                           premise-expr))
+                                         ((fx= 0 parity)
+                                          (biconditional
+                                           conclusion-expr
+                                           premise-expr))
+                                         ((fx= 1 parity)
+                                          (implication premise-expr
+                                           conclusion-expr))
+                                         ((fx= -1 parity)
+                                          (implication conclusion-expr
+                                           premise-expr))))
+                                     premise-exprs conclusion-exprs
+                                     parities))
+                                   (minor-premises
+                                    (make-set
+                                     (map
+                                      (lambda (minor-premise-assertion)
+                                        (build-sequent
+                                         minor-premise-common-context
+                                         minor-premise-assertion))
+                                      minor-premise-assertions))))
+                              (build-inference soi
+                                  (cons premise minor-premises)
+                                  conclusion)))))))
+            (refurnish-object soi obj-fun-82 (rule? fun-78)
+                (rule-soundness-predicate fun-79) (name fun-80)
+                (rule-generator fun-81))
+            soi)))
+
+(comment (define falsehood-elimination
+                 (object (lambda (seqs)
+                           (let* ((conclusion (last seqs))
+                                  (premise (if (cdr seqs) (car seqs)
+                                            value-false))
+                                  (expected
+                                      (build-sequent
+                                       (sequent-context conclusion)
+                                       falsehood)))
+                             (cond
+                               ((not conclusion) value-false)
+                               ((not premise)
+                                (build-inference falsehood-elimination
+                                    (list expected) conclusion))
+                               ((sequent-entails-sequent? premise
+                                    expected)
+                                (build-inference falsehood-elimination
+                                    (list premise) conclusion))
+                               (else value-false))))
+                         ((rule? self) value-true)
+                         ((rule-soundness-predicate self)
+                          (always value-true))
+                         ((name self) 'falsehood-elimination))))
+
+(comment (define negation-elimination
+                 (object (lambda (seqs)
+                           (let* ((conclusion (last seqs))
+                                  (premise (if (cdr seqs) (car seqs)
+                                            value-false)))
+                             (cond
+                               ((or (not conclusion) (not premise))
+                                value-false)
+                               ((and (eq?
+                                      (sequent-assertion conclusion)
+                                      falsehood)
+                                     (negation?
+                                      (sequent-assertion premise))
+                                     (eq? (sequent-context conclusion)
+                                      (context-add-assumption
+                                       (sequent-context premise)
+                                       (negation-body
+                                        (sequent-assertion premise)))))
+                                (build-inference negation-elimination
+                                    (list premise) conclusion))
+                               (else value-false))))
+                         ((rule? self) value-true)
+                         ((rule-soundness-predicate self)
+                          (always value-true))
+                         ((name self) 'negation-elimination))))
+
+(define implication-elimination-rule
+        (object (lambda (seqs)
+                  (let ((conclusion (last seqs))
+                        (premise (if (cdr seqs) (car seqs) value-false)))
+                    (cond
+                      ((or (not conclusion) (not premise)) value-false)
+                      ((implication? (sequent-assertion premise))
+                       (let ((p (implication-antecedent
+                                    (sequent-assertion premise)))
+                             (q (implication-consequent
+                                    (sequent-assertion premise)))
+                             (gamma (sequent-context premise)))
+                         (let ((gamma+p (add-set-element p
+                                         (context-assumptions gamma))))
+                           (if (and (every?
+                                     (lambda (a)
+                                       (mem? alpha-equivalent? a
+                                        (context-assumptions
+                                         (sequent-context conclusion))))
+                                     gamma+p)
+                                    (alpha-equivalent? q
+                                     (sequent-assertion conclusion)))
+                               (build-inference
+                                   implication-elimination-rule
+                                   (list premise) conclusion)
+                               value-false))))
+                      (else value-false))))
+                ((rule? self) value-true)
+                ((rule-soundness-predicate self) (always value-true))
+                ((name self) 'incorporate-antecedent)))
+
+(define implication-elimination implication-elimination-rule)
+
+(define-constant require-definedness-outright value-true)
+
+(define-constant require-definedness-implications value-false)
+
+(define extensionality
+        (object (lambda (seqs)
+                  (let* ((conclusion (last seqs))
+                         (assertion
+                             (and conclusion
+                                  (sequent-assertion conclusion))))
+                    (cond
+                      ((not conclusion) value-false)
+                      ((equation? assertion)
+                       (extensionality-aux (expression-lhs assertion)
+                           (expression-rhs assertion) conclusion
+                           require-definedness-outright))
+                      ((quasi-equation? assertion)
+                       (extensionality-aux
+                           (quasi-equation-lhs assertion)
+                           (quasi-equation-rhs assertion) conclusion
+                           require-definedness-implications))
+                      (else value-false))))
+                ((rule? self) value-true)
+                ((rule-soundness-predicate self) (always value-true))
+                ((name self) 'extensionality)))
+
+(define (extensionality-aux lhs rhs conclusion definedness-enforcement)
+        (and (higher-sort? (expression-sorting lhs))
+             (let ((vars (sorts->new-variables
+                             (common-enclosing-sort-list
+                                 (domain-sorts lhs) (domain-sorts rhs))
+                             'x (free-variables conclusion)))
+                   (equality-op
+                       (if (predicator? lhs) equality quasi-equality)))
+               (build-inference extensionality
+                   (cons (build-sequent (sequent-context conclusion)
+                             (apply forall
+                                    (funcall equality-op
+                                     (apply apply-operator lhs vars)
+                                     (apply apply-operator rhs vars))
+                                    vars))
+                         (extensionality-cook-minors
+                             (sequent-context conclusion) lhs rhs
+                             definedness-enforcement))
+                   conclusion))))
+
+(define (extensionality-cook-minors context lhs rhs
+            definedness-enforcement)
+        (cond
+          ((eq? definedness-enforcement require-definedness-outright)
+           (labels (((maybe-make-minor term rest)
+                     (let ((assertion (is-defined term)))
+                       (if (context-entails? context assertion) rest
+                           (add-set-element
+                               (build-sequent context assertion) rest)))))
+             (maybe-make-minor lhs (maybe-make-minor rhs nil))))
+          ((eq? definedness-enforcement
+                require-definedness-implications)
+           (labels (((maybe-make-minor assumed-term asserted-term rest)
+                     (let ((assertion (is-defined asserted-term))
+                           (augmented-context
+                               (context-add-assumption context
+                                   (is-defined assumed-term))))
+                       (if (context-entails? augmented-context
+                               assertion)
+                           rest
+                           (add-set-element
+                               (build-sequent augmented-context
+                                   assertion)
+                               rest)))))
+             (maybe-make-minor rhs lhs (maybe-make-minor lhs rhs nil))))
+          (else (imps-error
+                    "extensionality-cook-minors:  Wierd enforcement request: ~A."
+                    definedness-enforcement))))
+
+(define inverse-extensionality
+        (object (lambda (seqs)
+                  (let* ((conclusion (last seqs))
+                         (assertion
+                             (and conclusion
+                                  (sequent-assertion conclusion))))
+                    (cond
+                      ((not conclusion) value-false)
+                      ((not (negation? assertion)) value-false)
+                      (else (let ((body (negation-body assertion)))
+                              (cond
+                                ((equation? body)
+                                 (inverse-extensionality-aux
+                                     (expression-lhs body)
+                                     (expression-rhs body) conclusion))
+                                ((quasi-equation? body)
+                                 (inverse-extensionality-aux
+                                     (quasi-equation-lhs body)
+                                     (quasi-equation-rhs body)
+                                     conclusion))
+                                (else value-false)))))))
+                ((rule? self) value-true)
+                ((rule-soundness-predicate self) (always value-true))
+                ((name self) 'inverse-extensionality)))
+
+(define (inverse-extensionality-aux lhs rhs conclusion)
+        (and (higher-sort? (expression-sorting lhs))
+             (let ((vars (sorts->new-variables
+                             (common-enclosing-sort-list
+                                 (domain-sorts lhs) (domain-sorts rhs))
+                             'x (free-variables conclusion)))
+                   (equality-op
+                       (if (predicator? lhs) equality quasi-equality)))
+               (build-inference inverse-extensionality
+                   (list (build-sequent (sequent-context conclusion)
+                             (apply forsome
+                                    (negation
+                                     (funcall equality-op
+                                      (apply apply-operator lhs vars)
+                                      (apply apply-operator rhs vars)))
+                                    vars)))
+                   conclusion))))
+
+(define (iota-rule virtual-path)
+        (let ((self (make-object)))
+          (labels (((fun-83 self) value-true)
+                   ((fun-84 self) (always value-true))
+                   ((fun-85 self) 'iota-elimination-1)
+                   ((fun-86 self) iota-rule)
+                   ((obj-fun-87 sequents)
+                    (or (null? (cddr sequents))
+                        (imps-error "IOTA-RULE: ~A ~S."
+                            "Too many sequents" sequents))
+                    (let* ((conc (last sequents))
+                           (hyp (and (cdr sequents) (car sequents)))
+                           (new-assertion
+                               (iota-rule-make-assertion
+                                   (sequent-assertion conc)
+                                   virtual-path)))
+                      (cond
+                        ((not new-assertion) value-false)
+                        ((not hyp)
+                         (build-inference self
+                             (list (build-sequent
+                                    (sequent-context conc)
+                                    new-assertion))
+                             conc))
+                        ((sequent-entails-sequent? hyp
+                             (build-sequent (sequent-context conc)
+                                 new-assertion))
+                         (build-inference self (list hyp) conc))
+                        (else value-false)))))
+            (refurnish-object self obj-fun-87 (rule? fun-83)
+                (rule-soundness-predicate fun-84) (name fun-85)
+                (rule-generator fun-86))
+            self)))
+
+(define (iota-rule-make-assertion assertion virtual-path)
+        (iota-rule-path-check assertion virtual-path)
+        (let* ((iota-expr (follow-virtual-path assertion virtual-path))
+               (iota-body (binding-body iota-expr))
+               (iota-var (car (binding-variables iota-expr)))
+               (new-iota-var1
+                   (new-variable (expression-sorting iota-var) 'y%iota
+                       (variables assertion)))
+               (new-iota-var2
+                   (new-variable (expression-sorting iota-var) 'z%iota
+                       (variables assertion)))
+               (new-iota-body1
+                   (apply-substitution
+                       (one-component-subst iota-var new-iota-var1)
+                       iota-body))
+               (new-iota-body2
+                   (apply-substitution
+                       (one-component-subst iota-var new-iota-var2)
+                       iota-body))
+               (new-assertion
+                   (substitution-at-virtual-path assertion
+                       new-iota-var1 virtual-path)))
+          (forsome (conjunction new-iota-body1
+                       (forall (implication new-iota-body2
+                                   (equality new-iota-var2
+                                    new-iota-var1))
+                               new-iota-var2)
+                       new-assertion)
+                   new-iota-var1)))
+
+(define (iota-rule-path-check assertion virtual-path)
+        (or (iota-elimination-path-check assertion
+                (car (expand-virtual-path assertion virtual-path)))
+            (imps-error "IOTA-RULE-PATH-CHECK: bad path or formula")))
+
+(define (iota-elimination-path-check assertion path)
+        (if (atomic-formula? assertion)
+            (receive (new-host new-path)
+                     (host-and-path-after-step assertion path)
+                     (iterate loop ((host new-host) (path new-path))
+                              (cond
+                                ((and (iota-expression? host)
+                                      (null? path))
+                                 value-true)
+                                ((and (application? host)
+                                      (expression-of-category-ind?
+                                       host)
+                                      (not (null? path)))
+                                 (receive (new-host new-path)
+                                          (host-and-path-after-step
+                                           host path)
+                                          (loop new-host new-path)))
+                                (else value-false))))
+            value-false))
+
+(define (inverse-iota-rule virtual-path)
+        (let ((self (make-object)))
+          (labels (((fun-88 self) value-true)
+                   ((fun-89 self) (always value-true))
+                   ((fun-90 self) 'inverse-iota-elimination-1)
+                   ((fun-91 self) inverse-iota-rule)
+                   ((obj-fun-92 sequents)
+                    (or (null? (cddr sequents))
+                        (imps-error "INVERSE-IOTA-RULE: ~A ~S."
+                            "Too many sequents" sequents))
+                    (let* ((conc (last sequents))
+                           (hyp (and (cdr sequents) (car sequents)))
+                           (new-assertion
+                               (inverse-iota-rule-make-assertion
+                                   (sequent-assertion conc)
+                                   virtual-path)))
+                      (cond
+                        ((not new-assertion) value-false)
+                        ((not hyp)
+                         (build-inference self
+                             (list (build-sequent
+                                    (sequent-context conc)
+                                    new-assertion))
+                             conc))
+                        ((sequent-entails-sequent? hyp
+                             (build-sequent (sequent-context conc)
+                                 new-assertion))
+                         (build-inference self (list hyp) conc))
+                        (else value-false)))))
+            (refurnish-object self obj-fun-92 (rule? fun-88)
+                (rule-soundness-predicate fun-89) (name fun-90)
+                (rule-generator fun-91))
+            self)))
+
+(define (inverse-iota-rule-make-assertion assertion virtual-path)
+        (inverse-iota-rule-path-check assertion virtual-path)
+        (let* ((iota-expr (follow-virtual-path assertion virtual-path))
+               (iota-body (binding-body iota-expr))
+               (iota-var (car (binding-variables iota-expr)))
+               (new-iota-var1
+                   (new-variable (expression-sorting iota-var) 'y%iota
+                       (variables assertion)))
+               (new-iota-var2
+                   (new-variable (expression-sorting iota-var) 'z%iota
+                       (variables assertion)))
+               (new-iota-body1
+                   (apply-substitution
+                       (one-component-subst iota-var new-iota-var1)
+                       iota-body))
+               (new-iota-body2
+                   (apply-substitution
+                       (one-component-subst iota-var new-iota-var2)
+                       iota-body))
+               (new-assertion
+                   (substitution-at-virtual-path assertion
+                       new-iota-var1 virtual-path))
+               (assertion1
+                   (forsome (conjunction new-iota-body1
+                                (forall (implication new-iota-body2
+                                         (equality new-iota-var2
+                                          new-iota-var1))
+                                        new-iota-var2))
+                            new-iota-var1))
+               (assertion2
+                   (forsome (conjunction new-iota-body1 new-assertion)
+                            new-iota-var1)))
+          (implication assertion1 assertion2)))
+
+(define (inverse-iota-rule-path-check assertion virtual-path)
+        (or (inverse-iota-elimination-path-check assertion
+                (car (expand-virtual-path assertion virtual-path)))
+            (imps-error
+                "INVERSE-IOTA-RULE-PATH-CHECK: bad path or formula")))
+
+(define (inverse-iota-elimination-path-check assertion path)
+        (if (negated-atomic-formula? assertion)
+            (receive (new-host new-path)
+                     (host-and-path-after-step assertion path)
+                     (receive (new-host new-path)
+                              (host-and-path-after-step new-host
+                                  new-path)
+                              (iterate loop
+                                       ((host new-host)
+                                        (path new-path))
+                                       (cond
+                                         ((and (iota-expression? host)
+                                           (null? path))
+                                          value-true)
+                                         ((and (application? host)
+                                           (expression-of-category-ind?
+                                            host)
+                                           (not (null? path)))
+                                          (receive (new-host new-path)
+                                           (host-and-path-after-step
+                                            host path)
+                                           (loop new-host new-path)))
+                                         (else value-false)))))
+            value-false))
+
+(define iota-rule-generator iota-rule)
+
+(define inverse-iota-rule-generator inverse-iota-rule)
+
+(define (choice-principle-recognizer expr)
+        (and (existential? expr)
+             (= (length (binding-variables expr)) 1)
+             (universal? (binding-body expr))
+             (let* ((body (binding-body expr))
+                    (existential-var (car (binding-variables expr)))
+                    (existential-sort
+                        (expression-sorting existential-var))
+                    (universal-variables (binding-variables body))
+                    (universal-sorts
+                        (map expression-sorting universal-variables)))
+               (and (higher-sort? existential-sort)
+                    (let ((existential-domains
+                              (higher-sort-domains existential-sort)))
+                      (and (= (length universal-variables)
+                              (length existential-domains))
+                           (every? sorts-may-overlap?
+                                   existential-domains universal-sorts)
+                           (let ((application
+                                     (apply apply-operator
+                                      existential-var
+                                      universal-variables)))
+                             (= (length (virtual-paths-to-occurrences
+                                         body application -1))
+                                (length (virtual-paths-to-occurrences
+                                         body existential-var -1))))))))))
+
+(define choice-principle
+        (object (lambda (sequents)
+                  (let* ((conclusion (last sequents))
+                         (context (sequent-context conclusion))
+                         (assertion (sequent-assertion conclusion)))
+                    (if (not (choice-principle-recognizer assertion))
+                        value-false
+                        (let* ((op (car (binding-variables assertion)))
+                               (new-var (new-variable
+                                         (enforce sort?
+                                          (expression-range
+                                           (car
+                                            (binding-variables
+                                             assertion))))
+                                         (concatenate-symbol 'y_
+                                          (name op))
+                                         (set-union
+                                          (sequent-free-variables
+                                           conclusion)
+                                          (sequent-bound-variables
+                                           conclusion))))
+                               (universal
+                                   (enforce universal?
+                                    (binding-body assertion)))
+                               (matrix (binding-body universal))
+                               (uni-vars (binding-variables universal))
+                               (term (apply apply-operator op uni-vars))
+                               (new-matrix
+                                   (substitutions-at-paths matrix
+                                    (list new-var)
+                                    (list
+                                     (paths-to-occurrences matrix term
+                                      -1)))))
+                          (if (memq? op
+                                     (expression-free-variables
+                                      new-matrix))
+                              value-false
+                              (build-inference choice-principle
+                                  (list (build-sequent context
+                                         (apply forall
+                                          (forsome new-matrix new-var)
+                                          uni-vars)))
+                                  conclusion))))))
+                ((rule? self) value-true)
+                ((rule-soundness-predicate self) (always value-true))
+                ((name self) 'choice-principle)))

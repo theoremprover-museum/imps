@@ -1,0 +1,1028 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment deduction-graphs)
+
+(define-structure-type sequent-node graph out-arrows in-arrows
+    grounded? level sequent hidden? number
+    (((print self port)
+      (format port "IMPS-SQN-~S"
+              (if (use-sequent-node-numbers?)
+                  (sequent-node-number self) (object-hash self))))))
+
+(at-top-level
+    (block (set (sequent-node-out-arrows
+                    (stype-master sequent-node-stype))
+                nil)
+      (set (sequent-node-in-arrows (stype-master sequent-node-stype))
+           nil)
+      (set (sequent-node-grounded? (stype-master sequent-node-stype))
+           value-false)
+      (set (sequent-node-level (stype-master sequent-node-stype))
+           value-false)
+      (set (sequent-node-graph (stype-master sequent-node-stype))
+           value-false)
+      (set (sequent-node-hidden? (stype-master sequent-node-stype))
+           value-false)
+      (set (sequent-node-number (stype-master sequent-node-stype))
+           value-false)))
+
+(define (sequent->sequent-node sequent)
+        (let ((node (make-sequent-node)))
+          (set (sequent-node-sequent node) sequent)
+          node))
+
+(define (sequent-node-add-arrow node direction partner)
+        (case direction
+          ((in) (push (sequent-node-in-arrows node) partner))
+          ((out) (push (sequent-node-out-arrows node) partner))
+          (else (imps-error "SEQUENT-NODE-ADD-ARROW: bad direction ~S"
+                    direction))))
+
+(define (sequent-node-assumptions sqn)
+        (context-assumptions
+            (sequent-context (sequent-node-sequent sqn))))
+
+(define (sequent-node-context sqn)
+        (sequent-context (sequent-node-sequent sqn)))
+
+(define sequent-node-assertion
+        (operation
+            (lambda (sqn)
+              (sequent-assertion (sequent-node-sequent sqn)))
+            ((setter self)
+             (lambda (sqn new-assertion)
+               (imps-enforce formula? new-assertion)
+               (set (sequent-assertion (sequent-node-sequent sqn))
+                    new-assertion)))))
+
+(define (sequent-node->string sqn)
+        (let ((assumptions (sequent-node-assumptions sqn))
+              (assertion (sequent-node-assertion sqn)))
+          (format nil "~A~%~%  =>~%~%~A"
+                  (assumptions->string assumptions) (qp assertion))))
+
+(define (sequent-node->sexp sqn)
+        (let ((assertion (sequent-node-assertion sqn))
+              (assumption-sexp
+                  (assumptions->sexp (sequent-node-assumptions sqn))))
+          (if (list? assumption-sexp)
+              (append assumption-sexp
+                      (list '=> (expression->sexp assertion)))
+              (list assumption-sexp '=> (expression->sexp assertion)))))
+
+(define (sequent-node-hide sqn) (set (sequent-node-hidden? sqn) value-true)
+        sqn)
+
+(define (sequent-node-hide-support sqn) (sequent-node-hide sqn)
+        (if (not (null? (sequent-node-in-arrows sqn)))
+            (walk (lambda (inf)
+                    (walk (lambda (sq) (sequent-node-hide-support sq))
+                          (inference-node-hypotheses inf)))
+                  (sequent-node-in-arrows sqn)))
+        sqn)
+
+(define (sequent-node-unhide sqn)
+        (set (sequent-node-hidden? sqn) value-false) sqn)
+
+(define-structure-type inference rule name hypotheses conclusion
+    context-simplification-persistence
+    (((print self port)
+      (format port "#{IMPS-inference ~S}" (object-hash self)))
+     ((name self) (inference-name self))))
+
+(define (build-inference rule hyps conc)
+        (let ((inf (make-inference)))
+          (set (inference-rule inf) rule)
+          (set (inference-name inf) (name rule))
+          (set (inference-hypotheses inf) hyps)
+          (set (inference-conclusion inf) conc)
+          (set (inference-context-simplification-persistence inf)
+               (context-simplification-persistence))
+          inf))
+
+(define (inference-equal? inf1 inf2)
+        (and (eq? (inference-rule inf1) (inference-rule inf2))
+             (eq? (inference-conclusion inf1)
+                  (inference-conclusion inf2))
+             (equal? (inference-hypotheses inf1)
+                     (inference-hypotheses inf2))))
+
+(define-structure-type inference-node graph grounded? level inference
+    hypotheses conclusion
+    (((print self port)
+      (format port "#{IMPS-inference-node ~S}" (object-hash self)))))
+
+(define (inference-node->symbol infn)
+        (let ((n (name (inference-node-inference infn))))
+          (or n 'anonymous-inference)))
+
+(at-top-level
+    (block (set (inference-node-grounded?
+                    (stype-master inference-node-stype))
+                value-false)
+      (set (inference-node-level (stype-master inference-node-stype))
+           value-false)
+      (set (inference-node-graph (stype-master inference-node-stype))
+           value-false)))
+
+(define (build-inference-node inference hyp-nodes conc-node)
+        (let ((node (make-inference-node)))
+          (set (inference-node-inference node) inference)
+          (set (inference-node-hypotheses node) hyp-nodes)
+          (set (inference-node-conclusion node) conc-node)
+          (if (= (length hyp-nodes) 0)
+              (block (set (inference-node-grounded? node) value-true)
+                (set (inference-node-level node) 0)))
+          node))
+
+(define (inference-node-major-premises inf)
+        (let ((rule (inference-rule (inference-node-inference inf)))
+              (hyps (inference-node-hypotheses inf)))
+          (rule-major-premises-proc rule hyps)))
+
+(define (succeed-without-grounding? inf)
+        (and (succeed? inf)
+             (not (immediately-grounded?
+                      (deduction-graph-goal (inference-node-graph inf))))
+             (not (null? (inference-node-hypotheses inf)))))
+
+(define (inference-node-1st-hypothesis inf)
+        (car (inference-node-hypotheses inf)))
+
+(define (inference-node-2nd-hypothesis inf)
+        (cadr (inference-node-hypotheses inf)))
+
+(define-constant major-premise inference-node-1st-hypothesis)
+
+(define (node-graph node)
+        (funcall (if (sequent-node? node) sequent-node-graph
+                     inference-node-graph)
+                 node))
+
+(define (sequent-node-parent sqn)
+        (iterate iter ((infns (sequent-node-out-arrows sqn)))
+                 (if (null? infns)
+                     (maybe-imps-error
+                         "sequent-node-parent: not hypothesis to any non-trivial inference: ~S"
+                         sqn)
+                     (let ((conc (inference-node-conclusion
+                                     (car infns))))
+                       (if (eq? conc sqn) (iter (cdr infns)) conc)))))
+
+(define (sequent-node-first-satisfactory-child pred sqn)
+        (let ((infns (sequent-node-in-arrows sqn)))
+          (if (null? infns)
+              (maybe-imps-error
+                  "sequent-node-first-satisfactory-child: No support for ~S"
+                  sqn)
+              (or (any (lambda (infn)
+                         (any (lambda (sqn)
+                                (and (funcall pred sqn) sqn))
+                              (inference-node-hypotheses infn)))
+                       infns)
+                  (maybe-imps-error
+                      "sequent-node-first-satisfactory-child: No satisfactory child")))))
+
+(define (sequent-node-first-child sqn)
+        (sequent-node-first-satisfactory-child (always value-true) sqn))
+
+(define (sequent-node-siblings sqn)
+        (let ((infn (car (sequent-node-out-arrows sqn))))
+          (if (inference-node? infn) (inference-node-hypotheses infn)
+              (maybe-imps-error
+                  "sequent-node-siblings: not hypothesis to any inference: ~S"
+                  sqn))))
+
+(define (sequent-node-first-satisfactory-sibling pred sqn)
+        (let ((infn (car (sequent-node-out-arrows sqn))))
+          (or (any (lambda (sqn) (and (funcall pred sqn) sqn))
+                   (inference-node-hypotheses infn))
+              (maybe-imps-error
+                  "sequent-node-first-satisfactory-sibling: No satisfactory sibling"))))
+
+(define (sequent-node-first-sibling sqn)
+        (car (sequent-node-siblings sqn)))
+
+(define (sequent-node-next-sibling sqn)
+        (let ((val (cadr (memq sqn (sequent-node-siblings sqn)))))
+          (if (null? val)
+              (maybe-imps-error
+                  "sequent-node-next-sibling: no more siblings: ~S"
+                  sqn)
+              val)))
+
+(define (sequent-node-first-ungrounded-sibling sqn)
+        (sequent-node-first-satisfactory-sibling
+            (lambda (sqn) (not (sequent-node-grounded? sqn))) sqn))
+
+(define (sequent-node-first-new-descendent last-index-before sqn)
+        (bind (((imps-raise-error?) value-false))
+              (let ((first (sequent-node-first-unsupported-descendent
+                               sqn)))
+                (and (sequent-node? first)
+                     (< last-index-before (sequent-node-number first))
+                     first))))
+
+(define-structure-type deduction-graph goal sequent-nodes
+    inference-nodes immediately-grounded theory foci history last-index
+    unended-block-count
+    (((print self port)
+      (format port "#{IMPS-deduction-graph ~S}" (object-hash self)))))
+
+(at-top-level
+    (block (set (deduction-graph-goal
+                    (stype-master deduction-graph-stype))
+                value-false)
+      (set (deduction-graph-sequent-nodes
+               (stype-master deduction-graph-stype))
+           nil)
+      (set (deduction-graph-inference-nodes
+               (stype-master deduction-graph-stype))
+           nil)
+      (set (deduction-graph-immediately-grounded
+               (stype-master deduction-graph-stype))
+           nil)
+      (set (deduction-graph-theory
+               (stype-master deduction-graph-stype))
+           nil)
+      (set (deduction-graph-foci (stype-master deduction-graph-stype))
+           nil)
+      (set (deduction-graph-history
+               (stype-master deduction-graph-stype))
+           nil)
+      (set (deduction-graph-last-index
+               (stype-master deduction-graph-stype))
+           0)
+      (set (deduction-graph-unended-block-count
+               (stype-master deduction-graph-stype))
+           0)))
+
+(define (deduction-graph-nodes dg)
+        (append (deduction-graph-sequent-nodes dg)
+                (deduction-graph-inference-nodes dg)))
+
+(define (dg-add-sequent-node-internal dg sqn)
+        (set (deduction-graph-sequent-nodes dg)
+             (append (deduction-graph-sequent-nodes dg) (list sqn))))
+
+(define (dg-add-inference-node-internal dg infn)
+        (set (deduction-graph-inference-nodes dg)
+             (append (deduction-graph-inference-nodes dg) (list infn))))
+
+(define *dgs* nil)
+
+(define current-dg
+        (let ((the-dg nil))
+          (object (lambda ()
+                    (or the-dg
+                        (and *dgs*
+                             (block (set the-dg (car *dgs*)) the-dg))))
+                  ((setter self) (lambda (nv) (set the-dg nv))))))
+
+(define (set-current-dg dg) (set (current-dg) dg))
+
+(define (reset-current-dg) (set (current-dg) (car *dgs*)))
+
+(define (discard-old-dgs) (set (cdr *dgs*) nil))
+
+(define (dg-register-node sym sqn)
+        (let ((dg (sequent-node-graph sqn)))
+          (cond
+            ((assq sym (deduction-graph-foci dg)) =>
+             (lambda (p) (set (cdr p) sqn)))
+            (else (push (deduction-graph-foci dg) (cons sym sqn))))))
+
+(define (dg-get-registered-node dg sym)
+        (cond
+          ((assq sym (deduction-graph-foci dg)) => cdr)
+          (else value-false)))
+
+'((define (focus dg)
+          (if (null? (deduction-graph-foci dg)) value-false
+              (let ((first (car (deduction-graph-foci dg))))
+                (if (immediately-grounded? first)
+                    (block (pop-focus dg) (focus dg)) first))))
+  (define (pop-focus dg)
+          (if (null? (deduction-graph-foci dg)) value-false
+              (pop (deduction-graph-foci dg))))
+  (define (push-focus dg sqn) (push (deduction-graph-foci dg) sqn))
+  (define (replace-focus dg sqn) (pop-focus dg) (push-focus dg sqn)))
+
+(define-structure-type dg-history-entry graph command sequent-node
+    arguments previous-entry nodes-grounded last-index-before
+    last-index-after jump-from-previous-expectation
+    first-unsupported-relative annotation-before annotation-after
+    comments)
+
+(define (build-and-post-dg-history-entry graph command sqn arguments
+            last-index-before jump-from-previous comments)
+        (let ((struct (make-dg-history-entry))
+              (previous-entry (car (deduction-graph-history graph))))
+          (set (dg-history-entry-graph struct) graph)
+          (set (dg-history-entry-command struct) command)
+          (set (dg-history-entry-sequent-node struct) sqn)
+          (set (dg-history-entry-arguments struct) arguments)
+          (set (dg-history-entry-previous-entry struct) previous-entry)
+          (set (dg-history-entry-nodes-grounded struct)
+               (immediately-grounded-nodes graph))
+          (set (dg-history-entry-last-index-before struct)
+               last-index-before)
+          (set (dg-history-entry-last-index-after struct)
+               (deduction-graph-last-index graph))
+          (set (deduction-graph-history graph)
+               (cons struct (deduction-graph-history graph)))
+          (set (dg-history-entry-jump-from-previous-expectation struct)
+               jump-from-previous)
+          (set (dg-history-entry-annotation-before struct) nil)
+          (set (dg-history-entry-annotation-after struct) nil)
+          (set (dg-history-entry-comments struct) comments)
+          (if (not (immediately-grounded? (deduction-graph-goal graph)))
+              (bind (((imps-raise-error?) value-false))
+                    (set (dg-history-entry-first-unsupported-relative
+                             struct)
+                         (sequent-node-first-unsupported-relative sqn)))
+              (set (dg-history-entry-first-unsupported-relative struct)
+                   value-false))
+          struct))
+
+(define use-verbose-sequent-nodes?
+        (make-simple-switch 'use-verbose-sequent-nodes? boolean?
+            value-true))
+
+(define (dg-history-entry-previous-last-index-after entry)
+        (let ((previous (dg-history-entry-previous-entry entry)))
+          (if (null? previous) 0
+              (dg-history-entry-last-index-after previous))))
+
+(define (dg-history-entry-nodes-grounded-by-command entry)
+        (set-diff (dg-history-entry-nodes-grounded entry)
+            (dg-history-entry-previous-nodes-grounded entry)))
+
+(define (dg-history-entry-previous-nodes-grounded entry)
+        (let ((previous (dg-history-entry-previous-entry entry)))
+          (if (null? previous) nil
+              (dg-history-entry-nodes-grounded previous))))
+
+(define (dg-history-entry-added-nodes entry)
+        (- (dg-history-entry-last-index-after entry)
+           (dg-history-entry-last-index-before entry)))
+
+(define (dg-history-entry-new-nodes entry)
+        (let ((before (dg-history-entry-last-index-before entry))
+              (after (dg-history-entry-last-index-after entry)))
+          (iterate loop ((before (1+ before)) (accum nil))
+                   (if (< after before)
+                       (let ((sqns nil))
+                         (if (null? accum) accum
+                             (walk (lambda (x)
+                                     (if
+                                      (mem? = (sequent-node-number x)
+                                       accum)
+                                      (push sqns x)))
+                                   (deduction-graph-sequent-nodes
+                                    (dg-history-entry-graph entry))))
+                         (reverse sqns))
+                       (loop (1+ before) (cons before accum))))))
+
+(define (dg-history-entry-postings-after-last-entry entry)
+        (let ((last (dg-history-entry-previous-last-index-after entry))
+              (before (dg-history-entry-last-index-before entry)))
+          (iterate loop ((last (1+ last)) (accum nil))
+                   (if (< before last)
+                       (let ((sqns nil))
+                         (if (null? accum) accum
+                             (walk (lambda (x)
+                                     (if
+                                      (mem? = (sequent-node-number x)
+                                       accum)
+                                      (push sqns x)))
+                                   (deduction-graph-sequent-nodes
+                                    (dg-history-entry-graph entry))))
+                         sqns)
+                       (loop (1+ last) (cons last accum))))))
+
+(define (dg-history-entry-superfluous? entry)
+        (and (= 0 (dg-history-entry-added-nodes entry))
+             (null? (filter-list sequent-node?
+                        (dg-history-entry-nodes-grounded-by-command
+                            entry)))))
+
+(define (dg-history-entry-sequent-nodes-grounded-by-command entry)
+        (filter-list sequent-node?
+            (dg-history-entry-nodes-grounded-by-command entry)))
+
+(define (deduction-graph-save-history dg file)
+        (with-open-ports ((p (open file '(out))))
+          (walk (lambda (x) (newline p) (pretty-print x p))
+                (deduction-graph-readable-history-list dg))
+          value-true))
+
+(define (deduction-graph-locate-sequent deduction-graph seq)
+        (any (lambda (sqn)
+               (and (sequents-alpha-equivalent?
+                        (sequent-node-sequent sqn) seq)
+                    sqn))
+             (deduction-graph-sequent-nodes deduction-graph)))
+
+(define (deduction-graph-add-sequent-node deduction-graph sqn)
+        (cond
+          ((and (sequent-node-graph sqn)
+                (not (eq? deduction-graph (sequent-node-graph sqn))))
+           (imps-error
+               "DEDUCTION-GRAPH-ADD-SEQUENT-NODE: Cannot add ~S to ~S -- already belongs to ~S."
+               sqn deduction-graph (sequent-node-graph sqn)))
+          ((memq? sqn (deduction-graph-sequent-nodes deduction-graph))
+           sqn)
+          (else (set (sequent-node-graph sqn) deduction-graph)
+                (set (sequent-node-number sqn)
+                     (increment
+                         (deduction-graph-last-index deduction-graph)))
+                (if (sequent-entailment-flag
+                        (sequent-node-sequent sqn))
+                    (set (sequent-node-grounded? sqn) value-true))
+                (dg-add-sequent-node-internal deduction-graph sqn) sqn)))
+
+(define (post formula-or-sequent dg)
+        (let ((seq (cond
+                     ((sequent? formula-or-sequent)
+                      (if (theory? (deduction-graph-theory dg))
+                          (sequent->theory-sequent
+                              (deduction-graph-theory dg)
+                              formula-or-sequent)
+                          formula-or-sequent))
+                     ((formula? formula-or-sequent)
+                      (theory-assertion->sequent
+                          (deduction-graph-theory dg)
+                          formula-or-sequent))
+                     (else (imps-error
+                               "POST: bad arg ~S neither formula nor sequent"
+                               formula-or-sequent)))))
+          (cond
+            ((not (deduction-graph-goal dg))
+             (let ((sqn (sequent->sequent-node seq)))
+               (deduction-graph-add-sequent-node dg sqn)
+               (set (deduction-graph-goal dg) sqn)
+               sqn))
+            ((deduction-graph-locate-sequent dg seq) =>
+             (lambda (sqn) (sequent-node-unhide sqn) sqn))
+            (else (let ((sqn (sequent->sequent-node seq)))
+                    (deduction-graph-add-sequent-node dg sqn)
+                    sqn)))))
+
+(comment (define-structure-type computation-node graph context
+             expressions sqns number
+             (((print self port)
+               (format port "#{IMPS-cmpn ~S}"
+                       (computation-node-number self)))))
+         (define (computation-node-add-expressions cmpn exprs)
+                 (modify (computation-node-expressions cmpn)
+                         (lambda (already) (set-union exprs already)))
+                 cmpn)
+         (define (add-computation-node sqn dg)
+                 (let ((context (sequent-node-context sqn))
+                       (exprs (initial-cmpn-expressions
+                                  (sequent-node-assertion sqn))))
+                   (let ((cmpn (make-computation-node)))
+                     (set (computation-node-graph cmpn) dg)
+                     (set (computation-node-context cmpn) context)
+                     (set (computation-node-expressions cmpn) exprs)
+                     (set (computation-node-sqns cmpn) (list sqn))
+                     (set (computation-node-number cmpn)
+                          (increment
+                              (deduction-graph-last-cmpn-index dg)))
+                     (push (deduction-graph-computation-nodes dg) cmpn)
+                     cmpn)))
+         (define (post-computation-node sqn)
+                 (let ((dg (sequent-node-graph sqn)))
+                   (cond
+                     ((let ((context (sequent-node-context sqn)))
+                        (any (lambda (cmpn)
+                               (and (eq? context
+                                     (computation-node-context cmpn))
+                                    cmpn))
+                             (deduction-graph-computation-nodes dg)))
+                      =>
+                      (lambda (cmpn)
+                        (modify (computation-node-sqns cmpn)
+                                (lambda (sqns)
+                                  (add-set-element sqn sqns)))
+                        (computation-node-add-expressions cmpn
+                            (initial-cmpn-expressions
+                                (sequent-node-assertion sqn)))))
+                     (else (add-computation-node sqn dg)))))
+         (define (initial-cmpn-expressions assertion) (list assertion))
+         (define (partition-computation-node cmpn)
+                 (let ((context (computation-node-context cmpn)))
+                   (partition-set (computation-node-expressions cmpn)
+                       (lambda (e1 e2)
+                         (context-exprs-quasi-equal? context e1 e2)))))
+         (define (deduction-graph-find-cmpn dg cmpn-index)
+                 (any (lambda (cmpn)
+                        (and (= cmpn-index
+                                (computation-node-number cmpn))
+                             cmpn))
+                      (deduction-graph-computation-nodes dg))))
+
+(define (start-deduction goal theory)
+        (let ((dg (make-deduction-graph)))
+          (set (deduction-graph-theory dg) theory)
+          (if goal (set (deduction-graph-goal dg) (post goal dg)))
+          (push *dgs* dg)
+          (reset-current-dg)
+          dg))
+
+(define (deduction-graph-add-sequent-nodes-for-inference dg hyps conc)
+        (labels (((make-node seq) (post seq dg)))
+          (return (map #'make-node hyps) (make-node conc))))
+
+(define (inference->inference-node inference dg)
+        (or (deduction-graph-seek-inference dg inference)
+            (receive (hyp-nodes conc-node)
+                     (deduction-graph-add-sequent-nodes-for-inference
+                         dg (inference-hypotheses inference)
+                         (inference-conclusion inference))
+                     (build-inference-node inference hyp-nodes
+                         conc-node))))
+
+(define (deduction-graph-seek-inference dg inference)
+        (any (lambda (infn)
+               (and (inference-equal? inference
+                        (inference-node-inference infn))
+                    infn))
+             (deduction-graph-inference-nodes dg)))
+
+(define (deduction-graph-add-inference-node dg infn)
+        (if (and (inference-node-graph infn)
+                 (not (eq? dg (inference-node-graph infn))))
+            (imps-error
+                "DEDUCTION-GRAPH-ADD-INFERENCE-NODE: Cannot add ~S to ~S -- already belongs to ~S."
+                infn dg (inference-node-graph infn)))
+        (or (memq? infn (deduction-graph-inference-nodes dg))
+            (block (set (inference-node-graph infn) dg)
+              (dg-add-inference-node-internal dg infn)
+              (if (immediately-grounded? infn)
+                  (push (deduction-graph-immediately-grounded dg) infn))
+              (sequent-node-add-arrow (inference-node-conclusion infn)
+                  'in infn)
+              (walk (lambda (hn)
+                      (sequent-node-add-arrow hn 'out infn))
+                    (inference-node-hypotheses infn))))
+        infn)
+
+(define (immediately-grounded? node)
+        (if (inference-node? node)
+            (and (or (inference-node-grounded? node)
+                     (null? (inference-node-hypotheses node)))
+                 (block (set (inference-node-grounded? node) value-true)
+                   value-true))
+            (cond
+              ((any? immediately-grounded?
+                     (sequent-node-in-arrows node))
+               (set (sequent-node-grounded? node) value-true)
+               (if (not (number? (sequent-node-level node)))
+                   (set (sequent-node-level node) 0))
+               (make-sequent-entailed (sequent-node-sequent node))
+               value-true)
+              ((sequent-node-grounded? node)
+               (make-sequent-entailed (sequent-node-sequent node))
+               value-true)
+              ((sequent-entailment-flag (sequent-node-sequent node))
+               (set (sequent-node-grounded? node) value-true)
+               (if (not (number? (sequent-node-level node)))
+                   (set (sequent-node-level node) 0))
+               value-true)
+              (else value-false))))
+
+(define (immediately-grounded-nodes dg)
+        (set-separate immediately-grounded? (deduction-graph-nodes dg)))
+
+(define (post-inference inference dg)
+        (let ((infn (deduction-graph-add-inference-node dg
+                        (inference->inference-node inference dg))))
+          (update-grounding dg)
+          infn))
+
+(define *list-details-for-grounded-nodes* value-false)
+
+(define xdg? (make-simple-switch 'xdg? boolean? value-false))
+
+
+(define (print-dg-print-sqn port first offset remaining)
+  (if (or (not (sequent-node? first))
+	  (sequent-node-hidden? first))
+      (delete-set-element first remaining)
+      (block (writec port #\()
+	     (cond
+;;;	      ((and (xdg?) (sequent-node-grounded? first)
+;;;		    (not *list-details-for-grounded-nodes*))
+;;;	       (format port "\"Sequent ~D: GROUNDED\")"
+;;;		       (sequent-node-number first)))
+;;;	      ((xdg?)
+;;;	       (print (sequent-node-number first) port))
+	      ((and (sequent-node-grounded? first)
+		    (not *list-details-for-grounded-nodes*))
+	       (print first port)
+	       (format port " GROUNDED)"))
+	      (else (print first port)))
+	     (cond
+	      ((and (sequent-node-grounded? first)
+		    (not *list-details-for-grounded-nodes*))
+	       (delete-set-element first remaining))
+	      ((not (memq? first remaining))
+	       (format port " -see above-)") remaining)
+	      (else (let ((new-offset (1+ offset))
+			  (infns
+			   (sequent-node-in-arrows first)))
+		      (iterate iter
+			  ((remaining remaining)
+			   (infns infns))
+			(cond
+			 ((null? infns)
+			  (writec port #\))
+			  (delete-set-element first
+					      remaining))
+			 (else
+			  (iter
+			   (print-dg-print-infn port (car infns)
+						new-offset
+						(delete-set-element
+						 first remaining))
+			   (cdr infns)))))))))))
+
+(define (print-dg-print-infn port infn offset remaining) (fresh-line port)
+  (writec port #\()
+  (print (inference-node->symbol infn) port)
+  (let ((offset (1+ offset))
+	(hyps (inference-node-hypotheses infn)))
+    (iterate iter ((hyps hyps) (remaining remaining))
+      (if (null? hyps)
+	  (block (writec port #\)) remaining)
+	  (iter (cdr hyps)
+		(block (fresh-line port)
+		       (print-dg-print-sqn port (car hyps) offset remaining)))))))
+
+(define (print-dg-main port remaining)
+  (if (null? remaining)
+      (block (writec port #\)) repl-wont-print)
+      (print-dg-main port (block (fresh-line port)
+				 (print-dg-print-sqn port (car remaining) 1 remaining)))))
+
+(define (print-dg dg port)
+  (writec port #\()
+  (let ((remaining
+	 (if *list-details-for-grounded-nodes*
+	     (deduction-graph-sequent-nodes dg)
+	     (set-separate
+	      (lambda (sqn)
+		(not (sequent-node-grounded? sqn)))
+	      (deduction-graph-sequent-nodes dg)))))
+    (print-dg-main port (print-dg-print-sqn port (deduction-graph-goal dg) 1 remaining))))
+  
+
+(define (discard-grounding dg)
+        (walk (lambda (infn)
+                (set (inference-node-grounded? infn) value-false))
+              (deduction-graph-inference-nodes dg))
+        (walk (lambda (sqn)
+                (set (sequent-node-grounded? sqn) value-false))
+              (deduction-graph-sequent-nodes dg)))
+
+(comment this is an improved version --- if we can get it to work.
+         formerly had a simpler action on sequent nodes as it did not
+         check if the sequent was trivially entailed.
+         (define (update-grounding dg)
+                 (labels (((main previously-ungrounded-sqns
+                                 previously-ungrounded-infns)
+                           (let ((ungrounded-sqns
+                                     (set-separate
+                                      (lambda (sqn)
+                                        (not
+                                         (sequent-node-grounded? sqn)))
+                                      previously-ungrounded-sqns))
+                                 (ungrounded-infns
+                                     (set-separate
+                                      (lambda (infn)
+                                        (not
+                                         (inference-node-grounded?
+                                          infn)))
+                                      previously-ungrounded-infns)))
+                             (ground-some-sqns ungrounded-sqns
+                                 ungrounded-infns)))
+                          ((ground-some-sqns ungrounded-sqns
+                               ungrounded-infns)
+                           (iterate iter
+                                    ((sqns ungrounded-sqns)
+                                     (continue? value-false))
+                                    (if (null? sqns)
+                                     (ground-some-infns ungrounded-sqns
+                                      ungrounded-infns continue?)
+                                     (let ((sqn (car sqns)))
+                                       (cond
+                                         ((any?
+                                           inference-node-grounded?
+                                           (sequent-node-in-arrows sqn))
+                                          (set
+                                           (sequent-node-grounded? sqn)
+                                           value-true)
+                                          (make-sequent-entailed
+                                           (sequent-node-sequent sqn))
+                                          (set (sequent-node-level sqn)
+                                           (inference-node-level
+                                            (any
+                                             (lambda (infn)
+                                               (and
+                                                (inference-node-grounded?
+                                                 infn)
+                                                infn))
+                                             (sequent-node-in-arrows
+                                              sqn))))
+                                          (iter (cdr sqns) value-true))
+                                         ((let
+                                           ((context
+                                             (sequent-node-context sqn))
+                                            (assertion
+                                             (sequent-node-assertion
+                                              sqn)))
+                                            (context-trivially-entails?
+                                             context assertion))
+                                          (set
+                                           (sequent-node-grounded? sqn)
+                                           value-true)
+                                          (make-sequent-entailed
+                                           (sequent-node-sequent sqn))
+                                          (set (sequent-node-level sqn)
+                                           0)
+                                          (iter (cdr sqns) value-true))
+                                         (else
+                                          (iter (cdr sqns) continue?)))))))
+                          ((ground-some-infns ungrounded-sqns
+                               ungrounded-infns continue?)
+                           (iterate iter
+                                    ((infns ungrounded-infns)
+                                     (continue? continue?))
+                                    (cond
+                                      ((and (null? infns) continue?)
+                                       (main ungrounded-sqns
+                                        ungrounded-infns))
+                                      ((null? infns) (return))
+                                      (else
+                                       (let ((infn (car infns)))
+                                         (if
+                                          (every?
+                                           sequent-node-grounded?
+                                           (inference-node-hypotheses
+                                            infn))
+                                          (block
+                                           (set
+                                            (inference-node-grounded?
+                                             infn)
+                                            value-true)
+                                            (set
+                                             (inference-node-level
+                                              infn)
+                                             (1+
+                                              (iterate iter
+                                               ((hyps
+                                                 (inference-node-hypotheses
+                                                  infn))
+                                                (lvl 0))
+                                               (cond
+                                                 ((null? hyps) lvl)
+                                                 ((and
+                                                   (number?
+                                                    (sequent-node-level
+                                                     (car hyps)))
+                                                   (< lvl
+                                                    (sequent-node-level
+                                                     (car hyps))))
+                                                  (iter (cdr hyps)
+                                                   (sequent-node-level
+                                                    (car hyps))))
+                                                 (else
+                                                  (iter (cdr hyps) lvl))))))
+                                            (iter (cdr infns) value-true))
+                                          (iter (cdr infns) continue?))))))))
+                   (main (set-separate
+                             (lambda (sqn)
+                               (not (immediately-grounded? sqn)))
+                             (deduction-graph-sequent-nodes dg))
+                         (set-separate
+                             (lambda (sqn)
+                               (not (immediately-grounded? sqn)))
+                             (deduction-graph-inference-nodes dg))))))
+
+(define (update-grounding dg)
+        (labels (((main previously-ungrounded-sqns
+                        previously-ungrounded-infns)
+                  (let ((ungrounded-sqns
+                            (set-separate
+                                (lambda (sqn)
+                                  (not (sequent-node-grounded? sqn)))
+                                previously-ungrounded-sqns))
+                        (ungrounded-infns
+                            (set-separate
+                                (lambda (infn)
+                                  (not (inference-node-grounded? infn)))
+                                previously-ungrounded-infns)))
+                    (ground-some-sqns ungrounded-sqns ungrounded-infns)))
+                 ((ground-some-sqns ungrounded-sqns ungrounded-infns)
+                  (iterate iter
+                           ((sqns ungrounded-sqns) (continue? value-false))
+                           (if (null? sqns)
+                               (ground-some-infns ungrounded-sqns
+                                   ungrounded-infns continue?)
+                               (let ((sqn (car sqns)))
+                                 (if (any? inference-node-grounded?
+                                      (sequent-node-in-arrows sqn))
+                                     (block
+                                      (set (sequent-node-grounded? sqn)
+                                       value-true)
+                                       (make-sequent-entailed
+                                        (sequent-node-sequent sqn))
+                                       (set (sequent-node-level sqn)
+                                        (inference-node-level
+                                         (any
+                                          (lambda (infn)
+                                            (and
+                                             (inference-node-grounded?
+                                              infn)
+                                             infn))
+                                          (sequent-node-in-arrows sqn))))
+                                       (iter (cdr sqns) value-true))
+                                     (iter (cdr sqns) continue?))))))
+                 ((ground-some-infns ungrounded-sqns ungrounded-infns
+                      continue?)
+                  (iterate iter
+                           ((infns ungrounded-infns)
+                            (continue? continue?))
+                           (cond
+                             ((and (null? infns) continue?)
+                              (main ungrounded-sqns ungrounded-infns))
+                             ((null? infns) (return))
+                             (else (let ((infn (car infns)))
+                                     (if
+                                      (every? sequent-node-grounded?
+                                       (inference-node-hypotheses infn))
+                                      (block
+                                       (set
+                                        (inference-node-grounded? infn)
+                                        value-true)
+                                        (set
+                                         (inference-node-level infn)
+                                         (1+
+                                          (iterate iter
+                                           ((hyps
+                                             (inference-node-hypotheses
+                                              infn))
+                                            (lvl 0))
+                                           (cond
+                                             ((null? hyps) lvl)
+                                             ((and
+                                               (number?
+                                                (sequent-node-level
+                                                 (car hyps)))
+                                               (< lvl
+                                                (sequent-node-level
+                                                 (car hyps))))
+                                              (iter (cdr hyps)
+                                               (sequent-node-level
+                                                (car hyps))))
+                                             (else
+                                              (iter (cdr hyps) lvl))))))
+                                        (iter (cdr infns) value-true))
+                                      (iter (cdr infns) continue?))))))))
+          (main (set-separate
+                    (lambda (sqn) (not (immediately-grounded? sqn)))
+                    (deduction-graph-sequent-nodes dg))
+                (set-separate
+                    (lambda (sqn) (not (immediately-grounded? sqn)))
+                    (deduction-graph-inference-nodes dg)))))
+
+(define (old-update-grounding dg)
+        (labels (((choose-candidate candidates to-examine)
+                  (if (null? candidates)
+                      (or (null? to-examine)
+                          (choose-candidate to-examine nil))
+                      (choose-candidate (cdr candidates)
+                          (examine-candidate (car candidates)
+                              to-examine))))
+                 ((examine-candidate candidate to-examine)
+                  (if (or (inference-node-grounded? candidate)
+                          (any? (lambda (sqn)
+                                  (not (sequent-node-grounded? sqn)))
+                                (inference-node-hypotheses candidate)))
+                      to-examine
+                      (set-union
+                          (block (set (inference-node-grounded?
+                                       candidate)
+                                      value-true)
+                            (ground-and-collect-to-examines candidate))
+                          to-examine)))
+                 ((ground-and-collect-to-examines candidate)
+                  (let ((sqn (inference-node-conclusion candidate)))
+                    (and (not (sequent-node-grounded? sqn))
+                         (block (make-sequent-entailed
+                                    (sequent-node-sequent sqn))
+                           (set (sequent-node-grounded? sqn) value-true)
+                           (sequent-node-out-arrows sqn))))))
+          (choose-candidate (immediately-grounded-nodes dg) nil)))
+
+(define (unsupported? sqn) (null? (sequent-node-in-arrows sqn)))
+
+(define (deduction-graph-unsupported-nodes dg)
+        (set-separate unsupported? (deduction-graph-sequent-nodes dg)))
+
+(define (deduction-graph-unhidden-nodes dg)
+        (set-separate (lambda (x) (not (sequent-node-hidden? x)))
+            (deduction-graph-sequent-nodes dg)))
+
+(define (deduction-graph-unsupported-unhidden-nodes dg)
+        (set-separate (lambda (x) (not (sequent-node-hidden? x)))
+            (deduction-graph-unsupported-nodes dg)))
+
+(define (deduction-graph-grounded-sqns dg)
+        (set-separate sequent-node-grounded?
+            (deduction-graph-sequent-nodes dg)))
+
+(define (deduction-graph-grounded? dg)
+        (cond
+          ((deduction-graph-goal dg) => sequent-node-grounded?)
+          (else (null? (deduction-graph-unsupported-nodes dg)))))
+
+(define (deduction-graph-infer rule sqns dg)
+        (let ((real-rule (->rule rule)))
+          (if (not (funcall (rule-soundness-predicate real-rule)
+                            (deduction-graph-theory dg)))
+              (fail)
+              (let ((inf (funcall real-rule
+                                  (map (lambda (sqn)
+                                         (and (sequent-node? sqn)
+                                          (sequent-node-sequent sqn)))
+                                       sqns))))
+                (if (inference? inf) (post-inference inf dg) (fail))))))
+
+(define (deduction-graph-apply-rule rule sqns)
+        (let ((dg (any (lambda (sqn)
+                         (and (sequent-node? sqn)
+                              (sequent-node-graph sqn)))
+                       sqns)))
+          (if (not (deduction-graph? dg))
+              (imps-error
+                  "DEDUCTION-GRAPH-APPLY-RULE: need at least one real sqn. ~S"
+                  sqns))
+          (deduction-graph-infer rule sqns dg)))
+
+(define (deduction-graph-goal-formula? dg formula)
+        (let ((goal-sequent
+                  (sequent-node-sequent (deduction-graph-goal dg))))
+          (and (null? (sequent-assumptions goal-sequent))
+               (alpha-equivalent? formula
+                   (sequent-assertion goal-sequent)))))

@@ -1,0 +1,288 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment special-inferences)
+
+(define-structure-type special-inference name generator
+    sideformula-condition comment
+    (((print self port)
+      (format port "#{IMPS-special-inference ~A}"
+              (special-inference-name self)))
+     ((name self) (special-inference-name self))
+     ((->rule sp-inf)
+      (object (lambda (sequents)
+                (special-inference->rule sp-inf sequents))
+              ((rule? self) value-true)
+              ((rule-soundness-predicate self) (always value-true))
+              ((rule-generator self) sp-inf)
+              ((name self) (name sp-inf))))))
+
+(set (special-inference-sideformula-condition
+         (stype-master special-inference-stype))
+     (always value-true))
+
+(define (build-special-inference name generator sideformula-condition
+            comment)
+        (let ((sr (make-special-inference)))
+          (set (special-inference-name sr) name)
+          (set (special-inference-generator sr) generator)
+          (if sideformula-condition
+              (set (special-inference-sideformula-condition sr)
+                   sideformula-condition))
+          (if comment (set (special-inference-comment sr) comment))
+          sr))
+
+(define (apply-special-inference inference major-premise conclusion)
+        (receive (ok? hypotheses conclusion)
+                 (funcall (special-inference-generator inference)
+                          major-premise conclusion)
+                 (if (and ok?
+                          (funcall (special-inference-sideformula-condition
+                                    inference)
+                                   major-premise conclusion))
+                     (return inference hypotheses conclusion)
+                     (return value-false nil nil))))
+
+(define (special-inference->rule inference sequents)
+        (let ((major-premise (car sequents))
+              (conclusion (last sequents)))
+          (receive (rule hyps conc)
+                   (apply-special-inference inference major-premise
+                       conclusion)
+                   (if rule (build-inference rule hyps conc) nil))))
+
+(define (universal-instantiation-generator major-premise conclusion)
+        (labels (((gen-subst universal instance)
+                  (match instance (binding-body universal)))
+                 ((build-minors subst)
+                  (let ((context (sequent-context conclusion))
+                        (nbvs (binding-variables
+                                  (sequent-assertion major-premise))))
+                    (map (lambda (var)
+                           (build-sequent context
+                               (defined-in
+                                   (apply-substitution subst var)
+                                   (expression-sorting var))))
+                         nbvs))))
+          (cond
+            ((not (and major-premise conclusion))
+             (return value-false nil nil))
+            ((not (universal? (sequent-assertion major-premise)))
+             (return value-false nil nil))
+            ((not (context-entails-context?
+                      (sequent-context conclusion)
+                      (sequent-context major-premise)))
+             (return value-false nil nil))
+            (else (let ((subst (gen-subst
+                                   (sequent-assertion major-premise)
+                                   (sequent-assertion conclusion))))
+                    (if (succeed? subst)
+                        (return
+                          value-true
+                          (cons major-premise (build-minors subst))
+                          conclusion)
+                        (return value-false nil nil)))))))
+
+(define universal-instantiation
+        (build-special-inference 'universal-instantiation
+            universal-instantiation-generator nil
+            "Rule to infer body[terms/vars] from (forall vars body)
+together with minor premisess asserting that the terms are defined."))
+
+(define (universal-instantiation-build-major-premise conclusion vars)
+        (let ((context (sequent-context conclusion))
+              (assertion (sequent-assertion conclusion)))
+          (build-sequent context (apply forall assertion vars))))
+
+(define (universal-instantiation-build-conclusion major-premise)
+        (let ((context (sequent-context major-premise))
+              (assertion (sequent-assertion major-premise))
+              (avoid-vars
+                  (context-free-variables
+                      (sequent-context major-premise))))
+          (labels (((clean-substitution vars)
+                    (map (lambda (var)
+                           (make-subst-component var
+                               (new-variable (expression-sorting var)
+                                   (expression-name var) avoid-vars)))
+                         vars)))
+            (build-sequent context
+                (apply-substitution
+                    (clean-substitution (binding-variables assertion))
+                    (binding-body assertion))))))
+
+(define (existential-generalization-generator major-premise conclusion)
+        (labels (((gen-subst existential instance)
+                  (match instance (binding-body existential)))
+                 ((build-minors subst)
+                  (let ((context (sequent-context conclusion))
+                        (nbvs (binding-variables
+                                  (sequent-assertion conclusion))))
+                    (map (lambda (var)
+                           (build-sequent context
+                               (defined-in
+                                   (apply-substitution subst var)
+                                   (expression-sorting var))))
+                         nbvs))))
+          (cond
+            ((not (and major-premise conclusion))
+             (return value-false nil nil))
+            ((not (existential? (sequent-assertion conclusion)))
+             (return value-false nil nil))
+            ((not (context-entails-context?
+                      (sequent-context conclusion)
+                      (sequent-context major-premise)))
+             (return value-false nil nil))
+            (else (let ((subst (gen-subst
+                                   (sequent-assertion conclusion)
+                                   (sequent-assertion major-premise))))
+                    (if (succeed? subst)
+                        (return
+                          value-true
+                          (cons major-premise (build-minors subst))
+                          conclusion)
+                        (return value-false nil nil)))))))
+
+(define existential-generalization
+        (build-special-inference 'existential-generalization
+            existential-generalization-generator nil
+            "Rule to infer (FORSOME VARS BODY) from BODY[TERMS/VARS]
+together with minor premisess asserting that the terms are defined."))
+
+(define (existential-elimination-sideformula-condition major-premise
+            conclusion)
+        (let ((vars (newly-bound-variables
+                        (sequent-assertion major-premise))))
+          (null-intersection? vars
+              (free-variables (sequent-context conclusion)))))
+
+(define (existential-elimination-generator major-premise conclusion)
+        (cond
+          ((not (and major-premise conclusion))
+           (return value-false nil nil))
+          ((not (existential? (sequent-assertion major-premise)))
+           (return value-false nil nil))
+          ((not (context-entails-context? (sequent-context conclusion)
+                    (sequent-context major-premise)))
+           (return value-false nil nil))
+          (else (return
+                  value-true
+                  (list major-premise
+                        (build-sequent
+                            (context-add-assumption
+                                (sequent-context conclusion)
+                                (existential-matrix
+                                    (sequent-assertion major-premise)
+                                    nil))
+                            (sequent-assertion conclusion)))
+                  conclusion))))
+
+(define existential-elimination
+        (build-special-inference 'existential-elimination
+            existential-elimination-generator
+            existential-elimination-sideformula-condition
+            "Rule to infer P from  (FORSOME VARS BODY) and the minor premise BODY => P"))
+
+(define (disjunction-elimination-generator major-premise conclusion)
+        (cond
+          ((not (and major-premise conclusion))
+           (return value-false nil nil))
+          ((not (disjunction? (sequent-assertion major-premise)))
+           (return value-false nil nil))
+          ((not (context-entails-context? (sequent-context conclusion)
+                    (sequent-context major-premise)))
+           (return value-false nil nil))
+          (else (let ((disjuncts
+                          (expression-components
+                              (sequent-assertion major-premise)))
+                      (consequent (sequent-assertion conclusion)))
+                  (return
+                    value-true
+                    (cons major-premise
+                          (map (lambda (d)
+                                 (build-sequent
+                                     (context-add-assumption
+                                      (sequent-context conclusion) d)
+                                     consequent))
+                               disjuncts))
+                    conclusion)))))
+
+(define disjunction-elimination
+        (build-special-inference 'disjunction-elimination
+            disjunction-elimination-generator nil
+            "Rule to infer P from  (OR components) and the minor premises C => P for all components C."))
+
+(define (cut-rule-generator major-premise conclusion)
+        (if (and (alpha-equivalent? (sequent-assertion major-premise)
+                     (sequent-assertion conclusion))
+                 (every? (lambda (c-a)
+                           (any? (lambda (p-a)
+                                   (alpha-equivalent? c-a p-a))
+                                 (sequent-assumptions major-premise)))
+                         (sequent-assumptions conclusion)))
+            (let ((discharged-assumptions
+                      (list-difference
+                          (sequent-assumptions major-premise)
+                          (sequent-assumptions conclusion)
+                          alpha-equivalent?))
+                  (conclusion-context (sequent-context conclusion)))
+              (return
+                value-true
+                (cons major-premise
+                      (map (lambda (discharged)
+                             (build-sequent conclusion-context
+                                 discharged))
+                           discharged-assumptions))
+                conclusion))
+            (return value-false nil nil)))
+
+(define cut-rule
+        (build-special-inference 'cut cut-rule-generator nil
+            "Rule to infer C=>P from  C,D=>P and minor premises C=>d for all assumptions d in D."))

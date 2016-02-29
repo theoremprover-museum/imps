@@ -1,0 +1,273 @@
+; Copyright (c) 1990-1997 The MITRE Corporation
+; 
+; Authors: W. M. Farmer, J. D. Guttman, F. J. Thayer
+;   
+; The MITRE Corporation (MITRE) provides this software to you without
+; charge to use, copy, modify or enhance for any legitimate purpose
+; provided you reproduce MITRE's copyright notice in any copy or
+; derivative work of this software.
+; 
+; This software is the copyright work of MITRE.  No ownership or other
+; proprietary interest in this software is granted you other than what
+; is granted in this license.
+; 
+; Any modification or enhancement of this software must identify the
+; part of this software that was modified, by whom and when, and must
+; inherit this license including its warranty disclaimers.
+; 
+; MITRE IS PROVIDING THE PRODUCT "AS IS" AND MAKES NO WARRANTY, EXPRESS
+; OR IMPLIED, AS TO THE ACCURACY, CAPABILITY, EFFICIENCY OR FUNCTIONING
+; OF THIS SOFTWARE AND DOCUMENTATION.  IN NO EVENT WILL MITRE BE LIABLE
+; FOR ANY GENERAL, CONSEQUENTIAL, INDIRECT, INCIDENTAL, EXEMPLARY OR
+; SPECIAL DAMAGES, EVEN IF MITRE HAS BEEN ADVISED OF THE POSSIBILITY OF
+; SUCH DAMAGES.
+; 
+; You, at your expense, hereby indemnify and hold harmless MITRE, its
+; Board of Trustees, officers, agents and employees, from any and all
+; liability or damages to third parties, including attorneys' fees,
+; court costs, and other related costs and expenses, arising out of your
+; use of this software irrespective of the cause of said liability.
+; 
+; The export from the United States or the subsequent reexport of this
+; software is subject to compliance with United States export control
+; and munitions control restrictions.  You agree that in the event you
+; seek to export this software or any derivative work thereof, you
+; assume full responsibility for obtaining all necessary export licenses
+; and approvals and for assuring compliance with applicable reexport
+; restrictions.
+; 
+; 
+; 
+; COPYRIGHT NOTICE INSERTED: Thu Mar  6 14:25:07 EST 1997
+
+; This file was generated from original IMPS sources, written in the
+; TEA programming language, by an automatic conversion program.
+; A small number of manual changes were also made to improve performance
+; and deal with compiler idiosyncrasies.
+; F. J. Thayer, Thu Mar  6 15:02:11 EST 1997
+
+(in-package "TEA")
+
+(comment overloading)
+
+(define *overloaded-names-table*
+        (make-table '*overloaded-names-table*))
+
+(define *formal-symbol-overloaded-names-table*
+        (make-table '*formal-symbol-overloaded-names-table*))
+
+(define (install-overloaded-name-for-formal-symbol overloaded-name
+            formal-symbol)
+        (or (formal-symbol? formal-symbol)
+            (imps-error
+                "MAKE-OVERLOADED-NAME-FOR-FORMAL-SYMBOL: ~A is not a formal symbol."
+                formal-symbol))
+        (let* ((language (home-language formal-symbol))
+               (sort (expression-sorting formal-symbol))
+               (key (cons language sort))
+               (key-expr-alist
+                   (table-entry *overloaded-names-table*
+                       overloaded-name))
+               (look-up (ass equal? key key-expr-alist)))
+          (if look-up
+              (or (eq? (cdr look-up) formal-symbol)
+                  (imps-error
+                      "MAKE-OVERLOADED-NAME-FOR-FORMAL-SYMBOL: There is already an identically sorted formal-symbol in language ~A with the overloaded name ~A."
+                      language overloaded-name))
+              (block (set (table-entry *overloaded-names-table*
+                              overloaded-name)
+                          (if key-expr-alist
+                              (cons (cons key formal-symbol)
+                                    key-expr-alist)
+                              (list (cons key formal-symbol))))
+                (set (table-entry
+                         *formal-symbol-overloaded-names-table*
+                         formal-symbol)
+                     overloaded-name)))))
+
+(define (install-overloaded-name-for-symbol-names overloaded-name
+            language-name-symbol-name-alist)
+        (walk (lambda (x)
+                (install-overloaded-name-for-formal-symbol
+                    overloaded-name
+                    (let ((lan (or (name->language (car x))
+                                   (theory-language
+                                    (name->theory (car x))))))
+                      (or (language? lan)
+                          (imps-error
+                              "INSTALL-OVERLOADED-NAME-FOR-SYMBOL-NAMES: There is no language or theory with name ~A:"
+                              (car x)))
+                      (find-constant lan (cadr x)))))
+              language-name-symbol-name-alist)
+        overloaded-name)
+
+(define (remove-overloaded-name name)
+        (if (and (symbol? name)
+                 (table-entry *overloaded-names-table* name))
+            (set (table-entry *overloaded-names-table* name) value-false)
+            value-false))
+
+(define (possible-symbol-forms overloaded-name argument-sorts language)
+        (let ((key-expr-alist
+                  (table-entry *overloaded-names-table*
+                      overloaded-name)))
+          (or (possible-symbol-forms-by-comparison eq? key-expr-alist
+                  argument-sorts language)
+              (possible-symbol-forms-by-comparison sorting-leq
+                  key-expr-alist argument-sorts language)
+              (possible-symbol-forms-by-comparison sorts-may-overlap?
+                  key-expr-alist argument-sorts language))))
+
+(define (possible-symbol-forms-by-comparison pred key-expr-alist
+            argument-sorts language)
+        (let ((candidate-exprs nil))
+          (walk (lambda (entry)
+                  (let ((possible-language (caar entry))
+                        (sort (cdar entry)))
+                    (if (and (sub-language? possible-language language)
+                             (every? pred argument-sorts
+                                     (higher-sort-domains sort)))
+                        (push candidate-exprs (cdr entry)))))
+                key-expr-alist)
+          candidate-exprs))
+
+(define (language-find-constants language const-name)
+        (if (overloaded-name-for-formal-symbol? const-name)
+            (let ((key-expr-alist
+                      (table-entry *overloaded-names-table* const-name))
+                  (candidate-exprs nil))
+              (walk (lambda (entry)
+                      (let ((possible-language (caar entry)))
+                        (if (sub-language? possible-language language)
+                            (push candidate-exprs (cdr entry)))))
+                    key-expr-alist)
+              candidate-exprs)
+            (find-constant language const-name)))
+
+(define (disambiguate-overloaded-name-from-arguments overloaded-name
+            argument-sorts language)
+        (let ((candidate-exprs
+                  (possible-symbol-forms overloaded-name argument-sorts
+                      language)))
+          (cond
+            ((null? candidate-exprs)
+             (imps-error
+                 "DISAMBIGUATE-OVERLOADED-NAME-FROM-ARGUMENTS: No language constant with overloaded name ~A consistent with sorts ~A."
+                 overloaded-name argument-sorts))
+            (else (last candidate-exprs)))))
+
+(define (overloaded-name-for-formal-symbol? name)
+        (and (symbol? name)
+             (table-entry *overloaded-names-table* name)))
+
+(define (unambigously-constructible-from-arguments-in-language?
+            overloaded-name formal-symbol arguments language)
+        (let ((candidates
+                  (possible-symbol-forms overloaded-name
+                      (map expression-sorting arguments) language)))
+          (and candidates (eq? (last candidates) formal-symbol))))
+
+(define (formal-symbol-overloaded-name formal-symbol)
+        (table-entry *formal-symbol-overloaded-names-table*
+            formal-symbol))
+
+(define (theory-ensemble-install-overloadings-for-defined-constants
+            ensemble n)
+        (iterate loop ((j 1))
+                 (if (> j n) value-true
+                     (let ((the-constants
+                               (translatable-natively-defined-constants-in-theory-multiple
+                                   ensemble j))
+                           (instances
+                               (theory-ensemble-instances ensemble j)))
+                       (walk (lambda (constant)
+                               (let ((overloaded-name (name constant)))
+                                 (install-overloaded-name-for-formal-symbol
+                                     overloaded-name constant)))
+                             the-constants)
+                       (walk (lambda (instance)
+                               (walk (lambda (constant)
+                                       (let
+                                        ((overloaded-name
+                                          (name constant))
+                                         (formal-symbol
+                                          (translate-constant instance
+                                           constant)))
+                                         (if
+                                          (formal-symbol?
+                                           formal-symbol)
+                                          (install-overloaded-name-for-formal-symbol
+                                           overloaded-name
+                                           formal-symbol))))
+                                     the-constants))
+                             instances)
+                       (loop (1+ j))))))
+
+(define (install-overloadings-for-name-in-theory-ensemble-instances
+            theory constant-name)
+        (destructure
+            (((ensemble . n)
+              (table-entry *multiple-ensemble-table* theory)))
+            (let ((constant
+                      (find-constant (theory-language multiple)
+                          constant-name)))
+              (let ((instances (theory-ensemble-instances ensemble n)))
+                (install-overloaded-name-for-formal-symbol
+                    constant-name constant)
+                (walk (lambda (instance)
+                        (let ((formal-symbol
+                                  (translate-constant instance
+                                      constant)))
+                          (if (formal-symbol? formal-symbol)
+                              (install-overloaded-name-for-formal-symbol
+                                  constant-name formal-symbol))))
+                      instances)
+                value-true))))
+
+(define (apply-operator-sexp-decoder sexp language
+            name-formal-symbol-alist)
+        (if (overloaded-name-for-formal-symbol? (cadr sexp))
+            (let* ((arguments
+                       (map (lambda (c)
+                              (sexp->expression-1 c language
+                                  name-formal-symbol-alist))
+                            (cddr sexp)))
+                   (argument-sorts (map expression-sorting arguments))
+                   (operator
+                       (disambiguate-overloaded-name-from-arguments
+                           (cadr sexp) argument-sorts language)))
+              (cons operator arguments))
+            (rec-descent-sexp-decoder sexp language
+                name-formal-symbol-alist)))
+
+(define (apply-operator-builder expr)
+        (if (fully-parenthesize) (default-builder expr)
+            (let ((constr (expression-constructor expr))
+                  (comps (expression-components expr)))
+              (let ((overload
+                        (formal-symbol-overloaded-name (car comps)))
+                    (tentative-sexp (default-builder expr)))
+                (if (and overload
+                         (unambigously-constructible-from-arguments-in-language?
+                             overload (car comps) (cdr comps)
+                             (current-language)))
+                    (cons (name constr)
+                          (cons overload (cddr tentative-sexp)))
+                    tentative-sexp)))))
+
+(define use-overloaded-names?
+        (let ((val value-false))
+          (object (lambda () val)
+                  ((setter self)
+                   (lambda (nv)
+                     (imps-enforce boolean? nv)
+                     (set val nv)
+                     (if nv
+                         (block (set-sexp-builder apply-operator
+                                    apply-operator-builder)
+                           (set-sexp-decoder apply-operator
+                               apply-operator-sexp-decoder))
+                         (block (set-sexp-builder apply-operator
+                                    default-builder)
+                           (set-sexp-decoder apply-operator
+                               rec-descent-sexp-decoder))))))))
